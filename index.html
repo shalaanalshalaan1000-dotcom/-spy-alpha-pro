@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>SPY Alpha Pro | مساعد SPY العربي</title>
+<style>
+:root{--bg:#070b12;--card:#0d1320;--card2:#111a2b;--text:#eef3ff;--muted:#8b97ad;--line:#22304a;--green:#21d07a;--red:#ff4d5e;--amber:#f7b955;--blue:#4d8dff;--cyan:#42d9ff}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 20% 0%,#102044 0,#070b12 38%);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Tahoma,Arial,sans-serif;color:var(--text)}.wrap{max-width:1150px;margin:auto;padding:18px}.top{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:16px}.brand{display:flex;gap:12px;align-items:center}.logo{width:44px;height:44px;border-radius:14px;background:linear-gradient(135deg,var(--blue),var(--cyan));display:grid;place-items:center;font-weight:900;color:#03101d}.title h1{font-size:22px;margin:0}.title p{margin:2px 0 0;color:var(--muted);font-size:13px}.badge{border:1px solid var(--line);background:#0a101b;border-radius:999px;padding:9px 12px;color:var(--muted);font-size:12px}.grid{display:grid;grid-template-columns:1.1fr .9fr;gap:14px}@media(max-width:850px){.grid{grid-template-columns:1fr}.top{align-items:flex-start}.badge{display:none}}.card{background:linear-gradient(180deg,rgba(17,26,43,.96),rgba(11,17,29,.96));border:1px solid var(--line);border-radius:20px;padding:16px;box-shadow:0 20px 60px rgba(0,0,0,.25)}.hero{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}.metric{background:#090f1a;border:1px solid #1b2942;border-radius:16px;padding:13px}.metric span{display:block;color:var(--muted);font-size:12px;margin-bottom:7px}.metric strong{font-size:25px}.signal{border-radius:20px;padding:18px;margin-top:14px;background:#080e18;border:1px solid #1b2942}.signal .big{font-size:34px;font-weight:900;letter-spacing:.5px}.call{color:var(--green)}.put{color:var(--red)}.wait{color:var(--amber)}.reason{color:var(--muted);line-height:1.7;margin-top:8px}.levels{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px}.level{background:#080e18;border:1px solid #1b2942;border-radius:14px;padding:12px}.level label{display:block;color:var(--muted);font-size:12px}.level b{font-size:21px}.plan{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:14px}.pill{background:#080e18;border:1px solid #1b2942;border-radius:14px;padding:12px;text-align:center}.pill span{display:block;color:var(--muted);font-size:12px}.pill b{font-size:18px}textarea,input,select{width:100%;background:#080e18;border:1px solid #243653;color:var(--text);border-radius:14px;padding:12px;font-size:15px;outline:none}textarea{min-height:160px;direction:ltr;text-align:left}button{width:100%;border:0;border-radius:14px;padding:13px;font-size:16px;font-weight:800;background:linear-gradient(135deg,var(--blue),var(--cyan));color:#06111f;margin-top:10px}button.secondary{background:#111a2b;color:var(--text);border:1px solid var(--line)}.section-title{font-size:15px;margin:0 0 10px;color:#d9e6ff}.hint{font-size:12px;color:var(--muted);line-height:1.6}.chart{height:315px;background:#060a11;border:1px solid #1b2942;border-radius:18px;margin-top:12px;position:relative;overflow:hidden}.hline{position:absolute;left:0;right:0;height:1px;background:#22304a}.priceTag{position:absolute;left:8px;transform:translateY(-50%);font-size:11px;color:#9fafc8;background:#0e1728;border:1px solid #253753;border-radius:999px;padding:3px 7px}.bar{position:absolute;width:9px;border-radius:5px}.bar:before{content:"";position:absolute;left:4px;width:1px;background:inherit}.footer{margin-top:14px;color:#7f8aa1;font-size:12px;line-height:1.7}.rules li{margin-bottom:7px;color:#c6d2e8}.mini{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.tag{font-size:12px;color:#bcd0ef;background:#09101c;border:1px solid #21324d;border-radius:999px;padding:7px 10px}</style>
+</head>
+<body>
+<div class="wrap">
+ <div class="top"><div class="brand"><div class="logo">SPY</div><div class="title"><h1>SPY Alpha Pro</h1><p>مساعد عربي لتداول SPY 0DTE — مستويات، أهداف، وقرار دخول مشروط</p></div></div><div class="badge">نسخة تجريبية شخصية — لا تدخل بدون تأكيد من الشارت</div></div>
+ <div class="grid">
+  <div>
+   <div class="card">
+    <div class="hero">
+     <div class="metric"><span>السعر الحالي</span><strong id="last">733.24</strong></div>
+     <div class="metric"><span>الاتجاه</span><strong id="trend">هابط</strong></div>
+     <div class="metric"><span>جودة الصفقة</span><strong id="grade">B</strong></div>
+    </div>
+    <div class="signal"><div class="big wait" id="signal">WAIT</div><div class="reason" id="reason">السعر بين الدعم والمقاومة. لا يوجد كسر واضح حتى الآن.</div></div>
+    <div class="levels">
+     <div class="level"><label>أقرب مقاومة</label><b id="res">737.40</b></div><div class="level"><label>أقرب دعم</label><b id="sup">730.85</b></div>
+     <div class="level"><label>القمة المؤثرة</label><b id="mhigh">759.80</b></div><div class="level"><label>القاع المؤثر</label><b id="mlow">724.00</b></div>
+    </div>
+    <div class="plan">
+     <div class="pill"><span>Strike</span><b id="strike">انتظار</b></div><div class="pill"><span>Entry</span><b id="entry">—</b></div><div class="pill"><span>Stop</span><b id="stop">—</b></div><div class="pill"><span>TP1 / TP2</span><b id="targets">—</b></div>
+    </div>
+    <div class="chart" id="chart"></div>
+   </div>
+  </div>
+  <div>
+   <div class="card">
+    <h3 class="section-title">إدخال بيانات الشموع</h3>
+    <p class="hint">الصق أسعار الإغلاق أو OHLC من TradingView. حاليًا يعمل حتى لو أدخلت أرقامًا فقط. لاحقًا نربطه ببيانات مباشرة.</p>
+    <textarea id="data">748,742,741,733,737,743,750,752,756,758,760,756,754,743,738,725,731,739,755,751,740,748,745,733,735,733.24</textarea>
+    <button onclick="analyze()">حلّل SPY الآن</button>
+    <button class="secondary" onclick="loadSample()">تحميل مثال من الشارت الحالي</button>
+    <div class="mini"><span class="tag">5m للتنفيذ</span><span class="tag">15m للتأكيد</span><span class="tag">Daily للمستويات الكبيرة</span></div>
+   </div>
+   <div class="card" style="margin-top:14px">
+    <h3 class="section-title">قواعد الموقع</h3>
+    <ul class="rules">
+     <li>لا يعطي CALL إلا فوق مقاومة واضحة مع كسر.</li>
+     <li>لا يعطي PUT إلا تحت دعم واضح مع كسر.</li>
+     <li>إذا السعر في المنتصف يعطي WAIT.</li>
+     <li>الهدف الأول أقرب مستوى، والثاني مستوى السيولة التالي.</li>
+     <li>وقف الخسارة يكون خلف مستوى الكسر، وليس عشوائيًا.</li>
+    </ul>
+   </div>
+  </div>
+ </div>
+ <div class="footer">تنبيه: هذه أداة تحليل وتجربة، وليست نصيحة مالية. عقود 0DTE عالية المخاطر وقد تخسر كامل قيمة العقد.</div>
+</div>
+<script>
+function nums(){return document.getElementById('data').value.match(/-?\d+(\.\d+)?/g).map(Number).filter(x=>!isNaN(x));}
+function round(x){return (Math.round(x*100)/100).toFixed(2)}
+function nearestStrike(p,dir){return dir==='CALL'?Math.ceil(p):Math.floor(p)}
+function pivots(a){let highs=[],lows=[];for(let i=2;i<a.length-2;i++){if(a[i]>a[i-1]&&a[i]>a[i-2]&&a[i]>a[i+1]&&a[i]>a[i+2])highs.push(a[i]); if(a[i]<a[i-1]&&a[i]<a[i-2]&&a[i]<a[i+1]&&a[i]<a[i+2])lows.push(a[i]);}return{highs,lows}}
+function analyze(){let a=nums(); if(a.length<8){alert('أدخل 8 أسعار على الأقل');return} let last=a[a.length-1]; let p=pivots(a); let highs=p.highs.length?p.highs:a.slice(0,-1).filter(x=>x>last); let lows=p.lows.length?p.lows:a.slice(0,-1).filter(x=>x<last); let res=highs.filter(x=>x>last).sort((x,y)=>x-y)[0]||Math.max(...a); let sup=lows.filter(x=>x<last).sort((x,y)=>y-x)[0]||Math.min(...a); let mhigh=Math.max(...a), mlow=Math.min(...a); let trend= last>a[Math.max(0,a.length-6)]?'صاعد':last<a[Math.max(0,a.length-6)]?'هابط':'محايد'; let sig='WAIT', cls='wait', reason='السعر بين الدعم والمقاومة. لا يوجد كسر واضح حتى الآن.', entry='—', stop='—', targets='—', strike='انتظار', grade='B'; let buffer=Math.max(.18,(mhigh-mlow)*0.006); if(last>res){sig='BUY CALL';cls='call';entry=round(last);stop=round(res-buffer);targets=round(last+1)+ ' / '+round(last+2.2);strike=nearestStrike(last,'CALL')+'C';reason='كسر مقاومة قريبة. الدخول مشروط بثبات السعر فوق مستوى الكسر وعدم الرجوع تحته.';grade='A-'} else if(last<sup){sig='BUY PUT';cls='put';entry=round(last);stop=round(sup+buffer);targets=round(last-1)+' / '+round(last-2.2);strike=nearestStrike(last,'PUT')+'P';reason='كسر دعم قريب. الدخول مشروط بثبات السعر تحت مستوى الكسر وفشل الرجوع فوقه.';grade='A-'} else {grade=(Math.abs(last-res)<Math.abs(last-sup))?'B+':'B'}
+ ['last','res','sup','mhigh','mlow'].forEach((id)=>{}); document.getElementById('last').textContent=round(last); document.getElementById('trend').textContent=trend; document.getElementById('grade').textContent=grade; document.getElementById('res').textContent=round(res); document.getElementById('sup').textContent=round(sup); document.getElementById('mhigh').textContent=round(mhigh); document.getElementById('mlow').textContent=round(mlow); document.getElementById('signal').textContent=sig; document.getElementById('signal').className='big '+cls; document.getElementById('reason').textContent=reason; document.getElementById('entry').textContent=entry; document.getElementById('stop').textContent=stop; document.getElementById('targets').textContent=targets; document.getElementById('strike').textContent=strike; draw(a,res,sup,last)}
+function draw(a,res,sup,last){let c=document.getElementById('chart');c.innerHTML='';let min=Math.min(...a,sup)-2,max=Math.max(...a,res)+2; [max,res,last,sup,min].forEach(v=>{let y=(max-v)/(max-min)*100; let l=document.createElement('div');l.className='hline';l.style.top=y+'%';l.style.background=v===res?'#ff4d5e':v===sup?'#21d07a':v===last?'#4d8dff':'#22304a';c.appendChild(l);let t=document.createElement('div');t.className='priceTag';t.style.top=y+'%';t.textContent=round(v);c.appendChild(t)}); let w=100/(a.length+1); for(let i=1;i<a.length;i++){let x=i*w;let open=a[i-1],close=a[i];let top=Math.max(open,close),bot=Math.min(open,close);let y=(max-top)/(max-min)*100;let h=Math.max(3,(top-bot)/(max-min)*100);let b=document.createElement('div');b.className='bar';b.style.right=x+'%';b.style.top=y+'%';b.style.height=h+'%';b.style.background=close>=open?'#21d07a':'#ff4d5e';b.style.opacity=.85;b.style.setProperty('--wick','10px');c.appendChild(b)}}
+function loadSample(){document.getElementById('data').value='748,742,741,733,737,743,750,752,756,758,760,756,754,743,738,725,731,739,755,751,740,748,745,733,735,733.24'; analyze()}
+analyze();
+</script>
+</body></html>
