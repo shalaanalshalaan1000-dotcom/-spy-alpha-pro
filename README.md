@@ -1,35 +1,20 @@
-# SPY Alpha Pro V3
+# SPY Alpha Pro V4 — Mobile Ready
 
-Options scanner for large-cap U.S. names. It analyzes the underlying first, then selects and prices a liquid option contract.
+Flat Render build: no `src/` and no `public/` folders.
 
-## Watchlist
-SPY, NVDA, QQQ, IWM, AAPL, MSFT, AMZN, META, GOOGL, TSLA, AMD, AVGO, NFLX, UNH.
+## Required Render environment variable
+- `MASSIVE_API_KEY`
 
-## Core engine
-- Daily ATR(14), ATR%, consumed and remaining ATR
-- PDH/PDL, previous close, 20-day swing high/low, whole-dollar pivots
-- VWAP, EMA 9/20, RSI(14), RVOL
-- Liquidity sweeps, MSS/BOS, FVG
-- CALL / PUT / WATCH / NO TRADE with confidence
-- Stock target and invalidation based on structure + ATR
-- Option selection by DTE, liquidity, spread, OI, volume, delta, proximity to ATM and premium
-- Contract target/stop estimated from live mid + delta/gamma/theta, with Black-Scholes fallback
-- Minimum RR penalty below 1:2
-- Data freshness guard
-- Optional Telegram endpoint
+## Optional
+- `MIN_CONFIDENCE=70`
+- `OPTIONS_MAX_DTE=14`
+- `OPTIONS_STRIKE_WINDOW_PCT=0.10`
+- `RISK_FREE_RATE=0.04`
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
 
-## LIVE data
-Set `MASSIVE_API_KEY`. The app uses Massive official REST endpoints for stock aggregate bars and the option-chain snapshot. Without a key it runs in DEMO mode.
+## Health check
+Open `/api/health` after deploy. `mode` should be `LIVE` when `MASSIVE_API_KEY` exists.
 
-## Run
-```bash
-npm install
-npm start
-```
-Open http://localhost:3000
-
-## Deploy
-A `Dockerfile` and `render.yaml` are included. Add `MASSIVE_API_KEY` as a secret environment variable on the host. Never place the API key in browser-side JavaScript.
-
-## Important
-This tool is decision support, not a guarantee of profit. Option premium estimates are model estimates and can diverge materially when IV, liquidity, spreads, or price gaps change.
+## Notes
+If the Massive plan does not permit an Options Chain Snapshot, stock analysis still runs and the UI reports that option-chain data is unavailable rather than crashing.
