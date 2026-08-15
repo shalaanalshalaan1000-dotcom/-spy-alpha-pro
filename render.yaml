@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: spy-alpha-pro
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: MASSIVE_API_KEY
+        sync: false
+      - key: MIN_CONFIDENCE
+        value: "70"
+      - key: MAX_SIGNALS_PER_DAY
+        value: "3"
+      - key: OPTIONS_MAX_DTE
+        value: "14"
+      - key: OPTIONS_STRIKE_WINDOW_PCT
+        value: "0.10"
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
