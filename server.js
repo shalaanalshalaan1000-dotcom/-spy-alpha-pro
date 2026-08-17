@@ -194,7 +194,7 @@ function rankScan(items){
   return items.sort((a,b)=>Number(a.stale)-Number(b.stale)||(a.distanceToHighPct??999)-(b.distanceToHighPct??999)||(b.changePct??-999)-(a.changePct??-999));
 }
 async function fetchMassiveScan(){
-  const data=await massiveGet('/v3/snapshot',{'ticker.any_of':WATCHLIST.join(','),type:'stocks',limit:WATCHLIST.length,sort:'ticker',order:'asc'});
+  const data=await massiveGet('/v3/snapshot',{'ticker.any_of':WATCHLIST.join(','),limit:WATCHLIST.length,sort:'ticker',order:'asc'});
   const items=(data.results||[]).filter(x=>WATCHLIST.includes(x.ticker)).map(x=>{
     const session=x.session||{},price=finiteOrNull(session.price??session.close??x.last_minute?.close??x.last_trade?.price),high=finiteOrNull(session.high),low=finiteOrNull(session.low),changePct=finiteOrNull(session.change_percent);
     const updatedAt=marketTimestampIso(session.last_updated??x.last_minute?.last_updated??x.last_trade?.last_updated),ageMinutes=updatedAt?(Date.now()-new Date(updatedAt).getTime())/60000:null;
