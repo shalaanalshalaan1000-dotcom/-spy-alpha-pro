@@ -55,6 +55,8 @@ const compact=v=>v==null?'—':new Intl.NumberFormat('en-US',{notation:'compact'
 const GOLD_SAMPLE_KEY='spyAlphaGoldSamplesV2',GOLD_MIN_CONFIDENCE=75;
 function prepareOptionChain(symbol){
   if($('#chainSymbol').textContent===symbol)return;
+  allContracts=[];
+  suggestedContractSymbol=null;
   $('#chainSymbol').textContent=symbol;
   $('#chainCount').textContent='...';
   $('#chainNote').textContent='جارٍ تحميل عقود '+symbol+'…';
@@ -272,6 +274,7 @@ async function analyze(){
   renderChart(s);
   prepareOptionChain(s);
   $('#state').textContent='...';
+  $('#contract').textContent='جارٍ تحميل العقد…';
   $('#optionNote').textContent='';
   try{
     const r=await fetch('/api/analyze/'+s,{cache:'no-store'});
@@ -304,6 +307,12 @@ async function analyze(){
     if(seq!==analysisSeq)return;
     $('#state').textContent='ERROR';
     $('#state').className='err';
+    allContracts=[];
+    suggestedContractSymbol=null;
+    $('#contract').textContent='لا يوجد عقد معروض: '+e.message;
+    $('#chainCount').textContent='0';
+    $('#optionChainBody').innerHTML='<tr><td colspan="18" class="loadingRow err"></td></tr>';
+    $('#optionChainBody td').textContent=e.message;
     $('#reasons').innerHTML='<li class="err">'+e.message+'</li>';
     $('#chainNote').textContent='تعذر تحميل العقود: '+e.message;
   }
@@ -554,8 +563,8 @@ async function fetchMassiveScan(){
   if(stockResult.status==='rejected')throw stockResult.reason;
   const stockRows=Array.isArray(stockResult.value?.results)?stockResult.value.results:[],items=stockRows.filter(x=>STOCK_WATCHLIST.includes(x.ticker)).map(x=>normalizeSnapshotItem(x));
   if(spxResult.status==='fulfilled'){
-    const rows=Array.isArray(spxResult.value?.results)?spxResult.value.results:spxResult.value?.results?[spxResult.value.results]:[],spxRow=rows.find(x=>x.ticker==='I:SPX'||x.ticker==='SPX')||rows[0];
-    items.push(spxRow?normalizeSnapshotItem(spxRow,{symbol:'SPX',spx:true}):spxScanPlaceholder());
+    const rows=Array.isArray(spxResult.value?.results)?spxResult.value.results:spxResult.value?.results?[spxResult.value.results]:[],spxRow=rows.find(x=>x.ticker==='I:SPX'||x.ticker==='SPX')||rows[0],spxPrice=finiteOrNull(spxRow?.value??spxRow?.session?.price??spxRow?.session?.close);
+    items.push(spxRow&&!spxRow.error&&spxPrice!=null?normalizeSnapshotItem(spxRow,{symbol:'SPX',spx:true}):spxScanPlaceholder(spxRow?.message?new Error(spxRow.message):null));
   }else items.push(spxScanPlaceholder(spxResult.reason));
   return{items:rankScan(items),updatedAt:items.map(x=>x.updatedAt).filter(Boolean).sort().at(-1)||new Date().toISOString(),mode:'LIVE',provider:'MASSIVE'};
 }
