@@ -2,14 +2,25 @@
 
 Flat Render build: no `src/` and no `public/` folders.
 
+The dashboard is gold-first. Its fixed equity/ETF list is `SPY`, `QQQ`, `IWM`, and `NVDA`; a separate automatic radar can temporarily add verified speculative stocks with active options.
+
 ## XAUUSD spot reading
 
-The dashboard includes a separate XAU/USD spot panel, intentionally outside the stock/options selector. It shows the current ounce price, source freshness, a short rolling direction, and a 5-minute OANDA chart from TradingView. It never creates or suggests gold option contracts.
+The dashboard includes a separate XAU/USD spot panel, intentionally outside the stock/options selector. It shows the current ounce price, source freshness, a short rolling direction, and a 15-minute OANDA chart from TradingView. It never creates or suggests gold option contracts.
 
 - Spot price source: `https://api.gold-api.com/price/XAU`
 - Browser refresh: 30 seconds (the source allows cross-origin reads and publishes a short public cache)
-- The short direction is only the movement across samples collected since the user opened the dashboard; it is not a trade signal.
+- Samples are retained locally in the browser for up to two hours so a reload does not immediately discard the observation window.
+- The 15-minute target model fits a short price channel and estimates recent realized movement. Directional targets remain hidden until at least 15 minutes of data exists and confidence reaches 75%.
+- Target arrival is shown as a time range and is conditional on momentum continuing; the invalidation level cancels the scenario.
+- The short direction and target model are analytical estimates, not trade guarantees.
 - Gold API and the OANDA/TradingView chart can differ slightly because they are separate feeds.
+
+## Automatic speculative options radar
+
+The live radar pulls the top US stock gainers and losers from Massive, then applies minimum price, absolute daily move, share-volume, and dollar-volume filters. It verifies every displayed ticker against Massive's active options-contract reference endpoint before adding it to the selector. Up to six names are cached for 15 minutes; the four fixed symbols remain unchanged.
+
+The automatic Telegram worker considers both the four fixed symbols and current verified radar symbols. Demo mode does not invent speculative candidates.
 
 ## Required Render environment variable
 - `MASSIVE_API_KEY`

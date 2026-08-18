@@ -3,11 +3,13 @@ import {createHmac,createPublicKey,randomBytes,timingSafeEqual,verify as verifyS
 
 const PORT = Number(process.env.PORT || 3000);
 const MASSIVE_BASE = 'https://api.massive.com';
-const WATCHLIST = ['SPY','NVDA','QQQ','IWM','AAPL','MSFT','AMZN','META','GOOGL','TSLA','AMD','AVGO','NFLX','UNH'];
+const WATCHLIST = ['SPY','QQQ','IWM','NVDA'];
 const INDEX_ETFS = new Set(['SPY','QQQ','IWM']);
+const SPECULATIVE_LIMIT = 6;
+const SPECULATIVE_VERIFY_LIMIT = 12;
 
 const HTML = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SPY Alpha Pro V4</title><style>
-:root{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;background:#080b12;color:#eef2ff}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#111a2d,#080b12 42%);min-height:100vh}header{display:flex;justify-content:space-between;align-items:center;padding:20px max(16px,5vw);border-bottom:1px solid #26324a;background:#0c111ddd;position:sticky;top:0;backdrop-filter:blur(12px);z-index:2}h1{margin:0;font-size:25px}header p{margin:4px 0 0;color:#93a4c5;font-size:12px}.badge{padding:8px 12px;border:1px solid #405071;border-radius:999px;font-weight:800}main{max-width:1120px;margin:auto;padding:18px}.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}.toolbar .logout{margin-inline-start:auto;color:#b9c7e4;text-decoration:none;border:1px solid #334155;border-radius:10px;padding:9px 12px;font-weight:800;font-size:12px}select,button{background:#111827;color:white;border:1px solid #334155;border-radius:10px;padding:10px 14px;font-weight:800}button{cursor:pointer}.hero{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}.hero>div,article{background:#0e1524;border:1px solid #243149;border-radius:16px;padding:15px}.hero span{display:block;color:#8ea0c0;font-size:12px}.hero strong{font-size:23px;display:block;margin-top:6px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}h2{font-size:15px;margin:0 0 12px;color:#c8d4ee}.kv{display:grid;grid-template-columns:1fr auto;gap:8px;padding:7px 0;border-bottom:1px dashed #26344e}.kv:last-child{border:0}.muted{color:#8ea0c0}.contract{margin-top:10px}.contractGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}.pill{padding:8px;background:#131d31;border-radius:10px;overflow-wrap:anywhere}.risk{color:#8b98b3;font-size:12px;line-height:1.7}.CALL{color:#52e5a5}.PUT{color:#ff718c}.WATCH{color:#ffd166}.NO-TRADE{color:#a3acc0}.warn{color:#ffd166;font-size:12px}.err{color:#ff718c}.small{font-size:11px;color:#8ea0c0}@media(max-width:760px){.hero{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.contractGrid{grid-template-columns:repeat(2,1fr)}header{padding:14px}main{padding:12px}}
+:root{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;background:#080b12;color:#eef2ff}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#111a2d,#080b12 42%);min-height:100vh}header{display:flex;justify-content:space-between;align-items:center;padding:20px max(16px,5vw);border-bottom:1px solid #26324a;background:#0c111ddd;position:sticky;top:0;backdrop-filter:blur(12px);z-index:2}h1{margin:0;font-size:25px}header p{margin:4px 0 0;color:#c8b66f;font-size:12px}.badge{padding:8px 12px;border:1px solid #405071;border-radius:999px;font-weight:800}main{max-width:1120px;margin:auto;padding:18px}.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}.toolbar .logout{margin-inline-start:auto;color:#b9c7e4;text-decoration:none;border:1px solid #334155;border-radius:10px;padding:9px 12px;font-weight:800;font-size:12px}.stockLabel{color:#93a4c5;font-size:12px;font-weight:900}select,button{background:#111827;color:white;border:1px solid #334155;border-radius:10px;padding:10px 14px;font-weight:800}button{cursor:pointer}.hero{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}.hero>div,article{background:#0e1524;border:1px solid #243149;border-radius:16px;padding:15px}.hero span{display:block;color:#8ea0c0;font-size:12px}.hero strong{font-size:23px;display:block;margin-top:6px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}h2{font-size:15px;margin:0 0 12px;color:#c8d4ee}.kv{display:grid;grid-template-columns:1fr auto;gap:8px;padding:7px 0;border-bottom:1px dashed #26344e}.kv:last-child{border:0}.muted{color:#8ea0c0}.contract{margin-top:10px}.contractGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}.pill{padding:8px;background:#131d31;border-radius:10px;overflow-wrap:anywhere}.risk{color:#8b98b3;font-size:12px;line-height:1.7}.CALL{color:#52e5a5}.PUT{color:#ff718c}.WATCH{color:#ffd166}.NO-TRADE{color:#a3acc0}.warn{color:#ffd166;font-size:12px}.err{color:#ff718c}.small{font-size:11px;color:#8ea0c0}@media(max-width:760px){.hero{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.contractGrid{grid-template-columns:repeat(2,1fr)}header{padding:14px}main{padding:12px}}
 
 .hero{grid-template-columns:repeat(6,minmax(0,1fr))}
 .chartCard,.scanner{margin-bottom:12px}
@@ -19,32 +21,36 @@ const HTML = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-
 .scanTable{width:100%;border-collapse:collapse;min-width:670px}.scanTable th,.scanTable td{padding:11px 12px;border-bottom:1px solid #243149;text-align:right;white-space:nowrap}
 .scanTable th{color:#8ea0c0;font-size:11px;background:#101827}.scanTable td{font-size:13px}.scanTable tbody tr{cursor:pointer;transition:background .15s}.scanTable tbody tr:hover,.scanTable tbody tr.top{background:#14223a}.scanTable tbody tr:last-child td{border-bottom:0}
 .num{direction:ltr;text-align:left!important}.nearHigh{color:#52e5a5;font-weight:800}.positive{color:#52e5a5}.negative{color:#ff718c}.loadingRow{text-align:center!important;color:#8ea0c0!important}
+.specScanner{border-color:#5c3558;background:linear-gradient(145deg,#191121,#0e1524 58%)}.verified{display:inline-flex;align-items:center;gap:5px;padding:5px 8px;border:1px solid #3e755e;border-radius:999px;color:#70e4ae;background:#10271f;font-size:11px;font-weight:900}.specNote{margin:9px 0 0;color:#a994bd;font-size:11px;line-height:1.7}
 .chain{margin-top:12px}.chainControls{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-bottom:10px}.chainControls label{display:grid;gap:5px;color:#8ea0c0;font-size:11px}.chainCount{padding:7px 10px;border:1px solid #334155;border-radius:999px;color:#c8d4ee;font-size:12px;font-weight:800}
 .chainWrap{max-height:680px;overflow:auto;border:1px solid #243149;border-radius:12px}.chainTable{width:100%;border-collapse:separate;border-spacing:0;min-width:1780px}.chainTable th,.chainTable td{padding:10px 11px;border-bottom:1px solid #243149;text-align:right;white-space:nowrap;font-size:12px}.chainTable th{position:sticky;top:0;z-index:1;background:#101827;color:#8ea0c0;font-size:11px}.chainTable tbody tr:hover{background:#121f34}.chainTable tbody tr.suggested{background:#123027;box-shadow:inset -4px 0 #52e5a5}.chainTable tbody tr:last-child td{border-bottom:0}.typeTag,.signalTag{display:inline-flex;justify-content:center;min-width:72px;padding:5px 8px;border-radius:999px;background:#131d31;font-weight:900}.chainNote{margin:8px 0 10px;color:#8ea0c0;font-size:11px;line-height:1.6}.contractCode{direction:ltr;text-align:left!important;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-.goldPanel{margin-bottom:12px;border-color:#80652d;background:linear-gradient(145deg,#18170f,#0e1524 52%);box-shadow:inset 0 1px #e7c86b22}.goldHead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}.goldTitle{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.goldTitle h2{margin:0;color:#f4dfa0;font-size:18px}.goldTag{display:inline-flex;padding:6px 9px;border:1px solid #9b7932;border-radius:999px;color:#f5d773;background:#241f10;font-size:11px;font-weight:900;direction:ltr}.goldMetrics{display:grid;grid-template-columns:1.4fr repeat(5,1fr);gap:9px;margin-bottom:12px}.goldMetric{padding:11px 12px;border:1px solid #4d4328;border-radius:12px;background:#111725}.goldMetric span{display:block;color:#a99d79;font-size:11px}.goldMetric strong{display:block;margin-top:6px;font-size:17px;direction:ltr;text-align:right}.goldMetric.price strong{font-size:27px;color:#f5d773}.goldChartWrap{height:440px;border-radius:12px;overflow:hidden;background:#0a0f1a}.goldNote{margin:9px 0 0;color:#a99d79;font-size:11px;line-height:1.7}.goldError{padding:10px;border:1px solid #693044;border-radius:10px;color:#ff8aa0;background:#2b1420;margin-bottom:10px}
+.goldPanel{margin-bottom:12px;border-color:#80652d;background:linear-gradient(145deg,#18170f,#0e1524 52%);box-shadow:inset 0 1px #e7c86b22}.goldHead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}.goldTitle{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.goldTitle h2{margin:0;color:#f4dfa0;font-size:18px}.goldTag{display:inline-flex;padding:6px 9px;border:1px solid #9b7932;border-radius:999px;color:#f5d773;background:#241f10;font-size:11px;font-weight:900;direction:ltr}.goldMetrics{display:grid;grid-template-columns:1.4fr repeat(5,1fr);gap:9px;margin-bottom:12px}.goldMetric{padding:11px 12px;border:1px solid #4d4328;border-radius:12px;background:#111725}.goldMetric span{display:block;color:#a99d79;font-size:11px}.goldMetric strong{display:block;margin-top:6px;font-size:17px;direction:ltr;text-align:right}.goldMetric.price strong{font-size:27px;color:#f5d773}.goldPlan{padding:13px;margin-bottom:12px;border:1px solid #5f502b;border-radius:13px;background:#121723}.goldPlanHead{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}.goldPlanHead h3{margin:0;color:#e9d89f;font-size:14px}.goldPlanStatus{padding:6px 9px;border:1px solid #5f502b;border-radius:999px;font-size:11px;font-weight:900}.goldPlanGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}.goldPlanCard{padding:11px;border:1px solid #393a33;border-radius:11px;background:#0d1421}.goldPlanCard span,.goldPlanCard small{display:block;color:#9b977f;font-size:11px}.goldPlanCard strong{display:block;margin:6px 0;font-size:19px;direction:ltr;text-align:right}.goldPlanNote{margin:10px 0 0;color:#a99d79;font-size:11px;line-height:1.7}.goldChartWrap{height:440px;border-radius:12px;overflow:hidden;background:#0a0f1a}.goldNote{margin:9px 0 0;color:#a99d79;font-size:11px;line-height:1.7}.goldError{padding:10px;border:1px solid #693044;border-radius:10px;color:#ff8aa0;background:#2b1420;margin-bottom:10px}
 @media(max-width:980px){.hero{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:980px){.goldMetrics{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:760px){.hero{grid-template-columns:repeat(2,1fr)}.chartWrap{height:430px}.goldChartWrap{height:390px}.goldMetrics{grid-template-columns:repeat(2,1fr)}.goldHead{flex-direction:column}.panelHead{align-items:flex-start}.bestNow{align-items:flex-start;flex-direction:column}.scanTable th,.scanTable td{padding:10px 9px}}
+@media(max-width:980px){.goldMetrics{grid-template-columns:repeat(3,1fr)}.goldPlanGrid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:760px){.hero{grid-template-columns:repeat(2,1fr)}.chartWrap{height:430px}.goldChartWrap{height:390px}.goldMetrics,.goldPlanGrid{grid-template-columns:repeat(2,1fr)}.goldHead{flex-direction:column}.goldPlanHead{align-items:flex-start;flex-direction:column}.panelHead{align-items:flex-start}.bestNow{align-items:flex-start;flex-direction:column}.scanTable th,.scanTable td{padding:10px 9px}}
 
-</style></head><body><header><div><h1>SPY Alpha Pro V4</h1><p>XAUUSD Spot • Large-Cap Options • Pivot + ATR</p></div><div class="badge" id="mode">...</div></header><main>
-<section class="toolbar"><select id="symbol"></select><button id="refresh">تحليل الآن</button><label><input type="checkbox" id="auto" checked> تحديث تلقائي</label><a class="logout" id="logout" href="/logout" hidden>تسجيل الخروج</a></section>
-<article class="goldPanel"><div class="goldHead"><div><div class="goldTitle"><h2>XAUUSD — الذهب الفوري</h2><span class="goldTag">SPOT • NO OPTIONS</span></div><p id="goldMeta" class="scanMeta">جارٍ تحميل القراءة اللحظية…</p></div><button id="goldRefresh" class="compact">تحديث الذهب</button></div><div id="goldError" class="goldError" hidden></div><section class="goldMetrics"><div class="goldMetric price"><span>سعر الأونصة بالدولار</span><strong id="goldPrice">—</strong></div><div class="goldMetric"><span>اتجاه القراءة القصيرة</span><strong id="goldDirection">—</strong></div><div class="goldMetric"><span>التغير خلال نافذة الرصد</span><strong id="goldChange">—</strong></div><div class="goldMetric"><span>أعلى قراءة</span><strong id="goldHigh">—</strong></div><div class="goldMetric"><span>أدنى قراءة</span><strong id="goldLow">—</strong></div><div class="goldMetric"><span>حداثة السعر</span><strong id="goldFreshness">—</strong></div></section><div id="goldChart" class="goldChartWrap"></div><p class="goldNote">قراءة XAU/USD الفورية فقط وليست عقودًا. السعر من Gold API ويُفحص كل 30 ثانية؛ الشارت 5 دقائق من OANDA عبر TradingView وقد يظهر فرق بسيط بين المصدرين.</p></article>
+</style></head><body><header><div><h1>SPY Alpha Pro V4</h1><p>XAUUSD FOCUS • 4 CORE • AUTO OPTIONS RADAR</p></div><div class="badge" id="mode">...</div></header><main>
+<article class="goldPanel"><div class="goldHead"><div><div class="goldTitle"><h2>XAUUSD — الذهب الفوري</h2><span class="goldTag">SPOT • NO OPTIONS</span></div><p id="goldMeta" class="scanMeta">جارٍ تحميل القراءة اللحظية…</p></div><button id="goldRefresh" class="compact">تحديث الذهب</button></div><div id="goldError" class="goldError" hidden></div><section class="goldMetrics"><div class="goldMetric price"><span>سعر الأونصة بالدولار</span><strong id="goldPrice">—</strong></div><div class="goldMetric"><span>اتجاه القراءة القصيرة</span><strong id="goldDirection">—</strong></div><div class="goldMetric"><span>التغير خلال نافذة الرصد</span><strong id="goldChange">—</strong></div><div class="goldMetric"><span>أعلى قراءة</span><strong id="goldHigh">—</strong></div><div class="goldMetric"><span>أدنى قراءة</span><strong id="goldLow">—</strong></div><div class="goldMetric"><span>حداثة السعر</span><strong id="goldFreshness">—</strong></div></section><section class="goldPlan"><div class="goldPlanHead"><h3>أهداف الذهب التقديرية — نموذج 15 دقيقة</h3><span id="goldPlanStatus" class="goldPlanStatus muted">جمع البيانات</span></div><div class="goldPlanGrid"><div class="goldPlanCard"><span>السيناريو / الثقة</span><strong id="goldScenario">انتظار</strong><small id="goldConfidence">المطلوب 75% على الأقل</small></div><div class="goldPlanCard"><span>الهدف الأول</span><strong id="goldTarget1">—</strong><small id="goldEta1">المدة: —</small></div><div class="goldPlanCard"><span>الهدف الثاني</span><strong id="goldTarget2">—</strong><small id="goldEta2">المدة: —</small></div><div class="goldPlanCard"><span>إلغاء السيناريو</span><strong id="goldInvalidation">—</strong><small id="goldModelWindow">بيانات الرصد: —</small></div></div><p id="goldPlanNote" class="goldPlanNote">تُعرض الأهداف بعد اكتمال 15 دقيقة من العينات ووصول التأكيد إلى 75%؛ وإلا تبقى القراءة انتظار.</p></section><div id="goldChart" class="goldChartWrap"></div><p class="goldNote">قراءة XAU/USD الفورية فقط وليست عقودًا. السعر من Gold API ويُفحص كل 30 ثانية؛ الشارت 15 دقيقة من OANDA عبر TradingView وقد يظهر فرق بسيط بين المصدرين.</p></article>
+<section class="toolbar"><span class="stockLabel">الأساسية + اختيارات الرادار التلقائي</span><select id="symbol"></select><button id="refresh">تحليل الآن</button><label><input type="checkbox" id="auto" checked> تحديث تلقائي</label><a class="logout" id="logout" href="/logout" hidden>تسجيل الخروج</a></section>
 <section class="hero"><div><span>الإشارة</span><strong id="state">—</strong></div><div><span>الثقة</span><strong id="conf">—</strong></div><div><span>السعر</span><strong id="spot">—</strong></div><div><span>هاي اليوم</span><strong id="dayHigh">—</strong></div><div><span>لو اليوم</span><strong id="dayLow">—</strong></div><div><span>ATR(14) Daily</span><strong id="atr">—</strong></div></section>
-<article class="scanner"><div class="panelHead"><div><h2>إشارات جميع الأسهم</h2><p id="scanMeta" class="scanMeta">تحميل الرادار…</p></div><button id="scanRefresh" class="compact">تحديث الإشارات</button></div><div id="scanBest" class="bestNow"><span>جارٍ حساب أقوى إشارة</span><strong>—</strong></div><div class="tableWrap"><table class="scanTable"><thead><tr><th>الرمز</th><th>الإشارة</th><th class="num">التأكيد</th><th class="num">السعر</th><th class="num">هاي اليوم</th><th class="num">عن الهاي</th><th class="num">تغير اليوم</th><th>السوق</th></tr></thead><tbody id="scanBody"><tr><td colspan="8" class="loadingRow">جارٍ التحميل…</td></tr></tbody></table></div></article>
+<article class="scanner"><div class="panelHead"><div><h2>إشارات SPY / QQQ / IWM / NVDA</h2><p id="scanMeta" class="scanMeta">تحميل الرادار…</p></div><button id="scanRefresh" class="compact">تحديث الإشارات</button></div><div id="scanBest" class="bestNow"><span>جارٍ حساب أقوى إشارة</span><strong>—</strong></div><div class="tableWrap"><table class="scanTable"><thead><tr><th>الرمز</th><th>الإشارة</th><th class="num">التأكيد</th><th class="num">السعر</th><th class="num">هاي اليوم</th><th class="num">عن الهاي</th><th class="num">تغير اليوم</th><th>السوق</th></tr></thead><tbody id="scanBody"><tr><td colspan="8" class="loadingRow">جارٍ التحميل…</td></tr></tbody></table></div></article>
+<article class="scanner specScanner"><div class="panelHead"><div><h2>رادار أسهم العقود المضاربية — تلقائي</h2><p id="specMeta" class="scanMeta">فحص الأسهم المتحركة والتحقق من وجود العقود…</p></div><button id="specRefresh" class="compact">تحديث الرادار</button></div><div id="specBest" class="bestNow"><span>جارٍ اختيار أقوى سهم بعقود</span><strong>—</strong></div><div class="tableWrap"><table class="scanTable"><thead><tr><th>الرمز</th><th>الإشارة</th><th class="num">التأكيد</th><th class="num">السعر</th><th class="num">تغير اليوم</th><th class="num">الحجم</th><th class="num">سيولة $</th><th class="num">مدى اليوم</th><th>العقود</th></tr></thead><tbody id="specBody"><tr><td colspan="9" class="loadingRow">جارٍ الفحص…</td></tr></tbody></table></div><p class="specNote">الاختيار آلي من أقوى الأسهم صعودًا وهبوطًا، بشرط الحركة والسيولة والتحقق من وجود عقود نشطة. البيانات حسب تأخير باقة Massive وليست توصية شراء.</p></article>
 <article class="chartCard"><div class="panelHead"><h2>الشارت — <span id="chartSymbol">SPY</span></h2><span class="small">5 دقائق • TradingView</span></div><div id="chart" class="chartWrap"></div><p class="chartNote">الشارت من TradingView، وأرقام الهاي والتحليل من Massive حسب تأخير باقة البيانات.</p></article>
 <section class="grid"><article><h2>مناطق الارتكاز</h2><div id="pivots"></div></article><article><h2>ATR والحركة</h2><div id="atrbox"></div></article><article><h2>التأكيدات</h2><div id="indicators"></div></article><article><h2>خطة السهم</h2><div id="setup"></div></article></section>
 <article class="contract"><h2>العقد المقترح وتسعيره</h2><div id="contract">—</div><div id="optionNote" class="warn"></div></article>
 <article class="chain"><div class="panelHead"><div><h2>سلسلة العقود كاملة — <span id="chainSymbol">SPY</span></h2><p class="scanMeta">كل العقود التي وصلت من Massive حتى 14 يومًا؛ العقد المقترح مميز بالأخضر.</p></div><span id="chainCount" class="chainCount">—</span></div><div class="chainControls"><label>نوع العقد<select id="chainType"><option value="ALL">CALL + PUT</option><option value="CALL">CALL فقط</option><option value="PUT">PUT فقط</option></select></label><label>تاريخ الانتهاء<select id="chainExpiry"><option value="ALL">كل التواريخ</option></select></label></div><div id="chainNote" class="chainNote">جارٍ تحميل العقود…</div><div class="chainWrap"><table class="chainTable"><thead><tr><th>العقد</th><th>النوع</th><th>الانتهاء</th><th class="num">DTE</th><th class="num">Strike</th><th class="num">بيع Bid</th><th class="num">شراء Ask</th><th class="num">السعر</th><th class="num">الهدف %</th><th class="num">الوقف %</th><th class="num">IV %</th><th class="num">Delta</th><th class="num">Gamma</th><th class="num">Theta</th><th class="num">Volume</th><th class="num">OI</th><th class="num">Spread</th><th>مصدر السعر</th></tr></thead><tbody id="optionChainBody"><tr><td colspan="18" class="loadingRow">جارٍ التحميل…</td></tr></tbody></table></div></article>
 <article><h2>سبب الإشارة</h2><ul id="reasons"></ul></article><p class="risk">أداة تحليلية وليست ضمانًا للربح. يتم خفض الإشارة عند ضعف السيولة أو استهلاك ATR أو سوء RR، وتُعرض NO TRADE عند البيانات القديمة.</p>
 </main><script>
-const $=s=>document.querySelector(s); let cfg,activeChartSymbol=null,scanLoading=false,goldLoading=false,goldChartReady=false,goldSamples=[],analysisSeq=0,allContracts=[],suggestedContractSymbol=null;
-const TV_EXCHANGE={SPY:'AMEX',QQQ:'NASDAQ',IWM:'AMEX',NVDA:'NASDAQ',AAPL:'NASDAQ',MSFT:'NASDAQ',AMZN:'NASDAQ',META:'NASDAQ',GOOGL:'NASDAQ',TSLA:'NASDAQ',AMD:'NASDAQ',AVGO:'NASDAQ',NFLX:'NASDAQ',UNH:'NYSE'};
+const $=s=>document.querySelector(s); let cfg,activeChartSymbol=null,scanLoading=false,specLoading=false,goldLoading=false,goldChartReady=false,goldSamples=[],analysisSeq=0,allContracts=[],suggestedContractSymbol=null,speculativeSymbols=new Set();
+const TV_EXCHANGE={SPY:'AMEX',QQQ:'NASDAQ',IWM:'AMEX',NVDA:'NASDAQ'};
 const kv=(k,v)=>'<div class="kv"><span class="muted">'+k+'</span><b>'+(v??'—')+'</b></div>';
 const money=v=>v==null?'—':'$'+Number(v).toFixed(2); const pct=v=>v==null?'—':Number(v).toFixed(1)+'%';
 const sourceLabel=s=>({NBBO_MID:'Bid/Ask',LAST_TRADE:'آخر صفقة',DELAYED_DAY_CLOSE:'إغلاق متأخر',DELAYED_DAY_VWAP:'VWAP متأخر'}[s]||s||'—');
 const signedPct=v=>v==null?'—':(Number(v)>0?'+':'')+Number(v).toFixed(1)+'%';
 const signedGoldPct=v=>v==null?'—':(Number(v)>0?'+':'')+Number(v).toFixed(3)+'%';
 const whole=v=>v==null?'—':Number(v).toLocaleString('en-US');
+const compact=v=>v==null?'—':new Intl.NumberFormat('en-US',{notation:'compact',maximumFractionDigits:1}).format(Number(v));
+const GOLD_SAMPLE_KEY='spyAlphaGoldSamplesV2',GOLD_MIN_CONFIDENCE=75;
 function prepareOptionChain(symbol){
   if($('#chainSymbol').textContent===symbol)return;
   $('#chainSymbol').textContent=symbol;
@@ -78,7 +84,7 @@ function setOptionChain(items,suggested,diagnostics={}){
   renderOptionChain();
 }
 async function loadConfig(){cfg=await fetch('/api/config',{cache:'no-store'}).then(r=>r.json()); $('#mode').textContent=cfg.mode+' / '+cfg.provider; $('#symbol').innerHTML=cfg.watchlist.map(s=>'<option>'+s+'</option>').join(''); $('#logout').hidden=!cfg.user;}
-const tvSymbol=s=>(TV_EXCHANGE[s]||'NASDAQ')+':'+s;
+const tvSymbol=s=>TV_EXCHANGE[s]?TV_EXCHANGE[s]+':'+s:s;
 function renderChart(symbol){
   if(activeChartSymbol===symbol)return;
   activeChartSymbol=symbol;
@@ -101,21 +107,60 @@ function renderGoldChart(){
   script.src='https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
   script.type='text/javascript';
   script.async=true;
-  script.textContent=JSON.stringify({autosize:true,symbol:'OANDA:XAUUSD',interval:'5',timezone:'Etc/UTC',theme:'dark',backgroundColor:'rgba(8, 11, 18, 1)',style:'1',locale:'en',allow_symbol_change:false,hide_side_toolbar:false,withdateranges:true,save_image:false,details:false,hotlist:false,calendar:false,support_host:'https://www.tradingview.com'});
+  script.textContent=JSON.stringify({autosize:true,symbol:'OANDA:XAUUSD',interval:'15',timezone:'Asia/Riyadh',theme:'dark',backgroundColor:'rgba(8, 11, 18, 1)',style:'1',locale:'en',allow_symbol_change:false,hide_side_toolbar:false,withdateranges:true,save_image:false,details:false,hotlist:false,calendar:false,support_host:'https://www.tradingview.com'});
   host.firstElementChild.appendChild(script);
 }
 const goldAgeLabel=seconds=>{const age=Math.max(0,Number(seconds)||0);if(age<5)return'الآن';if(age<60)return Math.round(age)+' ث';return Math.round(age/60)+' د'};
+function restoreGoldSamples(){
+  try{
+    const now=Date.now(),rows=JSON.parse(localStorage.getItem(GOLD_SAMPLE_KEY)||'[]'),clean=(Array.isArray(rows)?rows:[]).map(x=>({price:Number(x.price),t:Number(x.t)})).filter(x=>Number.isFinite(x.price)&&x.price>0&&Number.isFinite(x.t)&&x.t>=now-2*60*60_000&&x.t<=now+60_000).sort((a,b)=>a.t-b.t),unique=[];
+    for(const row of clean){const last=unique.at(-1);if(last&&last.t===row.t)last.price=row.price;else unique.push(row)}
+    return unique.slice(-240);
+  }catch{return[]}
+}
+function saveGoldSamples(){try{localStorage.setItem(GOLD_SAMPLE_KEY,JSON.stringify(goldSamples.slice(-240)))}catch{}}
+function computeGoldPlan(samples,price,now,stale){
+  const fixed=(value,digits=2)=>Number.isFinite(value)?Number(value.toFixed(digits)):null,windowed=samples.filter(x=>x.t>=now-60*60_000&&x.t<=now+60_000);let continuousFrom=0;for(let i=1;i<windowed.length;i++)if(windowed[i].t-windowed[i-1].t>3*60_000)continuousFrom=i;const recent=windowed.slice(continuousFrom),n=recent.length,span=n>1?(recent.at(-1).t-recent[0].t)/60_000:0,base={state:'COLLECTING',confidence:0,target1:null,target2:null,invalidation:null,eta1:null,eta2:null,sampleCount:n,spanMinutes:fixed(span,1),channel:null};
+  if(stale)return{...base,state:'STALE',note:'سعر الذهب قديم؛ أوقفت الأهداف حتى تصل قراءة حديثة.'};
+  if(n<10||span<15)return{...base,note:'جمع '+fixed(span,1)+' من 15 دقيقة مطلوبة لبناء القناة وتقدير المدة.'};
+  const firstT=recent[0].t,times=recent.map(x=>(x.t-firstT)/60_000),meanT=times.reduce((a,b)=>a+b,0)/n,meanP=recent.reduce((a,b)=>a+b.price,0)/n,varianceT=times.reduce((a,t)=>a+(t-meanT)*(t-meanT),0);
+  if(varianceT<=0)return{...base,note:'العينات الحالية لا تكفي لحساب اتجاه زمني.'};
+  const slope=recent.reduce((sum,x,i)=>sum+(times[i]-meanT)*(x.price-meanP),0)/varianceT,intercept=meanP-slope*meanT,predicted=intercept+slope*times.at(-1),residuals=recent.map((x,i)=>x.price-(intercept+slope*times[i])),rmse=Math.sqrt(residuals.reduce((sum,x)=>sum+x*x,0)/n);
+  let logSquares=0,elapsed=0;
+  for(let i=1;i<n;i++){const dt=(recent[i].t-recent[i-1].t)/60_000;if(dt<=0)continue;const r=Math.log(recent[i].price/recent[i-1].price);logSquares+=r*r;elapsed+=dt}
+  const sigmaPerSqrtMinute=elapsed>0?price*Math.sqrt(logSquares/elapsed):0,expected15=sigmaPerSqrtMinute*Math.sqrt(15),prices=recent.map(x=>x.price),range=Math.max(...prices)-Math.min(...prices),totalMove=slope*span,noise=Math.max(rmse,expected15*.55,price*.00005),snr=Math.abs(totalMove)/noise,aligned=Math.abs(price-predicted)<=Math.max(rmse,price*.00005)||(slope>0?price>predicted:price<predicted);
+  let confidence=Math.round(45+Math.min(23,snr*7)+Math.min(12,span*.8)+Math.min(8,n/4));
+  if(!aligned)confidence-=8;
+  if(Math.abs(totalMove)<price*.00025)confidence-=10;
+  confidence=Math.max(0,Math.min(92,confidence));
+  const channel=Math.abs(totalMove)<price*.0001?'FLAT':slope>0?'RISING':'FALLING';
+  if(confidence<GOLD_MIN_CONFIDENCE)return{...base,state:'WAIT',confidence,channel,slopePerMinute:fixed(slope,3),note:'التأكيد '+confidence+'% أقل من 75%؛ لا أعرض هدفًا حتى تتضح الحركة.'};
+  const move=Math.min(price*.006,Math.max(price*.0004,expected15,rmse*1.5,range*.28)),direction=slope>0?1:-1,target1=price+direction*move,target2=price+direction*move*1.75,channelHalf=Math.max(rmse*1.6,move*.55),invalidation=price-direction*Math.max(move*.75,channelHalf),pace=Math.max(Math.abs(slope),move/30),eta=(distance,min,max)=>{const center=distance/pace,round5=value=>Math.max(5,Math.round(value/5)*5),low=Math.max(min,Math.min(max,round5(center*.7))),high=Math.max(low+5,Math.min(max,round5(center*1.5)));return low+'–'+high+' دقيقة'};
+  return{...base,state:direction>0?'UP':'DOWN',confidence,channel,slopePerMinute:fixed(slope,3),expectedMove15:fixed(move),target1:fixed(target1),target2:fixed(target2),invalidation:fixed(invalidation),eta1:eta(move,5,120),eta2:eta(move*1.75,10,240),note:'المدة نطاق تقديري مشروط باستمرار زخم القناة؛ لمس مستوى الإلغاء يبطل السيناريو.'};
+}
 function goldBrowserReading(raw){
   const price=Number(raw.price),updatedAt=new Date(raw.updatedAt),now=Date.now();
   if(!Number.isFinite(price)||price<=0||Number.isNaN(updatedAt.getTime()))throw new Error('مصدر الذهب أعاد قراءة غير صالحة');
-  const normalizedAt=updatedAt.toISOString(),last=goldSamples.at(-1);
-  if(!last||last.updatedAt!==normalizedAt||last.price!==price)goldSamples.push({price,updatedAt:normalizedAt,observedAt:now});
-  goldSamples=goldSamples.filter(x=>x.observedAt>=now-60*60_000).slice(-120);
-  const oldest=goldSamples[0],prices=goldSamples.map(x=>x.price),changePct=oldest.price>0?(price-oldest.price)/oldest.price*100:null;
+  const normalizedAt=updatedAt.toISOString(),sampleTime=updatedAt.getTime(),last=goldSamples.at(-1);
+  if(!last||sampleTime>last.t)goldSamples.push({price,t:sampleTime});else if(sampleTime===last.t)last.price=price;
+  goldSamples=goldSamples.filter(x=>x.t>=now-2*60*60_000&&x.t<=now+60_000).slice(-240);saveGoldSamples();
+  const displaySamples=goldSamples.filter(x=>x.t>=now-60*60_000),oldest=displaySamples[0]||{price,t:sampleTime},prices=displaySamples.length?displaySamples.map(x=>x.price):[price],changePct=oldest.price>0?(price-oldest.price)/oldest.price*100:null;
   let direction='COLLECTING';
-  if(goldSamples.length>=3)direction=Math.abs(changePct)<.02?'FLAT':changePct>0?'UP':'DOWN';
+  if(displaySamples.length>=3)direction=Math.abs(changePct)<.02?'FLAT':changePct>0?'UP':'DOWN';
   const fixed=(value,digits=2)=>Number.isFinite(value)?Number(value.toFixed(digits)):null;
-  return{price:fixed(price),updatedAt:normalizedAt,ageSeconds:Math.max(0,Math.round((now-updatedAt.getTime())/1000)),stale:now-updatedAt.getTime()>120_000,direction,changePct:fixed(changePct,3),windowHigh:fixed(Math.max(...prices)),windowLow:fixed(Math.min(...prices)),windowMinutes:fixed(Math.max(0,(now-oldest.observedAt)/60_000),1)};
+  const stale=now-updatedAt.getTime()>120_000;
+  return{price:fixed(price),updatedAt:normalizedAt,ageSeconds:Math.max(0,Math.round((now-updatedAt.getTime())/1000)),stale,direction,changePct:fixed(changePct,3),windowHigh:fixed(Math.max(...prices)),windowLow:fixed(Math.min(...prices)),windowMinutes:fixed(Math.max(0,(sampleTime-oldest.t)/60_000),1),plan:computeGoldPlan(goldSamples,price,now,stale)};
+}
+function renderGoldPlan(plan){
+  const labels={UP:'صاعد',DOWN:'هابط',WAIT:'انتظار',COLLECTING:'جمع البيانات',STALE:'متوقف'},classes={UP:'positive',DOWN:'negative',WAIT:'WATCH',COLLECTING:'muted',STALE:'negative'},active=['UP','DOWN'].includes(plan.state),channelLabel=plan.channel==='RISING'?'قناة صاعدة':plan.channel==='FALLING'?'قناة هابطة':plan.channel==='FLAT'?'حركة متوازنة':'قناة قيد البناء';
+  $('#goldPlanStatus').textContent=labels[plan.state]||'انتظار';$('#goldPlanStatus').className='goldPlanStatus '+(classes[plan.state]||'muted');
+  $('#goldScenario').textContent=labels[plan.state]||'انتظار';$('#goldScenario').className=classes[plan.state]||'muted';
+  $('#goldConfidence').textContent=plan.state==='COLLECTING'?(plan.sampleCount+' عينة • '+plan.spanMinutes+' / 15 د'):('التأكيد '+plan.confidence+'% • المطلوب 75%');
+  $('#goldTarget1').textContent=active?money(plan.target1):'—';$('#goldTarget1').className=plan.state==='UP'?'positive':plan.state==='DOWN'?'negative':'';
+  $('#goldTarget2').textContent=active?money(plan.target2):'—';$('#goldTarget2').className=plan.state==='UP'?'positive':plan.state==='DOWN'?'negative':'';
+  $('#goldEta1').textContent='المدة: '+(plan.eta1||'—');$('#goldEta2').textContent='المدة: '+(plan.eta2||'—');
+  $('#goldInvalidation').textContent=active?money(plan.invalidation):'—';$('#goldInvalidation').className=active?'WATCH':'';
+  $('#goldModelWindow').textContent=channelLabel+' • رصد '+plan.spanMinutes+' د';$('#goldPlanNote').textContent=plan.note;
 }
 async function loadGold(){
   if(goldLoading)return;
@@ -135,7 +180,8 @@ async function loadGold(){
     $('#goldLow').textContent=money(d.windowLow);
     $('#goldFreshness').textContent=goldAgeLabel(d.ageSeconds);
     $('#goldFreshness').className=d.stale?'negative':'positive';
-    $('#goldMeta').textContent='Gold API • آخر تحديث '+new Date(d.updatedAt).toLocaleTimeString('ar-SA',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+' • نافذة الرصد '+(d.windowMinutes<1?'< 1':Math.round(d.windowMinutes))+' د';
+    renderGoldPlan(d.plan);
+    $('#goldMeta').textContent='Gold API • آخر تحديث '+new Date(d.updatedAt).toLocaleTimeString('ar-SA',{hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'Asia/Riyadh'})+' بتوقيت الرياض • نافذة الرصد '+(d.windowMinutes<1?'< 1':Math.round(d.windowMinutes))+' د';
   }catch(e){
     $('#goldMeta').textContent='تعذر تحميل قراءة الذهب';
     $('#goldError').textContent=e.message;
@@ -170,8 +216,43 @@ async function loadScan(force=false){
     $('#scanBody').innerHTML='<tr><td colspan="6" class="loadingRow err">'+e.message+'</td></tr>';
   }finally{scanLoading=false;$('#scanRefresh').disabled=false;}
 }
+function syncSpeculativeSelector(items){
+  const select=$('#symbol'),selected=select.value;
+  speculativeSymbols=new Set(items.map(x=>x.symbol));
+  select.querySelectorAll('option[data-auto]').forEach(x=>x.remove());
+  for(const symbol of speculativeSymbols){const option=document.createElement('option');option.value=symbol;option.textContent=symbol+' • AUTO';option.dataset.auto='1';select.appendChild(option)}
+  if(cfg?.watchlist?.includes(selected)||speculativeSymbols.has(selected))select.value=selected;
+  else{select.value=cfg?.watchlist?.[0]||'SPY';void analyze()}
+}
+function renderSpeculative(d){
+  const items=Array.isArray(d.items)?d.items:[];
+  syncSpeculativeSelector(items);
+  const best=items.find(x=>!x.stale&&['CALL','PUT'].includes(x.signal))||items.find(x=>!x.stale)||items[0];
+  const delay=d.mode==='LIVE'?' • بيانات Starter متأخرة 15 دقيقة':' • يحتاج MASSIVE_API_KEY للوضع الحي';
+  const status=d.error?(items.length?'تعذر التحديث؛ أعرض آخر نتيجة ناجحة':'تعذر الوصول إلى بيانات الرادار مؤقتًا'):(items.length?'تم التحقق من العقود النشطة • اضغط السهم للتحليل الكامل':'لا توجد أسهم اجتازت شروط الحركة والسيولة والعقود');
+  $('#specMeta').textContent=status+' • آخر فحص: '+fmtScanTime(d.updatedAt)+delay+(d.cached?' • نسخة مخزنة':'');
+  if(best)$('#specBest').innerHTML='<span>أقوى سهم مضاربي بعقود الآن</span><strong class="'+best.signal.replaceAll(' ','-')+'">'+best.symbol+' • '+best.signal+' • '+pct(best.confidence)+'</strong>';
+  else $('#specBest').innerHTML='<span>لا توجد نتيجة مؤهلة حاليًا</span><strong>—</strong>';
+  $('#specBody').innerHTML=items.length?items.map((x,i)=>{
+    const changeClass=(x.changePct||0)>=0?'positive':'negative',signalClass=(x.signal||'NO TRADE').replaceAll(' ','-');
+    return '<tr data-symbol="'+x.symbol+'" class="'+(i===0?'top':'')+'"><td><b>'+x.symbol+'</b></td><td><span class="signalTag '+signalClass+'">'+x.signal+'</span></td><td class="num"><b>'+pct(x.confidence)+'</b></td><td class="num">'+money(x.price)+'</td><td class="num '+changeClass+'">'+signedPct(x.changePct)+'</td><td class="num">'+compact(x.volume)+'</td><td class="num">$'+compact(x.dollarVolume)+'</td><td class="num">'+pct(x.rangePct)+'</td><td><span class="verified">✓ نشطة</span></td></tr>';
+  }).join(''):'<tr><td colspan="9" class="loadingRow">لا توجد نتيجة مؤهلة الآن</td></tr>';
+}
+async function loadSpeculative(force=false){
+  if(specLoading)return;
+  specLoading=true;$('#specRefresh').disabled=true;
+  try{
+    const r=await fetch('/api/speculative'+(force?'?force=1':''),{cache:'no-store'}),d=await r.json();
+    if(!r.ok)throw new Error(d.error||'Speculative scanner request failed');
+    renderSpeculative(d);
+  }catch(e){
+    $('#specMeta').textContent='تعذر تحديث رادار أسهم العقود';
+    $('#specBody').innerHTML='<tr><td colspan="9" class="loadingRow err"></td></tr>';
+    $('#specBody td').textContent=e.message;
+  }finally{specLoading=false;$('#specRefresh').disabled=false;}
+}
 async function selectSymbol(symbol){
-  if(!cfg?.watchlist?.includes(symbol))return;
+  if(!cfg?.watchlist?.includes(symbol)&&!speculativeSymbols.has(symbol))return;
   $('#symbol').value=symbol;
   await analyze();
   document.querySelector('.chartCard').scrollIntoView({behavior:'smooth',block:'start'});
@@ -218,17 +299,21 @@ async function analyze(){
 }
 $('#refresh').onclick=()=>{analyze();loadScan(true)};
 $('#scanRefresh').onclick=()=>loadScan(true);
+$('#specRefresh').onclick=()=>loadSpeculative(true);
 $('#goldRefresh').onclick=loadGold;
 $('#symbol').onchange=analyze;
 $('#scanBody').onclick=e=>{const row=e.target.closest('tr[data-symbol]');if(row)selectSymbol(row.dataset.symbol)};
+$('#specBody').onclick=e=>{const row=e.target.closest('tr[data-symbol]');if(row)selectSymbol(row.dataset.symbol)};
 $('#chainType').onchange=renderOptionChain;
 $('#chainExpiry').onchange=renderOptionChain;
 (async()=>{
+  goldSamples=restoreGoldSamples();
   await loadConfig();
   renderGoldChart();
-  await Promise.all([analyze(),loadScan(),loadGold()]);
+  await Promise.all([analyze(),loadScan(),loadSpeculative(),loadGold()]);
   setInterval(()=>{if($('#auto').checked)analyze()},30000);
   setInterval(()=>{if($('#auto').checked)loadScan()},60000);
+  setInterval(()=>{if($('#auto').checked)loadSpeculative()},300000);
   setInterval(()=>{if($('#auto').checked)loadGold()},30000);
 })();
 </script></body></html>`;
@@ -341,10 +426,11 @@ async function fetchAllOptions(symbol,spot){
 }
 async function fetchMassiveSnapshot(symbol){const dailyData=await massiveGet('/v2/aggs/ticker/'+encodeURIComponent(symbol)+'/range/1/day/'+isoDate(daysAgo(70))+'/'+isoDate(new Date()),{adjusted:true,sort:'asc',limit:120}),daily=mapBars(dailyData.results||[]);if(daily.length<20)throw new Error('Not enough daily bars for '+symbol);const intradayData=await massiveGet('/v2/aggs/ticker/'+encodeURIComponent(symbol)+'/range/5/minute/'+isoDate(daysAgo(7))+'/'+isoDate(new Date()),{adjusted:true,sort:'asc',limit:50000});let intraday=mapBars(intradayData.results||[]);if(!intraday.length)throw new Error('No intraday bars for '+symbol);const latestDay=intraday.at(-1).timestamp.slice(0,10);intraday=intraday.filter(x=>x.timestamp.slice(0,10)===latestDay);const spot=intraday.at(-1).close;let options=[],optionDataError=null;try{options=await fetchAllOptions(symbol,spot)}catch(e){optionDataError=e.message}const optionDiagnostics={totalContracts:options.length,withQuotes:options.filter(o=>o.bid>0&&o.ask>0).length,withReferencePrice:options.filter(o=>optionPrice(o)>0).length,priceSources:[...new Set(options.map(o=>o.priceSource))]};return{symbol,daily,intraday,options,optionDataError,optionDiagnostics,timestamp:intraday.at(-1).timestamp,mode:'LIVE',provider:'MASSIVE'}}
 function seeded(seed){let x=seed;return()=>{x=(x*1664525+1013904223)%4294967296;return x/4294967296}}
-const bases={SPY:645,NVDA:182,QQQ:575,IWM:225,AAPL:235,MSFT:520,AMZN:230,META:770,GOOGL:205,TSLA:340,AMD:175,AVGO:300,NFLX:1250,UNH:310};
+const bases={SPY:645,QQQ:575,IWM:225,NVDA:182};
 function demoSnapshot(symbol='SPY'){const rnd=seeded([...symbol].reduce((a,c)=>a+c.charCodeAt(0),0));let p=bases[symbol]||100;const daily=[];for(let i=0;i<35;i++){const move=(rnd()-.48)*p*.025,open=p,close=Math.max(1,p+move),hi=Math.max(open,close)*(1+rnd()*.012),lo=Math.min(open,close)*(1-rnd()*.012);daily.push({open,high:hi,low:lo,close,volume:1e7+rnd()*3e7});p=close}const intraday=[];let q=daily.at(-1).close;for(let i=0;i<78;i++){const move=(rnd()-.49)*q*.0025,open=q,close=q+move,high=Math.max(open,close)*(1+rnd()*.0012),low=Math.min(open,close)*(1-rnd()*.0012);intraday.push({open,high,low,close,volume:2e5+rnd()*1.2e6,timestamp:new Date(Date.now()-(77-i)*300000).toISOString()});q=close}const step=q>300?5:q>100?2.5:1,center=Math.round(q/step)*step,options=[];for(const type of ['call','put'])for(let i=-3;i<=3;i++){const strike=center+i*step,otm=type==='call'?Math.max(strike-q,0):Math.max(q-strike,0),base=Math.max(.35,q*.012-otm*.35),mid=base*(.9+rnd()*.3);options.push({symbol:symbol+'-'+type[0].toUpperCase()+'-'+strike,type,strike,expiry:'Nearest',daysToExpiry:1,bid:Math.max(.01,mid-.04),ask:mid+.04,referencePrice:mid,priceSource:'NBBO_MID',iv:.35+rnd()*.35,delta:type==='call'?.25+rnd()*.35:-.25-rnd()*.35,gamma:.01+rnd()*.04,theta:-.05-rnd()*.2,vega:.02+rnd()*.12,volume:100+Math.floor(rnd()*3000),openInterest:300+Math.floor(rnd()*7000)})}return{symbol,daily,intraday,options,timestamp:new Date().toISOString(),mode:'DEMO',provider:'DEMO'}}
 async function fetchSnapshot(symbol){return process.env.MASSIVE_API_KEY?fetchMassiveSnapshot(symbol):demoSnapshot(symbol)}
 const scanCache={expiresAt:0,value:null};
+const speculativeCache={expiresAt:0,value:null,inflight:null};
 function marketTimestampIso(value){
   const raw=Number(value);
   if(!Number.isFinite(raw)||raw<=0)return null;
@@ -393,6 +479,50 @@ async function fetchMarketScan(force=false){
   scanCache.value=value;
   scanCache.expiresAt=Date.now()+60_000;
   return value;
+}
+function normalizeMover(row){
+  const symbol=String(row?.ticker||'').trim().toUpperCase();
+  if(!/^[A-Z]{1,6}(?:[.-][A-Z])?$/.test(symbol)||WATCHLIST.includes(symbol))return null;
+  const day=row.day||{},minute=row.min||{},previous=row.prevDay||{},price=finiteOrNull(day.c??minute.c??row.lastTrade?.p),high=finiteOrNull(day.h),low=finiteOrNull(day.l),open=finiteOrNull(day.o),vwapValue=finiteOrNull(day.vw),previousClose=finiteOrNull(previous.c),volume=finiteOrNull(day.v??minute.av??minute.v),rawChange=finiteOrNull(row.todaysChangePerc),changePct=rawChange??(price!=null&&previousClose>0?(price-previousClose)/previousClose*100:null),updatedAt=marketTimestampIso(row.updated??minute.t??row.lastTrade?.t),ageMinutes=updatedAt?(Date.now()-new Date(updatedAt).getTime())/60000:null,stale=ageMinutes==null||ageMinutes>20,dollarVolume=price!=null&&volume!=null?price*volume:null,rangePct=price>0&&high!=null&&low!=null?(high-low)/price*100:null;
+  if(price==null||price<3||price>500||volume==null||volume<1_000_000||dollarVolume<20_000_000||changePct==null||Math.abs(changePct)<2)return null;
+  const signal=quickSignal({price,open,high,low,vwap:vwapValue,previousClose,changePct,stale}),liquidityPoints=Math.max(0,Math.min(28,(Math.log10(dollarVolume)-7)*11)),speculativeScore=Math.abs(changePct)*6+(rangePct||0)*2+liquidityPoints;
+  return{symbol,price:round(price),high:round(high),low:round(low),open:round(open),vwap:round(vwapValue),previousClose:round(previousClose),changePct:round(changePct,2),distanceToHighPct:round(price!=null&&high>0?Math.max(0,(high-price)/high*100):null,2),volume:Math.round(volume),dollarVolume:Math.round(dollarVolume),rangePct:round(rangePct,2),updatedAt,ageMinutes:round(ageMinutes,1),stale,marketStatus:'options verified',speculativeScore:round(speculativeScore,2),...signal};
+}
+async function activeOptionsContract(symbol){
+  const data=await massiveGet('/v3/reference/options/contracts',{underlying_ticker:symbol,expired:false,'expiration_date.gte':isoDate(new Date()),limit:1,sort:'expiration_date',order:'asc'});
+  return Array.isArray(data.results)&&data.results.length>0;
+}
+async function buildSpeculativeScan(){
+  const directions=['gainers','losers'],responses=await Promise.allSettled(directions.map(direction=>massiveGet('/v2/snapshot/locale/us/markets/stocks/'+direction,{include_otc:false}))),successful=responses.filter(x=>x.status==='fulfilled');
+  if(!successful.length)throw responses.find(x=>x.status==='rejected')?.reason||new Error('Top movers are unavailable');
+  const unique=new Map();
+  for(const response of successful)for(const row of response.value?.tickers||response.value?.results||[]){const item=normalizeMover(row);if(item&&(!unique.has(item.symbol)||item.speculativeScore>unique.get(item.symbol).speculativeScore))unique.set(item.symbol,item)}
+  const candidates=[...unique.values()].sort((a,b)=>b.speculativeScore-a.speculativeScore).slice(0,SPECULATIVE_VERIFY_LIMIT);let verificationFailures=0;
+  const checked=await Promise.all(candidates.map(async item=>{try{return await activeOptionsContract(item.symbol)?{...item,optionsVerified:true}:null}catch{verificationFailures++;return null}}));
+  if(candidates.length&&verificationFailures===candidates.length)throw new Error('Active options verification is temporarily unavailable');
+  const items=checked.filter(Boolean).sort((a,b)=>b.speculativeScore-a.speculativeScore).slice(0,SPECULATIVE_LIMIT),updatedAt=items.map(x=>x.updatedAt).filter(Boolean).sort().at(-1)||new Date().toISOString();
+  return{items,updatedAt,mode:'LIVE',provider:'MASSIVE',candidateCount:candidates.length,verificationFailures,filters:{minPrice:3,maxPrice:500,minVolume:1_000_000,minDollarVolume:20_000_000,minAbsoluteChangePct:2},delayedMinutes:15};
+}
+async function fetchSpeculativeScan(force=false){
+  if(!process.env.MASSIVE_API_KEY)return{items:[],updatedAt:new Date().toISOString(),mode:'DEMO',provider:'DEMO',note:'Automatic options radar requires live Massive data'};
+  if(!force&&speculativeCache.value&&Date.now()<speculativeCache.expiresAt)return speculativeCache.value;
+  if(speculativeCache.inflight)return speculativeCache.inflight;
+  speculativeCache.inflight=(async()=>{
+    try{
+      const value=await buildSpeculativeScan();speculativeCache.value=value;speculativeCache.expiresAt=Date.now()+15*60_000;return value;
+    }catch(error){
+      const message=String(error.message||error).slice(0,240);
+      if(speculativeCache.value){speculativeCache.expiresAt=Date.now()+60_000;return{...speculativeCache.value,cached:true,error:message}}
+      return{items:[],updatedAt:new Date().toISOString(),mode:'LIVE',provider:'MASSIVE',error:message};
+    }
+  })();
+  try{return await speculativeCache.inflight}finally{speculativeCache.inflight=null}
+}
+async function analysisSymbolAllowed(symbol){
+  if(WATCHLIST.includes(symbol))return true;
+  if(!process.env.MASSIVE_API_KEY)return false;
+  const scan=await fetchSpeculativeScan();
+  return(scan.items||[]).some(x=>x.symbol===symbol&&x.optionsVerified===true);
 }
 const telegramState={dayKey:null,sentToday:0,seen:new Set(),lastRunAt:null,lastSentAt:null,lastSignal:null,lastError:null,running:false};
 const GITHUB_OIDC_ISSUER='https://token.actions.githubusercontent.com';
@@ -497,7 +627,7 @@ async function runTelegramSignalScan({ignoreMarketHours=false}={}){
   if(telegramState.lastSentAt&&Date.now()-new Date(telegramState.lastSentAt).getTime()<config.cooldownMinutes*60_000)return null;
   telegramState.running=true;telegramState.lastRunAt=new Date().toISOString();telegramState.lastError=null;
   try{
-    const scan=await fetchMarketScan(true),quickCandidates=(scan.items||[]).filter(x=>['CALL','PUT'].includes(x.signal)&&!x.stale&&Number(x.confidence)>=config.minConfidence).slice(0,config.candidateLimit),detailed=[];
+    const[scan,speculative]=await Promise.all([fetchMarketScan(true),fetchSpeculativeScan()]),quickCandidates=rankScan([...(scan.items||[]),...(speculative.items||[])]).filter(x=>['CALL','PUT'].includes(x.signal)&&!x.stale&&Number(x.confidence)>=config.minConfidence).slice(0,config.candidateLimit),detailed=[];
     for(const candidate of quickCandidates){
       try{
         const snapshot=await fetchSnapshot(candidate.symbol),result=analyze(snapshot,{minConfidence:config.minConfidence});
@@ -573,10 +703,14 @@ const server=http.createServer(async(req,res)=>{
       const result=await fetchMarketScan(url.searchParams.get('force')==='1');
       return sendJSON(res,200,result);
     }
-    const m=url.pathname.match(/^\/api\/analyze\/([A-Za-z.]+)$/);
+    if(req.method==='GET'&&url.pathname==='/api/speculative'){
+      const result=await fetchSpeculativeScan(url.searchParams.get('force')==='1');
+      return sendJSON(res,200,result);
+    }
+    const m=url.pathname.match(/^\/api\/analyze\/([A-Za-z.-]{1,8})$/);
     if(req.method==='GET'&&m){
       const symbol=m[1].toUpperCase();
-      if(!WATCHLIST.includes(symbol))return sendJSON(res,400,{error:'Unsupported symbol'});
+      if(!await analysisSymbolAllowed(symbol))return sendJSON(res,400,{error:'Unsupported symbol'});
       const snap=await fetchSnapshot(symbol),result=analyze(snap,{minConfidence:Number(process.env.MIN_CONFIDENCE||70)});
       if(result.freshness.stale)result.state='NO TRADE';
       return sendJSON(res,200,{...result,mode:snap.mode,provider:snap.provider,optionDataError:snap.optionDataError||null,optionDiagnostics:snap.optionDiagnostics||null,optionChain:optionChainForClient(snap.options,snap.intraday.at(-1).close,result.setup.stockTarget,result.setup.invalidation)});
