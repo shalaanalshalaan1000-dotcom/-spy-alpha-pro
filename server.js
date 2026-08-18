@@ -365,7 +365,7 @@ async function verifyGitHubWorkflowToken(token){
   if(claims.iss!==GITHUB_OIDC_ISSUER||!audiences.includes(GITHUB_OIDC_AUDIENCE))throw new Error('Invalid workflow issuer');
   if(Number(claims.exp)<=now||Number(claims.nbf||0)>now+30||Number(claims.iat)<now-900||Number(claims.iat)>now+60)throw new Error('Expired workflow token');
   if(claims.repository!==GITHUB_REPOSITORY||claims.ref!=='refs/heads/main'||claims.workflow_ref!==GITHUB_WORKFLOW_REF)throw new Error('Workflow is not trusted');
-  if(!['schedule','workflow_dispatch'].includes(claims.event_name)||claims.runner_environment!=='github-hosted')throw new Error('Workflow event is not trusted');
+  if(!['push','schedule','workflow_dispatch'].includes(claims.event_name)||claims.runner_environment!=='github-hosted')throw new Error('Workflow event is not trusted');
   for(const[jti,expiresAt]of githubOidcReplay)if(expiresAt<=now)githubOidcReplay.delete(jti);
   if(!claims.jti||githubOidcReplay.has(claims.jti))throw new Error('Workflow token was already used');
   githubOidcReplay.set(claims.jti,Number(claims.exp));

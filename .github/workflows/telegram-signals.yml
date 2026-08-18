@@ -1,6 +1,10 @@
 name: Telegram signal scanner
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/telegram-signals.yml
   schedule:
     - cron: "2-57/5 9-15 * * 1-5"
       timezone: "America/New_York"
