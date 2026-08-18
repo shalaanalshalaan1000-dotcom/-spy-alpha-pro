@@ -21,11 +21,14 @@ const HTML = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-
 .num{direction:ltr;text-align:left!important}.nearHigh{color:#52e5a5;font-weight:800}.positive{color:#52e5a5}.negative{color:#ff718c}.loadingRow{text-align:center!important;color:#8ea0c0!important}
 .chain{margin-top:12px}.chainControls{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-bottom:10px}.chainControls label{display:grid;gap:5px;color:#8ea0c0;font-size:11px}.chainCount{padding:7px 10px;border:1px solid #334155;border-radius:999px;color:#c8d4ee;font-size:12px;font-weight:800}
 .chainWrap{max-height:680px;overflow:auto;border:1px solid #243149;border-radius:12px}.chainTable{width:100%;border-collapse:separate;border-spacing:0;min-width:1780px}.chainTable th,.chainTable td{padding:10px 11px;border-bottom:1px solid #243149;text-align:right;white-space:nowrap;font-size:12px}.chainTable th{position:sticky;top:0;z-index:1;background:#101827;color:#8ea0c0;font-size:11px}.chainTable tbody tr:hover{background:#121f34}.chainTable tbody tr.suggested{background:#123027;box-shadow:inset -4px 0 #52e5a5}.chainTable tbody tr:last-child td{border-bottom:0}.typeTag,.signalTag{display:inline-flex;justify-content:center;min-width:72px;padding:5px 8px;border-radius:999px;background:#131d31;font-weight:900}.chainNote{margin:8px 0 10px;color:#8ea0c0;font-size:11px;line-height:1.6}.contractCode{direction:ltr;text-align:left!important;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.goldPanel{margin-bottom:12px;border-color:#80652d;background:linear-gradient(145deg,#18170f,#0e1524 52%);box-shadow:inset 0 1px #e7c86b22}.goldHead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}.goldTitle{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.goldTitle h2{margin:0;color:#f4dfa0;font-size:18px}.goldTag{display:inline-flex;padding:6px 9px;border:1px solid #9b7932;border-radius:999px;color:#f5d773;background:#241f10;font-size:11px;font-weight:900;direction:ltr}.goldMetrics{display:grid;grid-template-columns:1.4fr repeat(5,1fr);gap:9px;margin-bottom:12px}.goldMetric{padding:11px 12px;border:1px solid #4d4328;border-radius:12px;background:#111725}.goldMetric span{display:block;color:#a99d79;font-size:11px}.goldMetric strong{display:block;margin-top:6px;font-size:17px;direction:ltr;text-align:right}.goldMetric.price strong{font-size:27px;color:#f5d773}.goldChartWrap{height:440px;border-radius:12px;overflow:hidden;background:#0a0f1a}.goldNote{margin:9px 0 0;color:#a99d79;font-size:11px;line-height:1.7}.goldError{padding:10px;border:1px solid #693044;border-radius:10px;color:#ff8aa0;background:#2b1420;margin-bottom:10px}
 @media(max-width:980px){.hero{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:760px){.hero{grid-template-columns:repeat(2,1fr)}.chartWrap{height:430px}.panelHead{align-items:flex-start}.bestNow{align-items:flex-start;flex-direction:column}.scanTable th,.scanTable td{padding:10px 9px}}
+@media(max-width:980px){.goldMetrics{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:760px){.hero{grid-template-columns:repeat(2,1fr)}.chartWrap{height:430px}.goldChartWrap{height:390px}.goldMetrics{grid-template-columns:repeat(2,1fr)}.goldHead{flex-direction:column}.panelHead{align-items:flex-start}.bestNow{align-items:flex-start;flex-direction:column}.scanTable th,.scanTable td{padding:10px 9px}}
 
-</style></head><body><header><div><h1>SPY Alpha Pro V4</h1><p>Large-Cap Options • Pivot + ATR + Option Pricing</p></div><div class="badge" id="mode">...</div></header><main>
+</style></head><body><header><div><h1>SPY Alpha Pro V4</h1><p>XAUUSD Spot • Large-Cap Options • Pivot + ATR</p></div><div class="badge" id="mode">...</div></header><main>
 <section class="toolbar"><select id="symbol"></select><button id="refresh">تحليل الآن</button><label><input type="checkbox" id="auto" checked> تحديث تلقائي</label><a class="logout" id="logout" href="/logout" hidden>تسجيل الخروج</a></section>
+<article class="goldPanel"><div class="goldHead"><div><div class="goldTitle"><h2>XAUUSD — الذهب الفوري</h2><span class="goldTag">SPOT • NO OPTIONS</span></div><p id="goldMeta" class="scanMeta">جارٍ تحميل القراءة اللحظية…</p></div><button id="goldRefresh" class="compact">تحديث الذهب</button></div><div id="goldError" class="goldError" hidden></div><section class="goldMetrics"><div class="goldMetric price"><span>سعر الأونصة بالدولار</span><strong id="goldPrice">—</strong></div><div class="goldMetric"><span>اتجاه القراءة القصيرة</span><strong id="goldDirection">—</strong></div><div class="goldMetric"><span>التغير خلال نافذة الرصد</span><strong id="goldChange">—</strong></div><div class="goldMetric"><span>أعلى قراءة</span><strong id="goldHigh">—</strong></div><div class="goldMetric"><span>أدنى قراءة</span><strong id="goldLow">—</strong></div><div class="goldMetric"><span>حداثة السعر</span><strong id="goldFreshness">—</strong></div></section><div id="goldChart" class="goldChartWrap"></div><p class="goldNote">قراءة XAU/USD الفورية فقط وليست عقودًا. السعر من Gold API ويُفحص كل 30 ثانية؛ الشارت 5 دقائق من OANDA عبر TradingView وقد يظهر فرق بسيط بين المصدرين.</p></article>
 <section class="hero"><div><span>الإشارة</span><strong id="state">—</strong></div><div><span>الثقة</span><strong id="conf">—</strong></div><div><span>السعر</span><strong id="spot">—</strong></div><div><span>هاي اليوم</span><strong id="dayHigh">—</strong></div><div><span>لو اليوم</span><strong id="dayLow">—</strong></div><div><span>ATR(14) Daily</span><strong id="atr">—</strong></div></section>
 <article class="scanner"><div class="panelHead"><div><h2>إشارات جميع الأسهم</h2><p id="scanMeta" class="scanMeta">تحميل الرادار…</p></div><button id="scanRefresh" class="compact">تحديث الإشارات</button></div><div id="scanBest" class="bestNow"><span>جارٍ حساب أقوى إشارة</span><strong>—</strong></div><div class="tableWrap"><table class="scanTable"><thead><tr><th>الرمز</th><th>الإشارة</th><th class="num">التأكيد</th><th class="num">السعر</th><th class="num">هاي اليوم</th><th class="num">عن الهاي</th><th class="num">تغير اليوم</th><th>السوق</th></tr></thead><tbody id="scanBody"><tr><td colspan="8" class="loadingRow">جارٍ التحميل…</td></tr></tbody></table></div></article>
 <article class="chartCard"><div class="panelHead"><h2>الشارت — <span id="chartSymbol">SPY</span></h2><span class="small">5 دقائق • TradingView</span></div><div id="chart" class="chartWrap"></div><p class="chartNote">الشارت من TradingView، وأرقام الهاي والتحليل من Massive حسب تأخير باقة البيانات.</p></article>
@@ -34,12 +37,13 @@ const HTML = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-
 <article class="chain"><div class="panelHead"><div><h2>سلسلة العقود كاملة — <span id="chainSymbol">SPY</span></h2><p class="scanMeta">كل العقود التي وصلت من Massive حتى 14 يومًا؛ العقد المقترح مميز بالأخضر.</p></div><span id="chainCount" class="chainCount">—</span></div><div class="chainControls"><label>نوع العقد<select id="chainType"><option value="ALL">CALL + PUT</option><option value="CALL">CALL فقط</option><option value="PUT">PUT فقط</option></select></label><label>تاريخ الانتهاء<select id="chainExpiry"><option value="ALL">كل التواريخ</option></select></label></div><div id="chainNote" class="chainNote">جارٍ تحميل العقود…</div><div class="chainWrap"><table class="chainTable"><thead><tr><th>العقد</th><th>النوع</th><th>الانتهاء</th><th class="num">DTE</th><th class="num">Strike</th><th class="num">بيع Bid</th><th class="num">شراء Ask</th><th class="num">السعر</th><th class="num">الهدف %</th><th class="num">الوقف %</th><th class="num">IV %</th><th class="num">Delta</th><th class="num">Gamma</th><th class="num">Theta</th><th class="num">Volume</th><th class="num">OI</th><th class="num">Spread</th><th>مصدر السعر</th></tr></thead><tbody id="optionChainBody"><tr><td colspan="18" class="loadingRow">جارٍ التحميل…</td></tr></tbody></table></div></article>
 <article><h2>سبب الإشارة</h2><ul id="reasons"></ul></article><p class="risk">أداة تحليلية وليست ضمانًا للربح. يتم خفض الإشارة عند ضعف السيولة أو استهلاك ATR أو سوء RR، وتُعرض NO TRADE عند البيانات القديمة.</p>
 </main><script>
-const $=s=>document.querySelector(s); let cfg,activeChartSymbol=null,scanLoading=false,analysisSeq=0,allContracts=[],suggestedContractSymbol=null;
+const $=s=>document.querySelector(s); let cfg,activeChartSymbol=null,scanLoading=false,goldLoading=false,goldChartReady=false,analysisSeq=0,allContracts=[],suggestedContractSymbol=null;
 const TV_EXCHANGE={SPY:'AMEX',QQQ:'NASDAQ',IWM:'AMEX',NVDA:'NASDAQ',AAPL:'NASDAQ',MSFT:'NASDAQ',AMZN:'NASDAQ',META:'NASDAQ',GOOGL:'NASDAQ',TSLA:'NASDAQ',AMD:'NASDAQ',AVGO:'NASDAQ',NFLX:'NASDAQ',UNH:'NYSE'};
 const kv=(k,v)=>'<div class="kv"><span class="muted">'+k+'</span><b>'+(v??'—')+'</b></div>';
 const money=v=>v==null?'—':'$'+Number(v).toFixed(2); const pct=v=>v==null?'—':Number(v).toFixed(1)+'%';
 const sourceLabel=s=>({NBBO_MID:'Bid/Ask',LAST_TRADE:'آخر صفقة',DELAYED_DAY_CLOSE:'إغلاق متأخر',DELAYED_DAY_VWAP:'VWAP متأخر'}[s]||s||'—');
 const signedPct=v=>v==null?'—':(Number(v)>0?'+':'')+Number(v).toFixed(1)+'%';
+const signedGoldPct=v=>v==null?'—':(Number(v)>0?'+':'')+Number(v).toFixed(3)+'%';
 const whole=v=>v==null?'—':Number(v).toLocaleString('en-US');
 function prepareOptionChain(symbol){
   if($('#chainSymbol').textContent===symbol)return;
@@ -87,6 +91,45 @@ function renderChart(symbol){
   script.async=true;
   script.textContent=JSON.stringify({autosize:true,symbol:tvSymbol(symbol),interval:'5',timezone:'America/New_York',theme:'dark',backgroundColor:'rgba(8, 11, 18, 1)',style:'1',locale:'en',allow_symbol_change:false,hide_side_toolbar:false,withdateranges:true,save_image:false,details:false,hotlist:false,calendar:false,support_host:'https://www.tradingview.com'});
   host.firstElementChild.appendChild(script);
+}
+function renderGoldChart(){
+  if(goldChartReady)return;
+  goldChartReady=true;
+  const host=$('#goldChart');
+  host.innerHTML='<div class="tradingview-widget-container" style="height:100%;width:100%"><div class="tradingview-widget-container__widget" style="height:calc(100% - 28px);width:100%"></div><div class="tradingview-widget-copyright" style="height:28px;padding-top:5px;text-align:center;font-size:11px"><a href="https://www.tradingview.com/symbols/XAUUSD/" rel="noopener nofollow" target="_blank" style="color:#a99d79">XAUUSD chart by TradingView</a></div></div>';
+  const script=document.createElement('script');
+  script.src='https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
+  script.type='text/javascript';
+  script.async=true;
+  script.textContent=JSON.stringify({autosize:true,symbol:'OANDA:XAUUSD',interval:'5',timezone:'Etc/UTC',theme:'dark',backgroundColor:'rgba(8, 11, 18, 1)',style:'1',locale:'en',allow_symbol_change:false,hide_side_toolbar:false,withdateranges:true,save_image:false,details:false,hotlist:false,calendar:false,support_host:'https://www.tradingview.com'});
+  host.firstElementChild.appendChild(script);
+}
+const goldAgeLabel=seconds=>{const age=Math.max(0,Number(seconds)||0);if(age<5)return'الآن';if(age<60)return Math.round(age)+' ث';return Math.round(age/60)+' د'};
+async function loadGold(){
+  if(goldLoading)return;
+  goldLoading=true;
+  $('#goldRefresh').disabled=true;
+  $('#goldError').hidden=true;
+  try{
+    const r=await fetch('/api/gold',{cache:'no-store'}),d=await r.json();
+    if(!r.ok||d.error)throw new Error(d.error||'Gold request failed');
+    const labels={UP:'صاعد',DOWN:'هابط',FLAT:'متوازن',COLLECTING:'جمع البيانات'},classes={UP:'positive',DOWN:'negative',FLAT:'WATCH',COLLECTING:'muted'};
+    $('#goldPrice').textContent=money(d.price);
+    $('#goldDirection').textContent=labels[d.direction]||'—';
+    $('#goldDirection').className=classes[d.direction]||'';
+    $('#goldChange').textContent=signedGoldPct(d.changePct);
+    $('#goldChange').className=d.changePct==null?'':(d.changePct>=0?'positive':'negative');
+    $('#goldHigh').textContent=money(d.windowHigh);
+    $('#goldLow').textContent=money(d.windowLow);
+    $('#goldFreshness').textContent=goldAgeLabel(d.ageSeconds);
+    $('#goldFreshness').className=d.stale?'negative':'positive';
+    $('#goldMeta').textContent='Gold API • آخر تحديث '+new Date(d.updatedAt).toLocaleTimeString('ar-SA',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+' • نافذة الرصد '+(d.windowMinutes<1?'< 1':Math.round(d.windowMinutes))+' د';
+    if(d.upstreamError){$('#goldError').textContent='تعذر تحديث المصدر؛ آخر سعر محفوظ معروض الآن.';$('#goldError').hidden=false;}
+  }catch(e){
+    $('#goldMeta').textContent='تعذر تحميل قراءة الذهب';
+    $('#goldError').textContent=e.message;
+    $('#goldError').hidden=false;
+  }finally{goldLoading=false;$('#goldRefresh').disabled=false;}
 }
 const fmtScanTime=v=>{if(!v)return'غير معروف';try{return new Intl.DateTimeFormat('ar-SA',{hour:'2-digit',minute:'2-digit',timeZone:'America/New_York'}).format(new Date(v))+' نيويورك'}catch{return new Date(v).toISOString()}};
 function renderScan(d){
@@ -164,15 +207,18 @@ async function analyze(){
 }
 $('#refresh').onclick=()=>{analyze();loadScan(true)};
 $('#scanRefresh').onclick=()=>loadScan(true);
+$('#goldRefresh').onclick=loadGold;
 $('#symbol').onchange=analyze;
 $('#scanBody').onclick=e=>{const row=e.target.closest('tr[data-symbol]');if(row)selectSymbol(row.dataset.symbol)};
 $('#chainType').onchange=renderOptionChain;
 $('#chainExpiry').onchange=renderOptionChain;
 (async()=>{
   await loadConfig();
-  await Promise.all([analyze(),loadScan()]);
+  renderGoldChart();
+  await Promise.all([analyze(),loadScan(),loadGold()]);
   setInterval(()=>{if($('#auto').checked)analyze()},30000);
   setInterval(()=>{if($('#auto').checked)loadScan()},60000);
+  setInterval(()=>{if($('#auto').checked)loadGold()},30000);
 })();
 </script></body></html>`;
 
@@ -466,6 +512,38 @@ function startTelegramWorker(){
   const timer=setInterval(()=>void runTelegramSignalScan(),config.scanSeconds*1000);timer.unref();
   console.log('Telegram signal worker enabled — max '+config.maxPerDay+'/day, every '+config.scanSeconds+'s');
 }
+const GOLD_SPOT_URL='https://api.gold-api.com/price/XAU';
+const goldCache={expiresAt:0,value:null};
+const goldSamples=[];
+function goldReading(value,{upstreamError=null}={}){
+  const now=Date.now(),cutoff=now-60*60_000;
+  while(goldSamples.length&&goldSamples[0].observedAt<cutoff)goldSamples.shift();
+  if(goldSamples.length>120)goldSamples.splice(0,goldSamples.length-120);
+  const oldest=goldSamples[0]||{price:value.price,observedAt:now},prices=goldSamples.map(x=>x.price),changePct=oldest.price>0?(value.price-oldest.price)/oldest.price*100:null;
+  let direction='COLLECTING';
+  if(goldSamples.length>=3)direction=Math.abs(changePct)<.02?'FLAT':changePct>0?'UP':'DOWN';
+  const updatedMs=new Date(value.updatedAt).getTime(),ageSeconds=Math.max(0,Math.round((now-updatedMs)/1000));
+  return{symbol:'XAUUSD',asset:'Gold Spot / U.S. Dollar',kind:'SPOT',hasOptions:false,currency:'USD',price:round(value.price),updatedAt:value.updatedAt,observedAt:new Date(now).toISOString(),ageSeconds,stale:ageSeconds>120,direction,changePct:round(changePct,3),windowHigh:round(Math.max(...prices,value.price)),windowLow:round(Math.min(...prices,value.price)),windowMinutes:round(Math.max(0,(now-oldest.observedAt)/60_000),1),sampleCount:goldSamples.length,source:'Gold API',upstreamError};
+}
+async function fetchGoldSpot(){
+  const now=Date.now();
+  if(now>=goldCache.expiresAt){
+    try{
+      const response=await fetch(GOLD_SPOT_URL,{headers:{accept:'application/json'},signal:AbortSignal.timeout(10_000)}),data=await response.json().catch(()=>({})),price=Number(data.price),updatedAt=new Date(data.updatedAt);
+      if(!response.ok||!Number.isFinite(price)||price<=0||Number.isNaN(updatedAt.getTime()))throw new Error('Gold API returned an invalid spot price');
+      const value={price,updatedAt:updatedAt.toISOString()};
+      goldCache.value=value;
+      goldCache.expiresAt=now+30_000;
+      const last=goldSamples.at(-1);
+      if(!last||last.updatedAt!==value.updatedAt||last.price!==value.price)goldSamples.push({...value,observedAt:now});
+    }catch(error){
+      if(!goldCache.value)throw error;
+      goldCache.expiresAt=now+10_000;
+      return goldReading(goldCache.value,{upstreamError:String(error.message||error).slice(0,180)});
+    }
+  }
+  return goldReading(goldCache.value);
+}
 function currentMode(){return process.env.MASSIVE_API_KEY?{mode:'LIVE',provider:'MASSIVE'}:{mode:'DEMO',provider:'DEMO'}}
 const sendJSON=(res,status,obj)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify(obj))};
 const server=http.createServer(async(req,res)=>{
@@ -506,6 +584,7 @@ const server=http.createServer(async(req,res)=>{
       return sendHTML(res,200,HTML);
     }
     if(req.method==='GET'&&url.pathname==='/api/config')return sendJSON(res,200,{watchlist:WATCHLIST,minConfidence:Number(process.env.MIN_CONFIDENCE||70),user:session?.email||null,...currentMode()});
+    if(req.method==='GET'&&url.pathname==='/api/gold')return sendJSON(res,200,await fetchGoldSpot());
     if(req.method==='GET'&&url.pathname==='/api/telegram/status')return sendJSON(res,200,telegramPublicStatus());
     if(req.method==='POST'&&url.pathname==='/api/telegram/test'){
       if(!authEnabled()||!session)return sendJSON(res,403,{error:'Enable authenticated access before using the Telegram test'});
