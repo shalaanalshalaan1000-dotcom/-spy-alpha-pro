@@ -2,7 +2,7 @@
 
 Flat Render build: no `src/` and no `public/` folders.
 
-The dashboard is gold-first. Its fixed equity/ETF list is `SPY`, `QQQ`, `IWM`, and `NVDA`; a separate automatic radar can temporarily add verified speculative stocks with active options.
+The dashboard is gold-first. Its four core equity/ETF symbols are `SPY`, `QQQ`, `IWM`, and `NVDA`. `SPX` is available as a separate 0DTE index path, while an automatic radar can temporarily add verified speculative stocks with active options.
 
 ## XAUUSD spot reading
 
@@ -20,7 +20,21 @@ The dashboard includes a separate XAU/USD spot panel, intentionally outside the 
 
 The live radar pulls the top US stock gainers and losers from Massive, then applies minimum price, absolute daily move, share-volume, and dollar-volume filters. It verifies every displayed ticker against Massive's active options-contract reference endpoint before adding it to the selector. Up to six names are cached for 15 minutes; the four fixed symbols remain unchanged.
 
-The automatic Telegram worker considers both the four fixed symbols and current verified radar symbols. Demo mode does not invent speculative candidates.
+The automatic Telegram worker considers the four core symbols, the independent SPX path, and current verified radar symbols. Demo mode does not invent speculative candidates.
+
+## Independent SPX 0DTE path
+
+SPX does not reuse the core ETF rules. Its market bars are requested from Massive as `I:SPX`, while its option-chain underlying is `SPX`.
+
+- Suggestions are enabled only from 15:30 through 15:58 ET on US trading days.
+- Only same-day-expiration (`0DTE`) contracts are requested.
+- A suggested contract must be strictly OTM and priced at no more than `$1.50` (`$150` per contract before fees).
+- The regular minimum confidence remains 70%, and contracts must pass the existing spread and liquidity checks.
+- Because an index has no share volume, SPX VWAP/RVOL confirmation uses aligned `SPY` volume as a market-activity reference.
+- Outside the time window, or when the data is stale, SPX remains `NO TRADE` and no contract is suggested.
+- Massive Indices access is required. Indices Starter provides 15-minute-delayed intraday data; an EOD-only index plan is intentionally treated as stale during the session.
+
+If index access is unavailable, only the SPX row shows an entitlement warning; `SPY`, `QQQ`, `IWM`, and `NVDA` continue loading normally.
 
 ## Required Render environment variable
 - `MASSIVE_API_KEY`
