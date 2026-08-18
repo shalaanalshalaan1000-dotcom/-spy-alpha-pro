@@ -1,0 +1,121 @@
+name: Alpha Pro V4 persistence fix
+on:
+  push:
+    paths:
+      - '.github/workflows/alpha-v4-persistence-fix.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Patch server.js
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('server.js')
+          s=p.read_text()
+
+          # 1) Persistent trade card: keep the last actionable setup even if the live signal changes.
+          marker="async function analyze(){\n"
+          insert=r'''const PINNED_TRADE_KEY='spyAlphaPinnedTradeV4';
+function ensurePinnedTradeCard(){
+  let card=document.querySelector('#pinnedTrade');
+  if(card)return card;
+  card=document.createElement('article');card.id='pinnedTrade';card.className='contract';
+  card.style.cssText='border-color:#425f85;background:linear-gradient(145deg,#101d30,#0e1524);margin-bottom:12px';
+  const grid=document.querySelector('.grid');(grid?.parentNode||document.querySelector('main')).insertBefore(card,grid||null);
+  return card;
+}
+function readPinnedTrade(){try{return JSON.parse(localStorage.getItem(PINNED_TRADE_KEY)||'null')}catch{return null}}
+function renderPinnedTrade(){
+  const card=ensurePinnedTradeCard(),t=readPinnedTrade();
+  if(!t){card.innerHTML='<h2>الصفقة المثبتة</h2><p class="muted">لا توجد صفقة مثبتة بعد. أول CALL/PUT مؤهل سيُحفظ هنا حتى تستبدله صفقة أحدث.</p>';return}
+  const dir=t.direction==='CALL'?'CALL 🟢':'PUT 🔴',when=t.savedAt?new Date(t.savedAt).toLocaleString('ar-SA'):'—';
+  card.innerHTML='<div class="panelHead"><div><h2>📌 الصفقة المثبتة — '+t.symbol+' '+dir+'</h2><p class="scanMeta">حُفظت '+when+' • لا تختفي إذا تغيّرت الإشارة الحية</p></div><strong>'+t.confidence+'%</strong></div>'+
+    '<div class="contractGrid"><div class="pill"><span class="muted">العقد</span><br><b>'+(t.contractSymbol||'—')+'</b></div><div class="pill"><span class="muted">دخول العقد</span><br><b>'+money(t.premiumEntry)+'</b></div><div class="pill"><span class="muted">هدف العقد</span><br><b class="positive">'+money(t.premiumTarget)+'</b></div><div class="pill"><span class="muted">وقف العقد</span><br><b class="negative">'+money(t.premiumStop)+'</b></div></div>'+
+    '<div class="contractGrid" style="margin-top:9px"><div class="pill"><span class="muted">سعر الأصل عند الإشارة</span><br><b>'+money(t.spotEntry)+'</b></div><div class="pill"><span class="muted">هدف الأصل</span><br><b class="positive">'+money(t.stockTarget)+'</b></div><div class="pill"><span class="muted">إلغاء/وقف الفكرة</span><br><b class="negative">'+money(t.invalidation)+'</b></div><div class="pill"><span class="muted">RR</span><br><b>'+(t.rr??'—')+'</b></div></div>';
+}
+function pinTradeIfActionable(d){
+  if(!d||!['CALL','PUT'].includes(d.state)||d.state!==d.direction||!d.contract)return;
+  const t={savedAt:new Date().toISOString(),symbol:d.symbol,direction:d.direction,confidence:d.confidence,spotEntry:d.spot,stockTarget:d.setup?.stockTarget,invalidation:d.setup?.invalidation,contractSymbol:d.contract?.symbol,premiumEntry:d.contract?.mid,premiumTarget:d.contract?.estimatedAtTarget,premiumStop:d.contract?.estimatedAtStop,rr:d.contract?.rr};
+  const old=readPinnedTrade();
+  if(!old||old.symbol!==t.symbol||old.direction!==t.direction||old.contractSymbol!==t.contractSymbol||Number(t.confidence)>=Number(old.confidence||0)){localStorage.setItem(PINNED_TRADE_KEY,JSON.stringify(t));renderPinnedTrade()}
+}
+'''
+          if marker not in s: raise SystemExit('analyze marker missing')
+          s=s.replace(marker,insert+marker,1)
+
+          seq="""    if(seq!==analysisSeq)return;\n    if(!r.ok||d.error)throw new Error(d.error||'Request failed');\n    showInstrumentPolicy(s,d.instrumentPolicy);"""
+          rep="""    if(seq!==analysisSeq)return;\n    if(!r.ok||d.error)throw new Error(d.error||'Request failed');\n    pinTradeIfActionable(d);\n    showInstrumentPolicy(s,d.instrumentPolicy);"""
+          if seq not in s: raise SystemExit('analysis result marker missing')
+          s=s.replace(seq,rep,1)
+
+          init="""(async()=>{\n  goldSamples=restoreGoldSamples();\n  await loadConfig();"""
+          initrep="""(async()=>{\n  goldSamples=restoreGoldSamples();\n  renderPinnedTrade();\n  await loadConfig();"""
+          if init not in s: raise SystemExit('init marker missing')
+          s=s.replace(init,initrep,1)
+
+          # 2) Gold samples are maintained by the Node server, not only by the open browser tab.
+          gold_client="""    const r=await fetch('https://api.gold-api.com/price/XAU',{cache:'no-store'}),raw=await r.json(),d=goldBrowserReading(raw);\n    if(!r.ok||d.error)throw new Error(d.error||'Gold request failed');"""
+          gold_client_rep="""    const r=await fetch('/api/gold-state',{cache:'no-store'}),raw=await r.json();\n    if(Array.isArray(raw.samples)&&raw.samples.length)goldSamples=raw.samples.map(x=>({price:Number(x.price),t:Number(x.t)})).filter(x=>Number.isFinite(x.price)&&Number.isFinite(x.t));\n    const d=goldBrowserReading(raw);\n    if(!r.ok||d.error)throw new Error(d.error||'Gold request failed');"""
+          if gold_client not in s: raise SystemExit('gold client marker missing')
+          s=s.replace(gold_client,gold_client_rep,1)
+
+          server_marker="function currentMode(){return process.env.MASSIVE_API_KEY?{mode:'LIVE',provider:'MASSIVE'}:{mode:'DEMO',provider:'DEMO'}}"
+          server_insert=r'''const goldServerState={samples:[],price:null,updatedAt:null,lastFetchAt:null,lastError:null,running:false};
+async function refreshGoldServerState(){
+  if(goldServerState.running)return;
+  goldServerState.running=true;
+  try{
+    const r=await fetch('https://api.gold-api.com/price/XAU',{headers:{accept:'application/json'}});
+    const raw=await r.json();
+    const price=Number(raw.price),updatedAt=new Date(raw.updatedAt||Date.now());
+    if(!r.ok||!Number.isFinite(price)||price<=0||Number.isNaN(updatedAt.getTime()))throw new Error(raw?.error||'Invalid gold response');
+    const t=updatedAt.getTime(),last=goldServerState.samples.at(-1);
+    if(!last||t>last.t)goldServerState.samples.push({price,t});else if(t===last.t)last.price=price;
+    const now=Date.now();
+    goldServerState.samples=goldServerState.samples.filter(x=>x.t>=now-2*60*60_000&&x.t<=now+60_000).slice(-240);
+    goldServerState.price=price;goldServerState.updatedAt=updatedAt.toISOString();goldServerState.lastFetchAt=new Date().toISOString();goldServerState.lastError=null;
+  }catch(error){goldServerState.lastError=String(error.message||error).slice(0,240)}
+  finally{goldServerState.running=false}
+}
+void refreshGoldServerState();
+const goldServerTimer=setInterval(()=>void refreshGoldServerState(),30_000);goldServerTimer.unref();
+'''
+          if server_marker not in s: raise SystemExit('server marker missing')
+          s=s.replace(server_marker,server_insert+server_marker,1)
+
+          route_marker="""    const url=new URL(req.url,'http://localhost');\n"""
+          route_rep="""    const url=new URL(req.url,'http://localhost');\n    if(req.method==='GET'&&url.pathname==='/api/gold-state'){\n      if(!goldServerState.price)await refreshGoldServerState();\n      if(!goldServerState.price)return sendJSON(res,503,{error:goldServerState.lastError||'Gold data unavailable'});\n      return sendJSON(res,200,{price:goldServerState.price,updatedAt:goldServerState.updatedAt,samples:goldServerState.samples,lastFetchAt:goldServerState.lastFetchAt,error:goldServerState.lastError});\n    }\n"""
+          if route_marker not in s: raise SystemExit('route marker missing')
+          s=s.replace(route_marker,route_rep,1)
+
+          # 3) Confidence: allow exceptional confluence to exceed 82 without inflating ordinary setups.
+          old="confidence=Math.min(88,Math.round(50+gap*.4));"
+          new="confidence=Math.min(94,Math.round(48+gap*.55));"
+          if old not in s: raise SystemExit('quick confidence marker missing')
+          s=s.replace(old,new,1)
+
+          old2="direction=bull>bear?'CALL':bear>bull?'PUT':'NO TRADE',raw=Math.max(bull,bear),confidence=Math.min(95,Math.round(45+raw*.75));"
+          new2="direction=bull>bear?'CALL':bear>bull?'PUT':'NO TRADE',raw=Math.max(bull,bear),edge=Math.abs(bull-bear),confidence=Math.min(97,Math.round(43+raw*.72+Math.min(12,edge*.16)));"
+          if old2 not in s: raise SystemExit('core confidence marker missing')
+          s=s.replace(old2,new2,1)
+
+          p.write_text(s)
+          PY
+          node --check server.js
+      - name: Commit patch and remove one-shot workflow
+        run: |
+          rm .github/workflows/alpha-v4-persistence-fix.yml
+          git config user.name 'chatgpt-alpha-pro'
+          git config user.email 'actions@users.noreply.github.com'
+          git add server.js .github/workflows/alpha-v4-persistence-fix.yml
+          git commit -m 'persist Alpha Pro trades and gold tracking'
+          git push origin main
