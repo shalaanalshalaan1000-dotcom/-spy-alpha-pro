@@ -1,0 +1,33 @@
+name: Telegram signal scanner
+
+on:
+  schedule:
+    - cron: "2-57/5 9-15 * * 1-5"
+      timezone: "America/New_York"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: spy-alpha-pro-telegram-scanner
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Wake Render and scan
+        env:
+          SIGNAL_ENDPOINT: https://spy-alpha-pro-1.onrender.com/api/telegram/run
+        run: |
+          set -euo pipefail
+          token_json="$(curl --fail --silent --show-error \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=spy-alpha-pro-v4-render")"
+          id_token="$(printf '%s' "$token_json" | jq -er '.value')"
+          curl --fail-with-body --silent --show-error \
+            --retry 5 --retry-delay 8 --connect-timeout 20 --max-time 180 \
+            -X POST -H "Authorization: Bearer ${id_token}" "$SIGNAL_ENDPOINT"

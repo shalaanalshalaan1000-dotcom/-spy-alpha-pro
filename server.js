@@ -1,4 +1,5 @@
 import http from 'node:http';
+import {createHmac,createPublicKey,randomBytes,timingSafeEqual,verify as verifySignature} from 'node:crypto';
 
 const PORT = Number(process.env.PORT || 3000);
 const MASSIVE_BASE = 'https://api.massive.com';
@@ -6,7 +7,7 @@ const WATCHLIST = ['SPY','NVDA','QQQ','IWM','AAPL','MSFT','AMZN','META','GOOGL',
 const INDEX_ETFS = new Set(['SPY','QQQ','IWM']);
 
 const HTML = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SPY Alpha Pro V4</title><style>
-:root{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;background:#080b12;color:#eef2ff}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#111a2d,#080b12 42%);min-height:100vh}header{display:flex;justify-content:space-between;align-items:center;padding:20px max(16px,5vw);border-bottom:1px solid #26324a;background:#0c111ddd;position:sticky;top:0;backdrop-filter:blur(12px);z-index:2}h1{margin:0;font-size:25px}header p{margin:4px 0 0;color:#93a4c5;font-size:12px}.badge{padding:8px 12px;border:1px solid #405071;border-radius:999px;font-weight:800}main{max-width:1120px;margin:auto;padding:18px}.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}select,button{background:#111827;color:white;border:1px solid #334155;border-radius:10px;padding:10px 14px;font-weight:800}button{cursor:pointer}.hero{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}.hero>div,article{background:#0e1524;border:1px solid #243149;border-radius:16px;padding:15px}.hero span{display:block;color:#8ea0c0;font-size:12px}.hero strong{font-size:23px;display:block;margin-top:6px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}h2{font-size:15px;margin:0 0 12px;color:#c8d4ee}.kv{display:grid;grid-template-columns:1fr auto;gap:8px;padding:7px 0;border-bottom:1px dashed #26344e}.kv:last-child{border:0}.muted{color:#8ea0c0}.contract{margin-top:10px}.contractGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}.pill{padding:8px;background:#131d31;border-radius:10px;overflow-wrap:anywhere}.risk{color:#8b98b3;font-size:12px;line-height:1.7}.CALL{color:#52e5a5}.PUT{color:#ff718c}.WATCH{color:#ffd166}.NO-TRADE{color:#a3acc0}.warn{color:#ffd166;font-size:12px}.err{color:#ff718c}.small{font-size:11px;color:#8ea0c0}@media(max-width:760px){.hero{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.contractGrid{grid-template-columns:repeat(2,1fr)}header{padding:14px}main{padding:12px}}
+:root{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;background:#080b12;color:#eef2ff}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#111a2d,#080b12 42%);min-height:100vh}header{display:flex;justify-content:space-between;align-items:center;padding:20px max(16px,5vw);border-bottom:1px solid #26324a;background:#0c111ddd;position:sticky;top:0;backdrop-filter:blur(12px);z-index:2}h1{margin:0;font-size:25px}header p{margin:4px 0 0;color:#93a4c5;font-size:12px}.badge{padding:8px 12px;border:1px solid #405071;border-radius:999px;font-weight:800}main{max-width:1120px;margin:auto;padding:18px}.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}.toolbar .logout{margin-inline-start:auto;color:#b9c7e4;text-decoration:none;border:1px solid #334155;border-radius:10px;padding:9px 12px;font-weight:800;font-size:12px}select,button{background:#111827;color:white;border:1px solid #334155;border-radius:10px;padding:10px 14px;font-weight:800}button{cursor:pointer}.hero{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}.hero>div,article{background:#0e1524;border:1px solid #243149;border-radius:16px;padding:15px}.hero span{display:block;color:#8ea0c0;font-size:12px}.hero strong{font-size:23px;display:block;margin-top:6px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}h2{font-size:15px;margin:0 0 12px;color:#c8d4ee}.kv{display:grid;grid-template-columns:1fr auto;gap:8px;padding:7px 0;border-bottom:1px dashed #26344e}.kv:last-child{border:0}.muted{color:#8ea0c0}.contract{margin-top:10px}.contractGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}.pill{padding:8px;background:#131d31;border-radius:10px;overflow-wrap:anywhere}.risk{color:#8b98b3;font-size:12px;line-height:1.7}.CALL{color:#52e5a5}.PUT{color:#ff718c}.WATCH{color:#ffd166}.NO-TRADE{color:#a3acc0}.warn{color:#ffd166;font-size:12px}.err{color:#ff718c}.small{font-size:11px;color:#8ea0c0}@media(max-width:760px){.hero{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.contractGrid{grid-template-columns:repeat(2,1fr)}header{padding:14px}main{padding:12px}}
 
 .hero{grid-template-columns:repeat(6,minmax(0,1fr))}
 .chartCard,.scanner{margin-bottom:12px}
@@ -24,7 +25,7 @@ const HTML = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-
 @media(max-width:760px){.hero{grid-template-columns:repeat(2,1fr)}.chartWrap{height:430px}.panelHead{align-items:flex-start}.bestNow{align-items:flex-start;flex-direction:column}.scanTable th,.scanTable td{padding:10px 9px}}
 
 </style></head><body><header><div><h1>SPY Alpha Pro V4</h1><p>Large-Cap Options • Pivot + ATR + Option Pricing</p></div><div class="badge" id="mode">...</div></header><main>
-<section class="toolbar"><select id="symbol"></select><button id="refresh">تحليل الآن</button><label><input type="checkbox" id="auto" checked> تحديث تلقائي</label></section>
+<section class="toolbar"><select id="symbol"></select><button id="refresh">تحليل الآن</button><label><input type="checkbox" id="auto" checked> تحديث تلقائي</label><a class="logout" id="logout" href="/logout" hidden>تسجيل الخروج</a></section>
 <section class="hero"><div><span>الإشارة</span><strong id="state">—</strong></div><div><span>الثقة</span><strong id="conf">—</strong></div><div><span>السعر</span><strong id="spot">—</strong></div><div><span>هاي اليوم</span><strong id="dayHigh">—</strong></div><div><span>لو اليوم</span><strong id="dayLow">—</strong></div><div><span>ATR(14) Daily</span><strong id="atr">—</strong></div></section>
 <article class="scanner"><div class="panelHead"><div><h2>إشارات جميع الأسهم</h2><p id="scanMeta" class="scanMeta">تحميل الرادار…</p></div><button id="scanRefresh" class="compact">تحديث الإشارات</button></div><div id="scanBest" class="bestNow"><span>جارٍ حساب أقوى إشارة</span><strong>—</strong></div><div class="tableWrap"><table class="scanTable"><thead><tr><th>الرمز</th><th>الإشارة</th><th class="num">التأكيد</th><th class="num">السعر</th><th class="num">هاي اليوم</th><th class="num">عن الهاي</th><th class="num">تغير اليوم</th><th>السوق</th></tr></thead><tbody id="scanBody"><tr><td colspan="8" class="loadingRow">جارٍ التحميل…</td></tr></tbody></table></div></article>
 <article class="chartCard"><div class="panelHead"><h2>الشارت — <span id="chartSymbol">SPY</span></h2><span class="small">5 دقائق • TradingView</span></div><div id="chart" class="chartWrap"></div><p class="chartNote">الشارت من TradingView، وأرقام الهاي والتحليل من Massive حسب تأخير باقة البيانات.</p></article>
@@ -72,7 +73,7 @@ function setOptionChain(items,suggested,diagnostics={}){
   $('#chainNote').textContent=allContracts.length?('تم تحميل '+allContracts.length+' عقد'+(quotes===0?' • باقة Starter لا تعرض Bid/Ask؛ السعر مرجعي ومتأخر.':' • اضغط المرشحات لتضييق القائمة.')):'لم تصل عقود من مزود البيانات.';
   renderOptionChain();
 }
-async function loadConfig(){cfg=await fetch('/api/config',{cache:'no-store'}).then(r=>r.json()); $('#mode').textContent=cfg.mode+' / '+cfg.provider; $('#symbol').innerHTML=cfg.watchlist.map(s=>'<option>'+s+'</option>').join('');}
+async function loadConfig(){cfg=await fetch('/api/config',{cache:'no-store'}).then(r=>r.json()); $('#mode').textContent=cfg.mode+' / '+cfg.provider; $('#symbol').innerHTML=cfg.watchlist.map(s=>'<option>'+s+'</option>').join(''); $('#logout').hidden=!cfg.user;}
 const tvSymbol=s=>(TV_EXCHANGE[s]||'NASDAQ')+':'+s;
 function renderChart(symbol){
   if(activeChartSymbol===symbol)return;
@@ -174,6 +175,63 @@ $('#chainExpiry').onchange=renderOptionChain;
   setInterval(()=>{if($('#auto').checked)loadScan()},60000);
 })();
 </script></body></html>`;
+
+const AUTH_COOKIE='spy_alpha_session';
+const OAUTH_STATE_COOKIE='spy_alpha_oauth_state';
+const normalizeEmail=value=>String(value||'').trim().toLowerCase();
+const allowedEmails=()=>new Set(String(process.env.ALLOWED_EMAILS||'').split(',').map(normalizeEmail).filter(Boolean));
+const authEnabled=()=>String(process.env.AUTH_ENABLED||'false').toLowerCase()==='true';
+const authReady=()=>authEnabled()&&allowedEmails().size>0&&Boolean(process.env.GOOGLE_CLIENT_ID&&process.env.GOOGLE_CLIENT_SECRET&&String(process.env.SESSION_SECRET||'').length>=32);
+function parseCookies(req){
+  const out={};
+  for(const part of String(req.headers.cookie||'').split(';')){
+    const i=part.indexOf('=');
+    if(i<0)continue;
+    try{out[part.slice(0,i).trim()]=decodeURIComponent(part.slice(i+1).trim())}catch{}
+  }
+  return out;
+}
+function safeEqual(a,b){
+  const left=Buffer.from(String(a||'')),right=Buffer.from(String(b||''));
+  return left.length===right.length&&left.length>0&&timingSafeEqual(left,right);
+}
+function signValue(value){return createHmac('sha256',String(process.env.SESSION_SECRET||'')).update(value).digest('base64url')}
+function createSession(email){
+  const value=Buffer.from(JSON.stringify({email:normalizeEmail(email),exp:Date.now()+12*60*60*1000})).toString('base64url');
+  return value+'.'+signValue(value);
+}
+function readSession(req){
+  if(!authReady())return null;
+  const token=parseCookies(req)[AUTH_COOKIE];
+  if(!token)return null;
+  const split=token.lastIndexOf('.');
+  if(split<1)return null;
+  const value=token.slice(0,split),signature=token.slice(split+1);
+  if(!safeEqual(signature,signValue(value)))return null;
+  try{
+    const session=JSON.parse(Buffer.from(value,'base64url').toString('utf8'));
+    const email=normalizeEmail(session.email);
+    return Number(session.exp)>Date.now()&&allowedEmails().has(email)?{email}:null;
+  }catch{return null}
+}
+function requestBaseUrl(req){
+  const forwarded=String(req.headers['x-forwarded-proto']||'').split(',')[0].trim();
+  const protocol=forwarded||((process.env.NODE_ENV==='production')?'https':'http');
+  const host=String(req.headers['x-forwarded-host']||req.headers.host||'localhost:'+PORT).split(',')[0].trim();
+  return String(process.env.APP_BASE_URL||protocol+'://'+host).replace(/\/$/,'');
+}
+function cookieLine(name,value,req,{maxAge=600}={}){
+  const secure=requestBaseUrl(req).startsWith('https://')?'; Secure':'';
+  return name+'='+encodeURIComponent(value)+'; Path=/; HttpOnly; SameSite=Lax; Max-Age='+maxAge+secure;
+}
+const escapeHTML=value=>String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+function loginPage({title='دخول SPY Alpha Pro V4',message='استخدم حساب Google المصرّح به.',error='' }={}){
+  const ready=authReady();
+  return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHTML(title)}</title><style>:root{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;color:#eef2ff;background:#080b12}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:radial-gradient(circle at top,#182741,#080b12 48%)}main{width:min(440px,100%);padding:28px;border:1px solid #2d3c58;border-radius:20px;background:#0e1524;box-shadow:0 22px 70px #0008}h1{margin:0 0 8px;font-size:24px}p{color:#9aaccb;line-height:1.8}.error{color:#ff8aa0;background:#301521;border:1px solid #6f2b42;padding:11px;border-radius:10px}.login{display:block;text-align:center;margin-top:20px;padding:13px 16px;border-radius:11px;background:#eef2ff;color:#101827;text-decoration:none;font-weight:900}.note{font-size:12px;color:#7183a5;margin-top:16px}</style></head><body><main><h1>${escapeHTML(title)}</h1><p>${escapeHTML(message)}</p>${error?'<p class="error">'+escapeHTML(error)+'</p>':''}${ready?'<a class="login" href="/auth/google">الدخول بواسطة Google</a>':'<p class="error">حماية الدخول لم يكتمل إعدادها بعد.</p>'}<p class="note">لن يُسمح إلا بالحسابات الموجودة في قائمة الإيميلات المعتمدة.</p></main></body></html>`;
+}
+function sendHTML(res,status,html,headers={}){res.writeHead(status,{'content-type':'text/html; charset=utf-8','cache-control':'no-store','x-frame-options':'DENY','referrer-policy':'no-referrer',...headers});res.end(html)}
+function redirect(res,location,headers={}){res.writeHead(303,{location,'cache-control':'no-store',...headers});res.end()}
+function accessStatus(){return{enabled:authEnabled(),ready:authReady()}}
 
 function ema(values,period){if(!values?.length)return null;const k=2/(period+1);let out=values[0];for(let i=1;i<values.length;i++)out=values[i]*k+out*(1-k);return out}
 function sma(values,period){if(!values?.length)return null;const n=Math.min(period,values.length);return values.slice(-n).reduce((a,b)=>a+b,0)/n}
@@ -279,18 +337,181 @@ async function fetchMarketScan(force=false){
   scanCache.expiresAt=Date.now()+60_000;
   return value;
 }
+const telegramState={dayKey:null,sentToday:0,seen:new Set(),lastRunAt:null,lastSentAt:null,lastSignal:null,lastError:null,running:false};
+const GITHUB_OIDC_ISSUER='https://token.actions.githubusercontent.com';
+const GITHUB_OIDC_JWKS=GITHUB_OIDC_ISSUER+'/.well-known/jwks';
+const GITHUB_OIDC_AUDIENCE='spy-alpha-pro-v4-render';
+const GITHUB_REPOSITORY='shalaanalshalaan1000-dotcom/-spy-alpha-pro';
+const GITHUB_WORKFLOW_REF=GITHUB_REPOSITORY+'/.github/workflows/telegram-signals.yml@refs/heads/main';
+const githubOidcCache={expiresAt:0,keys:[]},githubOidcReplay=new Map();
+function jwtPart(value){return JSON.parse(Buffer.from(value,'base64url').toString('utf8'))}
+async function githubOidcKeys(force=false){
+  if(!force&&githubOidcCache.keys.length&&Date.now()<githubOidcCache.expiresAt)return githubOidcCache.keys;
+  const response=await fetch(GITHUB_OIDC_JWKS,{headers:{accept:'application/json'},signal:AbortSignal.timeout(10000)}),data=await response.json().catch(()=>({}));
+  if(!response.ok||!Array.isArray(data.keys))throw new Error('Unable to load GitHub signing keys');
+  githubOidcCache.keys=data.keys;githubOidcCache.expiresAt=Date.now()+6*60*60*1000;
+  return githubOidcCache.keys;
+}
+async function verifyGitHubWorkflowToken(token){
+  if(!token||token.length>20_000)throw new Error('Missing workflow token');
+  const parts=token.split('.');
+  if(parts.length!==3)throw new Error('Invalid workflow token');
+  const header=jwtPart(parts[0]),claims=jwtPart(parts[1]);
+  if(header.alg!=='RS256'||!header.kid)throw new Error('Unsupported workflow token');
+  let keys=await githubOidcKeys(),jwk=keys.find(key=>key.kid===header.kid);
+  if(!jwk){keys=await githubOidcKeys(true);jwk=keys.find(key=>key.kid===header.kid)}
+  if(!jwk||!verifySignature('RSA-SHA256',Buffer.from(parts[0]+'.'+parts[1]),createPublicKey({key:jwk,format:'jwk'}),Buffer.from(parts[2],'base64url')))throw new Error('Invalid workflow signature');
+  const now=Math.floor(Date.now()/1000),audiences=Array.isArray(claims.aud)?claims.aud:[claims.aud];
+  if(claims.iss!==GITHUB_OIDC_ISSUER||!audiences.includes(GITHUB_OIDC_AUDIENCE))throw new Error('Invalid workflow issuer');
+  if(Number(claims.exp)<=now||Number(claims.nbf||0)>now+30||Number(claims.iat)<now-900||Number(claims.iat)>now+60)throw new Error('Expired workflow token');
+  if(claims.repository!==GITHUB_REPOSITORY||claims.ref!=='refs/heads/main'||claims.workflow_ref!==GITHUB_WORKFLOW_REF)throw new Error('Workflow is not trusted');
+  if(!['schedule','workflow_dispatch'].includes(claims.event_name)||claims.runner_environment!=='github-hosted')throw new Error('Workflow event is not trusted');
+  for(const[jti,expiresAt]of githubOidcReplay)if(expiresAt<=now)githubOidcReplay.delete(jti);
+  if(!claims.jti||githubOidcReplay.has(claims.jti))throw new Error('Workflow token was already used');
+  githubOidcReplay.set(claims.jti,Number(claims.exp));
+  return claims;
+}
+function envNumber(key,fallback,min,max){const n=Number(process.env[key]);return Number.isFinite(n)?Math.min(max,Math.max(min,n)):fallback}
+function telegramConfigured(){return Boolean(process.env.TELEGRAM_BOT_TOKEN&&process.env.TELEGRAM_CHAT_ID)}
+function telegramConfig(){
+  return{
+    minConfidence:envNumber('TELEGRAM_MIN_CONFIDENCE',Number(process.env.MIN_CONFIDENCE||70),50,95),
+    minRR:envNumber('TELEGRAM_MIN_RR',2,1,10),
+    maxPerDay:Math.round(envNumber('MAX_TELEGRAM_SIGNALS_PER_DAY',3,1,10)),
+    cooldownMinutes:envNumber('TELEGRAM_COOLDOWN_MINUTES',90,5,360),
+    scanSeconds:envNumber('TELEGRAM_SCAN_INTERVAL_SECONDS',300,60,3600),
+    candidateLimit:Math.round(envNumber('TELEGRAM_CANDIDATE_LIMIT',3,1,6)),
+    marketOnly:String(process.env.TELEGRAM_MARKET_ONLY||'true').toLowerCase()!=='false'
+  };
+}
+function easternClock(date=new Date()){
+  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'short',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date).filter(x=>x.type!=='literal').map(x=>[x.type,x.value]));
+  return{dayKey:parts.year+'-'+parts.month+'-'+parts.day,weekday:parts.weekday,minutes:Number(parts.hour)*60+Number(parts.minute),time:parts.hour+':'+parts.minute+' ET'};
+}
+function resetTelegramDay(){
+  const clock=easternClock();
+  if(telegramState.dayKey!==clock.dayKey){telegramState.dayKey=clock.dayKey;telegramState.sentToday=0;telegramState.seen.clear();telegramState.lastSentAt=null;telegramState.lastSignal=null}
+  return clock;
+}
+function inRegularMarketWindow(){
+  const clock=resetTelegramDay();
+  return!['Sat','Sun'].includes(clock.weekday)&&clock.minutes>=9*60+35&&clock.minutes<=15*60+55;
+}
+function telegramPublicStatus(){
+  const config=telegramConfig();resetTelegramDay();
+  return{configured:telegramConfigured(),automatic:telegramConfigured()&&Boolean(process.env.MASSIVE_API_KEY),marketOnly:config.marketOnly,maxPerDay:config.maxPerDay,sentToday:telegramState.sentToday,lastRunAt:telegramState.lastRunAt,lastSentAt:telegramState.lastSentAt,lastSignal:telegramState.lastSignal,lastError:telegramState.lastError};
+}
+async function sendTelegramMessage(text){
+  if(!telegramConfigured())throw new Error('Telegram is not configured');
+  const response=await fetch('https://api.telegram.org/bot'+process.env.TELEGRAM_BOT_TOKEN+'/sendMessage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:process.env.TELEGRAM_CHAT_ID,text:String(text).slice(0,4000),disable_web_page_preview:true}),signal:AbortSignal.timeout(15000)});
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok||!data.ok)throw new Error('Telegram rejected the message: '+String(data.description||response.status));
+  return data.result;
+}
+const telegramMoney=value=>Number.isFinite(Number(value))?'$'+Number(value).toFixed(2):'—';
+function telegramSignalText(result){
+  const c=result.contract||{},direction=result.direction==='CALL'?'CALL 🟢':'PUT 🔴',source=c.hasQuote?'Bid/Ask مباشر':'سعر مرجعي متأخر',reasons=(result.setup?.reasons||[]).slice(0,4).join(' • '),clock=easternClock();
+  return[
+    '🚨 SPY Alpha Pro V4',
+    result.symbol+' — '+direction+' — تأكيد '+result.confidence+'%',
+    '',
+    'السهم الآن: '+telegramMoney(result.spot),
+    'هدف السهم: '+telegramMoney(result.setup?.stockTarget),
+    'إلغاء الفكرة: '+telegramMoney(result.setup?.invalidation),
+    '',
+    'العقد: '+String(c.symbol||'—'),
+    'الانتهاء: '+String(c.expiry||'—')+' | Strike: '+String(c.strike??'—'),
+    'دخول العقد: '+telegramMoney(c.mid)+' ('+source+')',
+    'هدف العقد: '+telegramMoney(c.estimatedAtTarget)+' / '+String(c.targetPct??'—')+'%',
+    'وقف العقد: '+telegramMoney(c.estimatedAtStop)+' / '+String(c.stopPct??'—')+'%',
+    'العائد للمخاطرة: 1:'+String(c.rr??'—'),
+    '',
+    'التأكيدات: '+(reasons||'—'),
+    'الوقت: '+clock.dayKey+' '+clock.time,
+    '',
+    'تنبيه تحليلي وليس ضمانًا للربح.'
+  ].join('\n');
+}
+async function runTelegramSignalScan({ignoreMarketHours=false}={}){
+  if(telegramState.running||!telegramConfigured()||!process.env.MASSIVE_API_KEY)return null;
+  const config=telegramConfig(),clock=resetTelegramDay();
+  if(config.marketOnly&&!ignoreMarketHours&&!inRegularMarketWindow())return null;
+  if(telegramState.sentToday>=config.maxPerDay)return null;
+  if(telegramState.lastSentAt&&Date.now()-new Date(telegramState.lastSentAt).getTime()<config.cooldownMinutes*60_000)return null;
+  telegramState.running=true;telegramState.lastRunAt=new Date().toISOString();telegramState.lastError=null;
+  try{
+    const scan=await fetchMarketScan(true),quickCandidates=(scan.items||[]).filter(x=>['CALL','PUT'].includes(x.signal)&&!x.stale&&Number(x.confidence)>=config.minConfidence).slice(0,config.candidateLimit),detailed=[];
+    for(const candidate of quickCandidates){
+      try{
+        const snapshot=await fetchSnapshot(candidate.symbol),result=analyze(snapshot,{minConfidence:config.minConfidence});
+        if(result.freshness.stale||!['CALL','PUT'].includes(result.state)||result.state!==result.direction||Number(result.confidence)<config.minConfidence||!result.contract||Number(result.contract.rr)<config.minRR)continue;
+        const key=[clock.dayKey,result.symbol,result.direction,result.contract.symbol].join('|');
+        if(telegramState.seen.has(key))continue;
+        detailed.push({result,key});
+      }catch(error){telegramState.lastError='Candidate '+candidate.symbol+': '+String(error.message||error).slice(0,240)}
+    }
+    detailed.sort((a,b)=>b.result.confidence-a.result.confidence-(Number(a.result.contract?.rr)||0)+(Number(b.result.contract?.rr)||0));
+    const best=detailed[0];
+    if(!best)return null;
+    await sendTelegramMessage(telegramSignalText(best.result));
+    telegramState.seen.add(best.key);telegramState.sentToday+=1;telegramState.lastSentAt=new Date().toISOString();telegramState.lastSignal={symbol:best.result.symbol,direction:best.result.direction,confidence:best.result.confidence,contract:best.result.contract.symbol};telegramState.lastError=null;
+    return best.result;
+  }catch(error){telegramState.lastError=String(error.message||error).slice(0,300);console.error('Telegram signal scan failed:',telegramState.lastError);return null}
+  finally{telegramState.running=false}
+}
+function startTelegramWorker(){
+  if(!telegramConfigured()||!process.env.MASSIVE_API_KEY)return;
+  const config=telegramConfig();
+  const first=setTimeout(()=>void runTelegramSignalScan(),20_000);first.unref();
+  const timer=setInterval(()=>void runTelegramSignalScan(),config.scanSeconds*1000);timer.unref();
+  console.log('Telegram signal worker enabled — max '+config.maxPerDay+'/day, every '+config.scanSeconds+'s');
+}
 function currentMode(){return process.env.MASSIVE_API_KEY?{mode:'LIVE',provider:'MASSIVE'}:{mode:'DEMO',provider:'DEMO'}}
 const sendJSON=(res,status,obj)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify(obj))};
-async function readBody(req){let s='';for await(const c of req){s+=c;if(s.length>100000)throw new Error('Body too large')}return s?JSON.parse(s):{}}
 const server=http.createServer(async(req,res)=>{
   try{
     const url=new URL(req.url,'http://localhost');
-    if(req.method==='GET'&&url.pathname==='/'){
-      res.writeHead(200,{'content-type':'text/html; charset=utf-8'});
-      return res.end(HTML);
+    if(req.method==='POST'&&url.pathname==='/api/telegram/run'){
+      try{await verifyGitHubWorkflowToken(String(req.headers.authorization||'').replace(/^Bearer\s+/i,''))}catch{return sendJSON(res,401,{error:'Untrusted workflow request'})}
+      const queued=telegramConfigured()&&Boolean(process.env.MASSIVE_API_KEY)&&!telegramState.running;
+      void runTelegramSignalScan();
+      return sendJSON(res,202,{ok:true,queued,telegram:telegramPublicStatus()});
     }
-    if(req.method==='GET'&&url.pathname==='/api/config')return sendJSON(res,200,{watchlist:WATCHLIST,minConfidence:Number(process.env.MIN_CONFIDENCE||70),...currentMode()});
-    if(req.method==='GET'&&url.pathname==='/api/health')return sendJSON(res,200,{ok:true,...currentMode(),telegram:Boolean(process.env.TELEGRAM_BOT_TOKEN&&process.env.TELEGRAM_CHAT_ID)});
+    if(req.method==='GET'&&url.pathname==='/api/health')return sendJSON(res,200,{ok:true,...currentMode(),telegram:telegramPublicStatus(),access:accessStatus()});
+    if(req.method==='GET'&&url.pathname==='/login'){
+      if(!authEnabled())return redirect(res,'/');
+      const error=url.searchParams.get('error');
+      return sendHTML(res,authReady()?200:503,loginPage({error:error==='denied'?'هذا الإيميل غير موجود في قائمة المسموح لهم.':error==='oauth'?'تعذر إكمال تسجيل الدخول. حاول مرة أخرى.':''}));
+    }
+    if(req.method==='GET'&&url.pathname==='/auth/google'){
+      if(!authReady())return sendHTML(res,503,loginPage());
+      const state=randomBytes(32).toString('base64url'),redirectUri=requestBaseUrl(req)+'/auth/google/callback',params=new URLSearchParams({client_id:process.env.GOOGLE_CLIENT_ID,redirect_uri:redirectUri,response_type:'code',scope:'openid email',state,prompt:'select_account'});
+      return redirect(res,'https://accounts.google.com/o/oauth2/v2/auth?'+params.toString(),{'set-cookie':cookieLine(OAUTH_STATE_COOKIE,state,req,{maxAge:600})});
+    }
+    if(req.method==='GET'&&url.pathname==='/auth/google/callback'){
+      if(!authReady())return sendHTML(res,503,loginPage());
+      const savedState=parseCookies(req)[OAUTH_STATE_COOKIE],state=url.searchParams.get('state'),code=url.searchParams.get('code');
+      if(!safeEqual(savedState,state)||!code)return redirect(res,'/login?error=oauth');
+      const redirectUri=requestBaseUrl(req)+'/auth/google/callback',tokenResponse=await fetch('https://oauth2.googleapis.com/token',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({code,client_id:process.env.GOOGLE_CLIENT_ID,client_secret:process.env.GOOGLE_CLIENT_SECRET,redirect_uri:redirectUri,grant_type:'authorization_code'}),signal:AbortSignal.timeout(15000)}),tokens=await tokenResponse.json().catch(()=>({}));
+      if(!tokenResponse.ok||!tokens.access_token)return redirect(res,'/login?error=oauth');
+      const profileResponse=await fetch('https://openidconnect.googleapis.com/v1/userinfo',{headers:{authorization:'Bearer '+tokens.access_token},signal:AbortSignal.timeout(15000)}),profile=await profileResponse.json().catch(()=>({})),email=normalizeEmail(profile.email);
+      if(!profileResponse.ok||profile.email_verified!==true||!allowedEmails().has(email))return redirect(res,'/login?error=denied');
+      return redirect(res,'/',{'set-cookie':[cookieLine(AUTH_COOKIE,createSession(email),req,{maxAge:12*60*60}),cookieLine(OAUTH_STATE_COOKIE,'',req,{maxAge:0})]});
+    }
+    if(req.method==='GET'&&url.pathname==='/logout')return redirect(res,authEnabled()?'/login':'/',{'set-cookie':cookieLine(AUTH_COOKIE,'',req,{maxAge:0})});
+    const session=readSession(req);
+    if(authEnabled()&&!authReady())return url.pathname.startsWith('/api/')?sendJSON(res,503,{error:'Access control is not fully configured'}):sendHTML(res,503,loginPage());
+    if(authEnabled()&&!session)return url.pathname.startsWith('/api/')?sendJSON(res,401,{error:'Authentication required'}):redirect(res,'/login');
+    if(req.method==='GET'&&url.pathname==='/'){
+      return sendHTML(res,200,HTML);
+    }
+    if(req.method==='GET'&&url.pathname==='/api/config')return sendJSON(res,200,{watchlist:WATCHLIST,minConfidence:Number(process.env.MIN_CONFIDENCE||70),user:session?.email||null,...currentMode()});
+    if(req.method==='GET'&&url.pathname==='/api/telegram/status')return sendJSON(res,200,telegramPublicStatus());
+    if(req.method==='POST'&&url.pathname==='/api/telegram/test'){
+      if(!authEnabled()||!session)return sendJSON(res,403,{error:'Enable authenticated access before using the Telegram test'});
+      const result=await sendTelegramMessage('✅ SPY Alpha Pro V4\nتم ربط Telegram بنجاح. ستصل الإشارات المؤكدة تلقائيًا أثناء السوق.');
+      return sendJSON(res,200,{ok:true,messageId:result.message_id});
+    }
     if(req.method==='GET'&&url.pathname==='/api/scan'){
       const result=await fetchMarketScan(url.searchParams.get('force')==='1');
       return sendJSON(res,200,result);
@@ -303,13 +524,7 @@ const server=http.createServer(async(req,res)=>{
       if(result.freshness.stale)result.state='NO TRADE';
       return sendJSON(res,200,{...result,mode:snap.mode,provider:snap.provider,optionDataError:snap.optionDataError||null,optionDiagnostics:snap.optionDiagnostics||null,optionChain:optionChainForClient(snap.options,snap.intraday.at(-1).close,result.setup.stockTarget,result.setup.invalidation)});
     }
-    if(req.method==='POST'&&url.pathname==='/api/telegram'){
-      const token=process.env.TELEGRAM_BOT_TOKEN,chat=process.env.TELEGRAM_CHAT_ID;
-      if(!token||!chat)return sendJSON(res,400,{error:'Telegram not configured'});
-      const body=await readBody(req),text=String(body.text||'').slice(0,4000),r=await fetch('https://api.telegram.org/bot'+token+'/sendMessage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:chat,text})}),data=await r.json();
-      return sendJSON(res,r.ok?200:500,data);
-    }
     return sendJSON(res,404,{error:'Not found'});
   }catch(e){return sendJSON(res,500,{error:e.message})}
 });
-server.listen(PORT,'0.0.0.0',()=>console.log('SPY Alpha Pro V4 listening on '+PORT+' — '+currentMode().provider));
+server.listen(PORT,'0.0.0.0',()=>{console.log('SPY Alpha Pro V4 listening on '+PORT+' — '+currentMode().provider);startTelegramWorker()});

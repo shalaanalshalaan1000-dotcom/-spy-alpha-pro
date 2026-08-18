@@ -15,7 +15,31 @@ services:
         value: "0.10"
       - key: RISK_FREE_RATE
         value: "0.04"
+      - key: AUTH_ENABLED
+        value: "false"
+      - key: ALLOWED_EMAILS
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: APP_BASE_URL
+        value: "https://spy-alpha-pro-1.onrender.com"
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_CHAT_ID
         sync: false
+      - key: TELEGRAM_MIN_CONFIDENCE
+        value: "70"
+      - key: TELEGRAM_MIN_RR
+        value: "2"
+      - key: MAX_TELEGRAM_SIGNALS_PER_DAY
+        value: "3"
+      - key: TELEGRAM_COOLDOWN_MINUTES
+        value: "90"
+      - key: TELEGRAM_SCAN_INTERVAL_SECONDS
+        value: "300"
+      - key: TELEGRAM_MARKET_ONLY
+        value: "true"
