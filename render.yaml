@@ -36,10 +36,12 @@ services:
       - key: TELEGRAM_MIN_RR
         value: "2"
       - key: MAX_TELEGRAM_SIGNALS_PER_DAY
-        value: "3"
+        value: "10"
       - key: TELEGRAM_COOLDOWN_MINUTES
-        value: "90"
+        value: "20"
       - key: TELEGRAM_SCAN_INTERVAL_SECONDS
-        value: "300"
+        value: "120"
+      - key: TELEGRAM_CANDIDATE_LIMIT
+        value: "6"
       - key: TELEGRAM_MARKET_ONLY
         value: "true"
