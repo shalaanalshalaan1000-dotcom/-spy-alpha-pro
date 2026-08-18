@@ -37,7 +37,7 @@ const HTML = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-
 <article class="chain"><div class="panelHead"><div><h2>سلسلة العقود كاملة — <span id="chainSymbol">SPY</span></h2><p class="scanMeta">كل العقود التي وصلت من Massive حتى 14 يومًا؛ العقد المقترح مميز بالأخضر.</p></div><span id="chainCount" class="chainCount">—</span></div><div class="chainControls"><label>نوع العقد<select id="chainType"><option value="ALL">CALL + PUT</option><option value="CALL">CALL فقط</option><option value="PUT">PUT فقط</option></select></label><label>تاريخ الانتهاء<select id="chainExpiry"><option value="ALL">كل التواريخ</option></select></label></div><div id="chainNote" class="chainNote">جارٍ تحميل العقود…</div><div class="chainWrap"><table class="chainTable"><thead><tr><th>العقد</th><th>النوع</th><th>الانتهاء</th><th class="num">DTE</th><th class="num">Strike</th><th class="num">بيع Bid</th><th class="num">شراء Ask</th><th class="num">السعر</th><th class="num">الهدف %</th><th class="num">الوقف %</th><th class="num">IV %</th><th class="num">Delta</th><th class="num">Gamma</th><th class="num">Theta</th><th class="num">Volume</th><th class="num">OI</th><th class="num">Spread</th><th>مصدر السعر</th></tr></thead><tbody id="optionChainBody"><tr><td colspan="18" class="loadingRow">جارٍ التحميل…</td></tr></tbody></table></div></article>
 <article><h2>سبب الإشارة</h2><ul id="reasons"></ul></article><p class="risk">أداة تحليلية وليست ضمانًا للربح. يتم خفض الإشارة عند ضعف السيولة أو استهلاك ATR أو سوء RR، وتُعرض NO TRADE عند البيانات القديمة.</p>
 </main><script>
-const $=s=>document.querySelector(s); let cfg,activeChartSymbol=null,scanLoading=false,goldLoading=false,goldChartReady=false,analysisSeq=0,allContracts=[],suggestedContractSymbol=null;
+const $=s=>document.querySelector(s); let cfg,activeChartSymbol=null,scanLoading=false,goldLoading=false,goldChartReady=false,goldSamples=[],analysisSeq=0,allContracts=[],suggestedContractSymbol=null;
 const TV_EXCHANGE={SPY:'AMEX',QQQ:'NASDAQ',IWM:'AMEX',NVDA:'NASDAQ',AAPL:'NASDAQ',MSFT:'NASDAQ',AMZN:'NASDAQ',META:'NASDAQ',GOOGL:'NASDAQ',TSLA:'NASDAQ',AMD:'NASDAQ',AVGO:'NASDAQ',NFLX:'NASDAQ',UNH:'NYSE'};
 const kv=(k,v)=>'<div class="kv"><span class="muted">'+k+'</span><b>'+(v??'—')+'</b></div>';
 const money=v=>v==null?'—':'$'+Number(v).toFixed(2); const pct=v=>v==null?'—':Number(v).toFixed(1)+'%';
@@ -105,13 +105,25 @@ function renderGoldChart(){
   host.firstElementChild.appendChild(script);
 }
 const goldAgeLabel=seconds=>{const age=Math.max(0,Number(seconds)||0);if(age<5)return'الآن';if(age<60)return Math.round(age)+' ث';return Math.round(age/60)+' د'};
+function goldBrowserReading(raw){
+  const price=Number(raw.price),updatedAt=new Date(raw.updatedAt),now=Date.now();
+  if(!Number.isFinite(price)||price<=0||Number.isNaN(updatedAt.getTime()))throw new Error('مصدر الذهب أعاد قراءة غير صالحة');
+  const normalizedAt=updatedAt.toISOString(),last=goldSamples.at(-1);
+  if(!last||last.updatedAt!==normalizedAt||last.price!==price)goldSamples.push({price,updatedAt:normalizedAt,observedAt:now});
+  goldSamples=goldSamples.filter(x=>x.observedAt>=now-60*60_000).slice(-120);
+  const oldest=goldSamples[0],prices=goldSamples.map(x=>x.price),changePct=oldest.price>0?(price-oldest.price)/oldest.price*100:null;
+  let direction='COLLECTING';
+  if(goldSamples.length>=3)direction=Math.abs(changePct)<.02?'FLAT':changePct>0?'UP':'DOWN';
+  const fixed=(value,digits=2)=>Number.isFinite(value)?Number(value.toFixed(digits)):null;
+  return{price:fixed(price),updatedAt:normalizedAt,ageSeconds:Math.max(0,Math.round((now-updatedAt.getTime())/1000)),stale:now-updatedAt.getTime()>120_000,direction,changePct:fixed(changePct,3),windowHigh:fixed(Math.max(...prices)),windowLow:fixed(Math.min(...prices)),windowMinutes:fixed(Math.max(0,(now-oldest.observedAt)/60_000),1)};
+}
 async function loadGold(){
   if(goldLoading)return;
   goldLoading=true;
   $('#goldRefresh').disabled=true;
   $('#goldError').hidden=true;
   try{
-    const r=await fetch('/api/gold',{cache:'no-store'}),d=await r.json();
+    const r=await fetch('https://api.gold-api.com/price/XAU',{cache:'no-store'}),raw=await r.json(),d=goldBrowserReading(raw);
     if(!r.ok||d.error)throw new Error(d.error||'Gold request failed');
     const labels={UP:'صاعد',DOWN:'هابط',FLAT:'متوازن',COLLECTING:'جمع البيانات'},classes={UP:'positive',DOWN:'negative',FLAT:'WATCH',COLLECTING:'muted'};
     $('#goldPrice').textContent=money(d.price);
@@ -124,7 +136,6 @@ async function loadGold(){
     $('#goldFreshness').textContent=goldAgeLabel(d.ageSeconds);
     $('#goldFreshness').className=d.stale?'negative':'positive';
     $('#goldMeta').textContent='Gold API • آخر تحديث '+new Date(d.updatedAt).toLocaleTimeString('ar-SA',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+' • نافذة الرصد '+(d.windowMinutes<1?'< 1':Math.round(d.windowMinutes))+' د';
-    if(d.upstreamError){$('#goldError').textContent='تعذر تحديث المصدر؛ آخر سعر محفوظ معروض الآن.';$('#goldError').hidden=false;}
   }catch(e){
     $('#goldMeta').textContent='تعذر تحميل قراءة الذهب';
     $('#goldError').textContent=e.message;
@@ -512,38 +523,6 @@ function startTelegramWorker(){
   const timer=setInterval(()=>void runTelegramSignalScan(),config.scanSeconds*1000);timer.unref();
   console.log('Telegram signal worker enabled — max '+config.maxPerDay+'/day, every '+config.scanSeconds+'s');
 }
-const GOLD_SPOT_URL='https://api.gold-api.com/price/XAU';
-const goldCache={expiresAt:0,value:null};
-const goldSamples=[];
-function goldReading(value,{upstreamError=null}={}){
-  const now=Date.now(),cutoff=now-60*60_000;
-  while(goldSamples.length&&goldSamples[0].observedAt<cutoff)goldSamples.shift();
-  if(goldSamples.length>120)goldSamples.splice(0,goldSamples.length-120);
-  const oldest=goldSamples[0]||{price:value.price,observedAt:now},prices=goldSamples.map(x=>x.price),changePct=oldest.price>0?(value.price-oldest.price)/oldest.price*100:null;
-  let direction='COLLECTING';
-  if(goldSamples.length>=3)direction=Math.abs(changePct)<.02?'FLAT':changePct>0?'UP':'DOWN';
-  const updatedMs=new Date(value.updatedAt).getTime(),ageSeconds=Math.max(0,Math.round((now-updatedMs)/1000));
-  return{symbol:'XAUUSD',asset:'Gold Spot / U.S. Dollar',kind:'SPOT',hasOptions:false,currency:'USD',price:round(value.price),updatedAt:value.updatedAt,observedAt:new Date(now).toISOString(),ageSeconds,stale:ageSeconds>120,direction,changePct:round(changePct,3),windowHigh:round(Math.max(...prices,value.price)),windowLow:round(Math.min(...prices,value.price)),windowMinutes:round(Math.max(0,(now-oldest.observedAt)/60_000),1),sampleCount:goldSamples.length,source:'Gold API',upstreamError};
-}
-async function fetchGoldSpot(){
-  const now=Date.now();
-  if(now>=goldCache.expiresAt){
-    try{
-      const response=await fetch(GOLD_SPOT_URL,{headers:{accept:'application/json'},signal:AbortSignal.timeout(10_000)}),data=await response.json().catch(()=>({})),price=Number(data.price),updatedAt=new Date(data.updatedAt);
-      if(!response.ok||!Number.isFinite(price)||price<=0||Number.isNaN(updatedAt.getTime()))throw new Error('Gold API returned an invalid spot price');
-      const value={price,updatedAt:updatedAt.toISOString()};
-      goldCache.value=value;
-      goldCache.expiresAt=now+30_000;
-      const last=goldSamples.at(-1);
-      if(!last||last.updatedAt!==value.updatedAt||last.price!==value.price)goldSamples.push({...value,observedAt:now});
-    }catch(error){
-      if(!goldCache.value)throw error;
-      goldCache.expiresAt=now+10_000;
-      return goldReading(goldCache.value,{upstreamError:String(error.message||error).slice(0,180)});
-    }
-  }
-  return goldReading(goldCache.value);
-}
 function currentMode(){return process.env.MASSIVE_API_KEY?{mode:'LIVE',provider:'MASSIVE'}:{mode:'DEMO',provider:'DEMO'}}
 const sendJSON=(res,status,obj)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify(obj))};
 const server=http.createServer(async(req,res)=>{
@@ -584,7 +563,6 @@ const server=http.createServer(async(req,res)=>{
       return sendHTML(res,200,HTML);
     }
     if(req.method==='GET'&&url.pathname==='/api/config')return sendJSON(res,200,{watchlist:WATCHLIST,minConfidence:Number(process.env.MIN_CONFIDENCE||70),user:session?.email||null,...currentMode()});
-    if(req.method==='GET'&&url.pathname==='/api/gold')return sendJSON(res,200,await fetchGoldSpot());
     if(req.method==='GET'&&url.pathname==='/api/telegram/status')return sendJSON(res,200,telegramPublicStatus());
     if(req.method==='POST'&&url.pathname==='/api/telegram/test'){
       if(!authEnabled()||!session)return sendJSON(res,403,{error:'Enable authenticated access before using the Telegram test'});

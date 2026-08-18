@@ -7,8 +7,8 @@ Flat Render build: no `src/` and no `public/` folders.
 The dashboard includes a separate XAU/USD spot panel, intentionally outside the stock/options selector. It shows the current ounce price, source freshness, a short rolling direction, and a 5-minute OANDA chart from TradingView. It never creates or suggests gold option contracts.
 
 - Spot price source: `https://api.gold-api.com/price/XAU`
-- Server-side cache and browser refresh: 30 seconds
-- The short direction is only the movement across samples collected by the running server; it is not a trade signal.
+- Browser refresh: 30 seconds (the source allows cross-origin reads and publishes a short public cache)
+- The short direction is only the movement across samples collected since the user opened the dashboard; it is not a trade signal.
 - Gold API and the OANDA/TradingView chart can differ slightly because they are separate feeds.
 
 ## Required Render environment variable
