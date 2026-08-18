@@ -1,0 +1,47 @@
+name: Expand leader watchlist
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/expand-leader-watchlist.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Expand core leaders
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('server.js')
+          s = p.read_text()
+          old = "const STOCK_WATCHLIST = ['SPY','QQQ','IWM','NVDA'];"
+          new = "const STOCK_WATCHLIST = ['SPY','QQQ','IWM','NVDA','AAPL','MSFT','AMZN','META','GOOGL','TSLA','AMD','AVGO'];"
+          if old not in s:
+              if new in s:
+                  print('Leader watchlist already expanded')
+                  raise SystemExit(0)
+              raise SystemExit('Expected STOCK_WATCHLIST line not found')
+          s = s.replace(old, new, 1)
+          s = s.replace('XAUUSD FOCUS • 4 CORE • SPX 0DTE • AUTO OPTIONS RADAR','XAUUSD FOCUS • LEADERS • SPX 0DTE • AUTO OPTIONS RADAR',1)
+          s = s.replace('SPY / QQQ / IWM / NVDA تعمل بالقواعد الأساسية. اختر SPX لمسار 0DTE المستقل.','SPY / QQQ / IWM / NVDA + القياديات تعمل بالقواعد الأساسية. اختر SPX لمسار 0DTE المستقل.',1)
+          p.write_text(s)
+          PY
+      - name: Commit watchlist expansion
+        run: |
+          if git diff --quiet; then
+            echo "No changes needed"
+            exit 0
+          fi
+          git config user.name "spy-alpha-pro-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add server.js
+          git commit -m "Expand leader stock watchlist"
+          git push origin main
