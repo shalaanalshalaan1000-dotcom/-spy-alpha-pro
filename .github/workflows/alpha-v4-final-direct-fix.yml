@@ -1,0 +1,122 @@
+name: Alpha Pro V4 final direct fix
+on:
+  push:
+    paths:
+      - '.github/workflows/alpha-v4-final-direct-fix.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Patch server.js robustly
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('server.js')
+          s=p.read_text()
+
+          # ---- UI: active positions ----
+          css_anchor='.instrumentPolicy{margin:-4px 0 14px;padding:9px 12px;border:1px solid #334155;border-radius:10px;color:#93a4c5;background:#0c1320;font-size:11px;line-height:1.7}.instrumentPolicy.spx{border-color:#71552b;color:#e9cf82;background:#211b10}.spxRow{box-shadow:inset -3px 0 #d6ad52}'
+          css_extra='''\n.positionPanel{margin-bottom:14px;border-color:#35506f;background:linear-gradient(145deg,#101b2d,#0e1524 60%)}.positionPanel.conflict{border-color:#9a563d}.positionHead{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}.positionStatus{padding:6px 9px;border:1px solid #405071;border-radius:999px;font-size:11px;font-weight:900}.positionList{display:grid;gap:8px}.positionItem{display:grid;grid-template-columns:1.1fr repeat(5,1fr) auto;gap:8px;align-items:center;padding:10px;border:1px solid #2b3b56;border-radius:11px;background:#0d1421}.positionCell span{display:block;color:#8ea0c0;font-size:10px}.positionCell b{display:block;margin-top:4px;font-size:12px;direction:ltr}.positionActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.positionWarning{margin-top:10px;padding:9px 10px;border:1px solid #7d5532;border-radius:10px;color:#ffd166;background:#261b10;font-size:12px;line-height:1.6}.positionEmpty{color:#8ea0c0;font-size:12px}.dangerBtn{border-color:#713447;color:#ff91a5}.hedgeBtn{border-color:#765e2c;color:#f0d27a}@media(max-width:900px){.positionItem{grid-template-columns:repeat(2,1fr)}}'''
+          if '.positionPanel{' not in s:
+            assert css_anchor in s
+            s=s.replace(css_anchor,css_anchor+css_extra,1)
+
+          html_anchor='<section class="hero"><div><span>الإشارة</span><strong id="state">—</strong></div>'
+          position_html='''<article id="positionPanel" class="positionPanel"><div class="positionHead"><h2>الصفقات النشطة المثبتة</h2><span id="positionStatus" class="positionStatus">لا توجد صفقة نشطة</span></div><div id="positionList" class="positionList"><div class="positionEmpty">اعتمد أي CALL أو PUT بعد الدخول ليبقى محفوظًا مع الوقف والأهداف.</div></div><div class="positionActions"><button id="enterTrade" onclick="adoptCurrentTrade()" disabled>اعتمد الدخول الحالي</button><button id="hedgeBtn" class="hedgeBtn" onclick="allowCurrentHedge()" hidden>السماح Hedge لهذا الرمز</button></div><div id="positionWarning" class="positionWarning" hidden></div></article>\n'''
+          if 'id="positionPanel"' not in s:
+            assert html_anchor in s
+            s=s.replace(html_anchor,position_html+html_anchor,1)
+
+          js_anchor="const GOLD_SAMPLE_KEY='spyAlphaGoldSamplesV2',GOLD_MIN_CONFIDENCE=75;"
+          js_code=r'''
+const ACTIVE_POSITION_KEY='spyAlphaActivePositionsV2';
+let activePositions=[],lastAnalysis=null;
+function restoreActivePositions(){try{const rows=JSON.parse(localStorage.getItem(ACTIVE_POSITION_KEY)||'[]');return(Array.isArray(rows)?rows:[]).filter(x=>x&&x.id&&x.symbol&&['CALL','PUT'].includes(x.direction))}catch{return[]}}
+function saveActivePositions(){try{localStorage.setItem(ACTIVE_POSITION_KEY,JSON.stringify(activePositions))}catch{}}
+function posMoney(v){return v==null?'—':'$'+Number(v).toFixed(2)}
+function renderActivePositions(){
+  const list=$('#positionList'),status=$('#positionStatus'),panel=$('#positionPanel');if(!list||!status||!panel)return;panel.classList.remove('conflict');
+  if(!activePositions.length){status.textContent='لا توجد صفقة نشطة';list.innerHTML='<div class="positionEmpty">اعتمد أي CALL أو PUT بعد الدخول ليبقى محفوظًا مع الوقف والأهداف.</div>';return}
+  status.textContent=activePositions.length+' صفقة نشطة';
+  list.innerHTML=activePositions.map(p=>'<div class="positionItem"><div class="positionCell"><span>الرمز / الاتجاه</span><b class="'+p.direction+'">'+p.symbol+' '+p.direction+'</b></div><div class="positionCell"><span>العقد / الانتهاء</span><b>'+p.contract+' • '+p.expiry+'</b></div><div class="positionCell"><span>الدخول</span><b>'+posMoney(p.entryPremium)+'</b></div><div class="positionCell"><span>الهدف</span><b class="positive">'+posMoney(p.targetPremium)+'</b></div><div class="positionCell"><span>الوقف</span><b class="negative">'+posMoney(p.stopPremium)+'</b></div><div class="positionCell"><span>وقف الأصل / هدفه</span><b>'+posMoney(p.stockStop)+' / '+posMoney(p.stockTarget)+'</b></div><button class="dangerBtn" onclick="closeActivePosition(\''+p.id+'\')">إغلاق</button></div>').join('');
+}
+function currentOppositePosition(d){if(!d||!['CALL','PUT'].includes(d.state))return null;return activePositions.find(p=>p.symbol===d.symbol&&p.direction!==d.state&&!p.hedgeAllowed)||null}
+function applyPositionGuard(d){
+  lastAnalysis=d;renderActivePositions();const enter=$('#enterTrade'),hedge=$('#hedgeBtn'),warning=$('#positionWarning'),panel=$('#positionPanel');const actionable=d&&['CALL','PUT'].includes(d.state)&&d.contract;if(enter)enter.disabled=!actionable;if(!hedge||!warning||!panel)return;
+  const opposite=currentOppositePosition(d);if(opposite){panel.classList.add('conflict');warning.hidden=false;hedge.hidden=false;warning.textContent='⚠️ انعكاس '+d.state+' على '+d.symbol+' بينما لديك '+opposite.direction+' نشط. لا تعتبر الإشارة الجديدة صفقة مستقلة: أغلق الأولى أو اسمح Hedge صراحة.';$('#state').textContent='انعكاس '+d.state+' ⚠️';$('#state').className='WATCH';if(enter)enter.disabled=true}else{warning.hidden=true;hedge.hidden=true}
+}
+function adoptCurrentTrade(){
+  const d=lastAnalysis;if(!d||!['CALL','PUT'].includes(d.state)||!d.contract)return;if(currentOppositePosition(d)){applyPositionGuard(d);return}
+  const row={id:[d.symbol,d.direction,d.contract.symbol,Date.now()].join('-'),symbol:d.symbol,direction:d.direction,contract:d.contract.symbol,expiry:d.contract.expiry,strike:d.contract.strike,entryPremium:d.contract.mid,targetPremium:d.contract.estimatedAtTarget,stopPremium:d.contract.estimatedAtStop,stockEntry:d.spot,stockTarget:d.setup?.stockTarget,stockStop:d.setup?.invalidation,confidence:d.confidence,enteredAt:new Date().toISOString(),hedgeAllowed:false};
+  activePositions.unshift(row);saveActivePositions();renderActivePositions();applyPositionGuard(d)
+}
+function closeActivePosition(id){activePositions=activePositions.filter(p=>p.id!==id);saveActivePositions();renderActivePositions();if(lastAnalysis)applyPositionGuard(lastAnalysis)}
+function allowCurrentHedge(){const d=lastAnalysis;if(!d)return;activePositions=activePositions.map(p=>p.symbol===d.symbol?{...p,hedgeAllowed:true}:p);saveActivePositions();renderActivePositions();applyPositionGuard(d);const w=$('#positionWarning');if(w){w.hidden=false;w.textContent='Hedge مسموح صراحة لـ '+d.symbol+'. يمكن اعتماد الاتجاه المعاكس وسيبقى المركزان محفوظين.'}const e=$('#enterTrade');if(e)e.disabled=!(d.contract&&['CALL','PUT'].includes(d.state))}
+'''
+          if 'ACTIVE_POSITION_KEY' not in s:
+            assert js_anchor in s
+            s=s.replace(js_anchor,js_anchor+js_code,1)
+
+          # Save analysis + guard after each successful analysis
+          if 'lastAnalysis=d;' not in s:
+            needle="    showInstrumentPolicy(s,d.instrumentPolicy);\n    $('#state').textContent=d.state;"
+            assert needle in s
+            s=s.replace(needle,"    showInstrumentPolicy(s,d.instrumentPolicy);\n    lastAnalysis=d;\n    $('#state').textContent=d.state;",1)
+          if 'setTimeout(()=>applyPositionGuard(d),0);' not in s:
+            needle="    $('#conf').textContent=d.confidence+'%';"
+            assert needle in s
+            s=s.replace(needle,needle+"\n    setTimeout(()=>applyPositionGuard(d),0);",1)
+          if 'activePositions=restoreActivePositions();' not in s:
+            needle='(async()=>{\n  goldSamples=restoreGoldSamples();'
+            assert needle in s
+            s=s.replace(needle,'(async()=>{\n  activePositions=restoreActivePositions();\n  renderActivePositions();\n  goldSamples=restoreGoldSamples();',1)
+
+          # ---- Gold background server sampling ----
+          gold_server=r'''
+const goldServerState={samples:[],price:null,updatedAt:null,lastFetchAt:null,lastError:null,running:false};
+async function refreshGoldServerState(){
+  if(goldServerState.running)return;goldServerState.running=true;
+  try{const r=await fetch('https://api.gold-api.com/price/XAU',{headers:{accept:'application/json'},signal:AbortSignal.timeout(12000)}),raw=await r.json();const price=Number(raw.price),updatedAt=new Date(raw.updatedAt||Date.now());if(!r.ok||!Number.isFinite(price)||price<=0||Number.isNaN(updatedAt.getTime()))throw new Error(raw?.error||'Invalid gold response');const t=updatedAt.getTime(),last=goldServerState.samples.at(-1);if(!last||t>last.t)goldServerState.samples.push({price,t});else if(t===last.t)last.price=price;const now=Date.now();goldServerState.samples=goldServerState.samples.filter(x=>x.t>=now-2*60*60_000&&x.t<=now+60_000).slice(-240);goldServerState.price=price;goldServerState.updatedAt=updatedAt.toISOString();goldServerState.lastFetchAt=new Date().toISOString();goldServerState.lastError=null}catch(error){goldServerState.lastError=String(error.message||error).slice(0,240)}finally{goldServerState.running=false}
+}
+void refreshGoldServerState();const goldServerTimer=setInterval(()=>void refreshGoldServerState(),30_000);goldServerTimer.unref();
+'''
+          if 'const goldServerState=' not in s:
+            marker="function currentMode(){return process.env.MASSIVE_API_KEY?{mode:'LIVE',provider:'MASSIVE'}:{mode:'DEMO',provider:'DEMO'}}"
+            assert marker in s
+            s=s.replace(marker,gold_server+marker,1)
+          if "url.pathname==='/api/gold-state'" not in s:
+            marker="    const url=new URL(req.url,'http://localhost');\n"
+            route="    const url=new URL(req.url,'http://localhost');\n    if(req.method==='GET'&&url.pathname==='/api/gold-state'){if(!goldServerState.price)await refreshGoldServerState();if(!goldServerState.price)return sendJSON(res,503,{error:goldServerState.lastError||'Gold data unavailable'});return sendJSON(res,200,{price:goldServerState.price,updatedAt:goldServerState.updatedAt,samples:goldServerState.samples,lastFetchAt:goldServerState.lastFetchAt,error:goldServerState.lastError});}\n"
+            assert marker in s
+            s=s.replace(marker,route,1)
+          old="    const r=await fetch('https://api.gold-api.com/price/XAU',{cache:'no-store'}),raw=await r.json(),d=goldBrowserReading(raw);\n    if(!r.ok||d.error)throw new Error(d.error||'Gold request failed');"
+          if old in s:
+            new="    const r=await fetch('/api/gold-state',{cache:'no-store'}),raw=await r.json();\n    if(Array.isArray(raw.samples)&&raw.samples.length)goldSamples=raw.samples.map(x=>({price:Number(x.price),t:Number(x.t)})).filter(x=>Number.isFinite(x.price)&&Number.isFinite(x.t));\n    const d=goldBrowserReading(raw);\n    if(!r.ok||d.error)throw new Error(d.error||'Gold request failed');"
+            s=s.replace(old,new,1)
+
+          # ---- Confidence calibration: no artificial 82 ceiling ----
+          s=s.replace("confidence=Math.min(88,Math.round(50+gap*.4));","confidence=Math.min(94,Math.round(48+gap*.55));")
+          s=s.replace("direction=bull>bear?'CALL':bear>bull?'PUT':'NO TRADE',raw=Math.max(bull,bear),confidence=Math.min(95,Math.round(45+raw*.75));","direction=bull>bear?'CALL':bear>bull?'PUT':'NO TRADE',raw=Math.max(bull,bear),edge=Math.abs(bull-bear),confidence=Math.min(97,Math.round(43+raw*.72+Math.min(12,edge*.16)));")
+
+          p.write_text(s)
+          PY
+      - name: Validate server syntax
+        run: node --check server.js
+      - name: Commit final patch
+        run: |
+          git config user.name 'chatgpt-alpha-pro'
+          git config user.email 'actions@users.noreply.github.com'
+          git add server.js
+          git commit -m 'stabilize active trades gold background and confidence' || true
+          git push origin main
