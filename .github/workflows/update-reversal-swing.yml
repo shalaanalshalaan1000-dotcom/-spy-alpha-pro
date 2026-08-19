@@ -1,0 +1,83 @@
+name: Apply reversal swing options strategy
+
+on:
+  push:
+    paths:
+      - '.github/workflows/update-reversal-swing.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch reversal swing logic
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('server.js')
+          s = path.read_text()
+
+          replacements = [
+            (
+              "const today=isoDate(new Date()),isSpx=symbol==='SPX',end=isSpx?today:isoDate(daysAhead(Number(process.env.OPTIONS_MAX_DTE||14))),pct=isSpx ? .03 : Number(process.env.OPTIONS_STRIKE_WINDOW_PCT||.10),lo=Math.max(.01,spot*(1-pct)),hi=spot*(1+pct),all=[];",
+              "const today=isoDate(new Date()),isSpx=symbol==='SPX',end=isSpx?today:isoDate(daysAhead(Number(process.env.OPTIONS_MAX_DTE||45))),pct=isSpx ? .03 : Number(process.env.OPTIONS_STRIKE_WINDOW_PCT||.10),lo=Math.max(.01,spot*(1-pct)),hi=spot*(1+pct),all=[];"
+            ),
+            (
+              "<article class=\"chain\"><div class=\"panelHead\"><div><h2>سلسلة العقود كاملة — <span id=\"chainSymbol\">SPY</span></h2><p class=\"scanMeta\">SPX يعرض عقود 0DTE لليوم فقط؛ بقية الرموز حتى 14 يومًا. العقد المقترح مميز بالأخضر.</p></div>",
+              "<article class=\"chain\"><div class=\"panelHead\"><div><h2>سلسلة العقود كاملة — <span id=\"chainSymbol\">SPY</span></h2><p class=\"scanMeta\">SPX يعرض عقود 0DTE لليوم فقط؛ بقية الرموز تستخدم مسار ارتداد 14–30 يومًا، مع جلب حتى 45 يومًا للمفاضلة. العقد المقترح مميز بالأخضر.</p></div>"
+            ),
+            (
+              "if(symbol!=='SPX'){node.className='instrumentPolicy';node.textContent='القواعد الأساسية لهذا الرمز؛ SPX وحده يستخدم مسار 0DTE مستقل.';return}",
+              "if(symbol!=='SPX'){node.className='instrumentPolicy';node.textContent='مسار ارتداد Swing: أولوية لمناطق الانعكاس والدعم/المقاومة، وعقود 14–30 DTE بسعر قريب من $1 مع سيولة مقبولة. SPX وحده يبقى 0DTE مستقل.';return}"
+            ),
+            (
+              "function optionScore(o,symbol,spot){const sp=spreadPct(o),mid=optionPrice(o)||0,absDelta=Math.abs(o.delta||0),dte=o.daysToExpiry??99;let s=0;if(sp!=null){if(sp<=4)s+=22;else if(sp<=7)s+=15;else if(sp<=10)s+=7;else s-=15}else if(mid>0)s+=2;if((o.openInterest||0)>=2000)s+=16;else if((o.openInterest||0)>=750)s+=10;else if((o.openInterest||0)>=200)s+=4;if((o.volume||0)>=1000)s+=14;else if((o.volume||0)>=250)s+=9;else if((o.volume||0)>=50)s+=3;if(absDelta>=.30&&absDelta<=.55)s+=16;else if(absDelta>=.20&&absDelta<=.65)s+=8;if(mid>=.40&&mid<=3.50)s+=12;else if(mid>3.50&&mid<=6)s+=5;else if(mid<.20)s-=10;if(INDEX_ETFS.has(symbol)){if(dte<=1.2)s+=14;else if(dte<=3.2)s+=10;else if(dte<=7.2)s+=3}else{if(dte>=2&&dte<=7.5)s+=14;else if(dte>7.5&&dte<=14.5)s+=9;else if(dte<1)s-=8}const distancePct=Math.abs(o.strike-spot)/spot*100;if(distancePct<=.8)s+=12;else if(distancePct<=1.8)s+=7;else if(distancePct>4)s-=12;return s}",
+              "function optionScore(o,symbol,spot){const sp=spreadPct(o),mid=optionPrice(o)||0,absDelta=Math.abs(o.delta||0),dte=o.daysToExpiry??99;let s=0;if(sp!=null){if(sp<=4)s+=22;else if(sp<=7)s+=15;else if(sp<=10)s+=7;else s-=18}else if(mid>0)s+=2;if((o.openInterest||0)>=2000)s+=16;else if((o.openInterest||0)>=750)s+=10;else if((o.openInterest||0)>=200)s+=4;else s-=6;if((o.volume||0)>=1000)s+=14;else if((o.volume||0)>=250)s+=9;else if((o.volume||0)>=50)s+=3;if(symbol==='SPX'){if(absDelta>=.20&&absDelta<=.55)s+=12;if(dte<=1.2)s+=14;else s-=18;if(mid>0&&mid<=1.5)s+=12}else{if(absDelta>=.18&&absDelta<=.45)s+=16;else if(absDelta>=.12&&absDelta<=.55)s+=8;if(dte>=14&&dte<=30)s+=26;else if(dte>=10&&dte<=45)s+=8;else s-=20;if(mid>=.70&&mid<=1.30)s+=28;else if(mid>=.50&&mid<=1.60)s+=18;else if(mid>=.40&&mid<=2.00)s+=7;else s-=12;s+=Math.max(-10,10-Math.abs(mid-1)*10)}const distancePct=Math.abs(o.strike-spot)/spot*100;if(distancePct<=1.2)s+=12;else if(distancePct<=2.5)s+=7;else if(distancePct>6)s-=16;return s}"
+            ),
+            (
+              "function chooseContract(chain,direction,spot,symbol){\n  if(!chain?.length||!['CALL','PUT'].includes(direction))return null;\n  const type=direction==='CALL'?'call':'put';\n  let candidates=chain.filter(o=>o.type===type&&optionPrice(o)>0&&(spreadPct(o)==null||spreadPct(o)<=15));\n  if(symbol==='SPX')candidates=candidates.filter(o=>(o.daysToExpiry??99)<=1.2&&optionPrice(o)<=1.5&&(type==='call'?o.strike>spot:o.strike<spot));\n  if(!candidates.length)return null;\n  let pool=candidates.filter(o=>type==='call'?o.strike>=spot&&o.strike<=spot*1.04:o.strike<=spot&&o.strike>=spot*.96);\n  if(!pool.length)pool=candidates;\n  return pool.sort((a,b)=>optionScore(b,symbol,spot)-optionScore(a,symbol,spot))[0];\n}",
+              "function chooseContract(chain,direction,spot,symbol){\n  if(!chain?.length||!['CALL','PUT'].includes(direction))return null;\n  const type=direction==='CALL'?'call':'put';\n  let candidates=chain.filter(o=>o.type===type&&optionPrice(o)>0&&(spreadPct(o)==null||spreadPct(o)<=15));\n  if(symbol==='SPX'){\n    candidates=candidates.filter(o=>(o.daysToExpiry??99)<=1.2&&optionPrice(o)<=1.5&&(type==='call'?o.strike>spot:o.strike<spot));\n  }else{\n    candidates=candidates.filter(o=>(o.daysToExpiry??0)>=14&&(o.daysToExpiry??99)<=30);\n    const dollarZone=candidates.filter(o=>optionPrice(o)>=.70&&optionPrice(o)<=1.30);\n    const nearDollar=candidates.filter(o=>optionPrice(o)>=.50&&optionPrice(o)<=1.60);\n    candidates=dollarZone.length?dollarZone:(nearDollar.length?nearDollar:candidates.filter(o=>optionPrice(o)>=.40&&optionPrice(o)<=2.00));\n  }\n  if(!candidates.length)return null;\n  let pool=candidates.filter(o=>type==='call'?o.strike>=spot&&o.strike<=spot*1.06:o.strike<=spot&&o.strike>=spot*.94);\n  if(!pool.length)pool=candidates;\n  return pool.sort((a,b)=>optionScore(b,symbol,spot)-optionScore(a,symbol,spot))[0];\n}"
+            ),
+            (
+              "const pivotBand=Math.max((dailyAtr||spot*.01)*.08,spot*.0015);if(Math.abs(spot-p.pdh)<=pivotBand)reasons.push('قرب مقاومة PDH');if(Math.abs(spot-p.pdl)<=pivotBand)reasons.push('قرب دعم PDL');let direction=bull>bear?'CALL':bear>bull?'PUT':'NO TRADE'",
+              "const pivotBand=Math.max((dailyAtr||spot*.01)*.08,spot*.0015),supportDistance=Math.min(...[p.pdl,p.swingLow].filter(Number.isFinite).map(x=>Math.abs(spot-x))),resistanceDistance=Math.min(...[p.pdh,p.swingHigh].filter(Number.isFinite).map(x=>Math.abs(spot-x))),nearSupport=supportDistance<=pivotBand*1.5,nearResistance=resistanceDistance<=pivotBand*1.5,lastBar=intraday.at(-1);if(Math.abs(spot-p.pdh)<=pivotBand)reasons.push('قرب مقاومة PDH');if(Math.abs(spot-p.pdl)<=pivotBand)reasons.push('قرب دعم PDL');if(nearSupport){reasons.push('منطقة ارتداد دعم / Swing Low');if(smc.sweepLow||(rs!=null&&rs<=45)||lastBar.close>lastBar.open){bull+=20;reasons.push('تأكيد ارتداد صاعد من الدعم')}}if(nearResistance){reasons.push('منطقة انعكاس مقاومة / Swing High');if(smc.sweepHigh||(rs!=null&&rs>=55)||lastBar.close<lastBar.open){bear+=20;reasons.push('تأكيد ارتداد هابط من المقاومة')}}let direction=bull>bear?'CALL':bear>bull?'PUT':'NO TRADE'"
+            ),
+            (
+              "premiumTarget=estimateContract(contract,spot,stockTarget,.35);premiumStop=estimateContract(contract,spot,invalidation,.15);",
+              "premiumTarget=estimateContract(contract,spot,stockTarget,symbol==='SPX'?.35:2);premiumStop=estimateContract(contract,spot,invalidation,symbol==='SPX'?.15:.75);"
+            ),
+            (
+              "expiry:symbol==='SPX'?isoDate(new Date()):'Nearest',daysToExpiry:symbol==='SPX'?0:1",
+              "expiry:symbol==='SPX'?isoDate(new Date()):isoDate(daysAhead(21)),daysToExpiry:symbol==='SPX'?0:21"
+            )
+          ]
+
+          for old, new in replacements:
+            if old not in s:
+              raise SystemExit('Expected code fragment not found:\n' + old[:220])
+            s = s.replace(old, new, 1)
+
+          path.write_text(s)
+          PY
+
+      - name: Validate syntax
+        run: node --check server.js
+
+      - name: Commit updated server
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add server.js
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Prioritize reversal swing contracts"
+          git push
