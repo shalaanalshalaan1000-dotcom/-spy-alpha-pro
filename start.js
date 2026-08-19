@@ -1,29 +1,19 @@
-import './server.js';
+import {readFileSync,writeFileSync} from 'node:fs';
+import {pathToFileURL} from 'node:url';
 
-const token=process.env.TELEGRAM_BOT_TOKEN;
-const chatId=process.env.TELEGRAM_CHAT_ID;
-const now=Date.now();
-const testWindowStart=Date.parse('2026-08-19T00:40:00Z');
-const testWindowEnd=Date.parse('2026-08-19T01:30:00Z');
+const sourcePath=new URL('./server.js',import.meta.url);
+const runtimePath=new URL('./.runtime-server.mjs',import.meta.url);
+let source=readFileSync(sourcePath,'utf8');
 
-if(token&&chatId&&now>=testWindowStart&&now<=testWindowEnd){
-  setTimeout(async()=>{
-    try{
-      const response=await fetch('https://api.telegram.org/bot'+token+'/sendMessage',{
-        method:'POST',
-        headers:{'content-type':'application/json'},
-        body:JSON.stringify({
-          chat_id:chatId,
-          text:'✅ Alpha Pro V4 مرتبط الآن مع Telegram\nسيتم إرسال الإشارات المؤهلة تلقائيًا أثناء السوق.',
-          disable_web_page_preview:true
-        }),
-        signal:AbortSignal.timeout(15000)
-      });
-      const data=await response.json().catch(()=>({}));
-      if(!response.ok||!data.ok)throw new Error(String(data.description||response.status));
-      console.log('Telegram connection test sent successfully');
-    }catch(error){
-      console.error('Telegram connection test failed:',error.message||error);
-    }
-  },3500);
-}
+const snapshotFallback="async function fetchSnapshot(symbol){return process.env.MASSIVE_API_KEY?fetchMassiveSnapshot(symbol):demoSnapshot(symbol)}";
+const snapshotLive="async function fetchSnapshot(symbol){if(!process.env.MASSIVE_API_KEY){const e=new Error('Market data unavailable');e.statusCode=503;throw e}return fetchMassiveSnapshot(symbol)}";
+if(!source.includes(snapshotFallback))throw new Error('Snapshot fallback anchor missing');
+source=source.replace(snapshotFallback,snapshotLive);
+
+const scanFallback="  const value=process.env.MASSIVE_API_KEY?await fetchMassiveScan():demoScan();";
+const scanLive="  if(!process.env.MASSIVE_API_KEY){const e=new Error('Market data unavailable');e.statusCode=503;throw e}\n  const value=await fetchMassiveScan();";
+if(!source.includes(scanFallback))throw new Error('Scan fallback anchor missing');
+source=source.replace(scanFallback,scanLive);
+
+writeFileSync(runtimePath,source,'utf8');
+await import(pathToFileURL(runtimePath.pathname).href+'?v='+Date.now());
