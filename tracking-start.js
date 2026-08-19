@@ -10,6 +10,11 @@ fs.readFileSync=function(path,...args){
   if(encoding!=='utf8'&&encoding!=='utf-8')return out;
   let source=String(out);
 
+  const setChainTail="  renderOptionChain();\n}\nasync function loadConfig(){";
+  const setChainTracked="  renderOptionChain();\n  trackSavedContracts($('#chainSymbol').textContent,allContracts);\n  renderTrackedHistory();\n}\nasync function loadConfig(){";
+  if(!source.includes(setChainTail))throw new Error('Tracking option-chain anchor missing');
+  source=source.replace(setChainTail,setChainTracked);
+
   const loadConfigAnchor='async function loadConfig(){';
   const trackingFunctions=`function trackingPct(v){return Number.isFinite(Number(v))?((Number(v)>0?'+':'')+Number(v).toFixed(1)+'%'):'—'}
 function trackingStatusLabel(v){return({OPEN:'مفتوح',TARGET:'وصل الهدف',STOP:'ضرب الوقف',EXPIRED:'منتهي'}[v]||'مفتوح')}
@@ -46,11 +51,6 @@ function renderTrackedHistory(){
 `;
   if(!source.includes(loadConfigAnchor))throw new Error('Tracking loadConfig anchor missing');
   source=source.replace(loadConfigAnchor,trackingFunctions+loadConfigAnchor);
-
-  const setChainTail="  renderOptionChain();\n}\nasync function loadConfig(){";
-  const setChainTracked="  renderOptionChain();\n  trackSavedContracts($('#chainSymbol').textContent,allContracts);\n  renderTrackedHistory();\n}\nasync function loadConfig(){";
-  if(!source.includes(setChainTail))throw new Error('Tracking option-chain anchor missing');
-  source=source.replace(setChainTail,setChainTracked);
 
   const analyzeStart="async function analyze(){\n  const s=$('#symbol').value,seq=++analysisSeq;";
   const analyzeTracked="async function analyze(){\n  const s=$('#symbol').value,seq=++analysisSeq;\n  renderTrackedHistory();";
