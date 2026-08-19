@@ -67,6 +67,18 @@ function analyzeCore(snapshot,settings={}){const base=analyzeCoreBase(snapshot,s
 `;
 source=source.replace(spxAnchor,structureEngine+spxAnchor);
 
+// Re-align target, invalidation and options contract after the final structure direction is known.
+const analyzeAnchor='function analyze(snapshot,settings={}){';
+if(!source.includes(analyzeAnchor))throw new Error('Final contract analyze anchor missing');
+source=source.replace(analyzeAnchor,'function analyzeBase(snapshot,settings={}){');
+const isoAnchor='const isoDate=d=>d.toISOString().slice(0,10);';
+if(!source.includes(isoAnchor))throw new Error('Final contract iso anchor missing');
+const finalContractEngine=`function finalContractObject(raw,symbol,spot,target,stop){if(!raw)return null;const premiumNow=optionPrice(raw),premiumTarget=estimateContract(raw,spot,target,.35),premiumStop=estimateContract(raw,spot,stop,.15),sp=spreadPct(raw),reward=Math.max((premiumTarget||0)-(premiumNow||0),0),risk=Math.max((premiumNow||0)-(premiumStop||0),.01),rr=reward/risk;return{symbol:raw.symbol,strike:raw.strike,type:raw.type,expiry:raw.expiry,dte:round(raw.daysToExpiry,1),bid:raw.bid>0?round(raw.bid):null,ask:raw.ask>0?round(raw.ask):null,mid:round(premiumNow),priceSource:raw.priceSource,hasQuote:sp!=null,referencePrice:round(raw.referencePrice),iv:round(raw.iv*100,1),delta:round(raw.delta,2),gamma:round(raw.gamma,3),theta:round(raw.theta,3),vega:round(raw.vega,3),volume:raw.volume,openInterest:raw.openInterest,spreadPct:round(sp,1),estimatedAtTarget:round(premiumTarget),estimatedAtStop:round(premiumStop),targetPct:round(premiumNow>0?(premiumTarget-premiumNow)/premiumNow*100:null,1),stopPct:round(premiumNow>0?(premiumStop-premiumNow)/premiumNow*100:null,1),rr:round(rr,2),score:optionScore(raw,symbol,spot)}}
+function alignFinalContract(snapshot,result){if(!result||!['CALL','PUT'].includes(result.state)||!['CALL','PUT'].includes(result.direction))return result;const dir=result.direction,spot=Number(result.spot),atrMove=Number(result.indicators?.atr14)||spot*.02,dayHigh=Number(result.session?.high),dayLow=Number(result.session?.low),pdh=Number(result.pivots?.pdh),pdl=Number(result.pivots?.pdl);let target=spot,stop=spot;if(dir==='CALL'){const structural=Number.isFinite(pdh)?Math.max(pdh,spot+.55*atrMove):spot+.55*atrMove;target=Math.min(structural,spot+.9*atrMove);stop=Math.max(Number.isFinite(dayLow)?dayLow:spot-.35*atrMove,spot-.35*atrMove)}else{const structural=Number.isFinite(pdl)?Math.min(pdl,spot-.55*atrMove):spot-.55*atrMove;target=Math.max(structural,spot-.9*atrMove);stop=Math.min(Number.isFinite(dayHigh)?dayHigh:spot+.35*atrMove,spot+.35*atrMove)}result.setup={...result.setup,stockTarget:round(target),invalidation:round(stop)};const raw=chooseContract(snapshot.options||[],dir,spot,snapshot.symbol);result.contract=finalContractObject(raw,snapshot.symbol,spot,target,stop);if(!result.contract)result.setup.reasons=[...new Set(['لم يوجد عقد '+dir+' مناسب رغم وصول سلسلة العقود',...(result.setup?.reasons||[])])].slice(0,16);return result}
+function analyze(snapshot,settings={}){return alignFinalContract(snapshot,analyzeBase(snapshot,settings))}
+`;
+source=source.replace(isoAnchor,finalContractEngine+isoAnchor);
+
 // Persist every confirmed suggested options contract in browser storage so it does not disappear when the live signal changes.
 const contractAnchor='<article class="contract"><h2>العقد المقترح وتسعيره</h2><div id="contract">—</div><div id="optionNote" class="warn"></div></article>';
 const contractWithHistory=contractAnchor+'<article class="chain" id="contractHistoryCard"><div class="panelHead"><div><h2>سجل العقود المقترحة</h2><p class="scanMeta">يبقى الاقتراح محفوظًا حتى بعد تغير الإشارة أو تحديث الصفحة. لا يسجل إلا تأكيد 70% فأعلى.</p></div><button id="clearContractHistory" class="compact">مسح السجل</button></div><div class="tableWrap"><table class="scanTable" style="min-width:980px"><thead><tr><th>الوقت</th><th>الرمز</th><th>الاتجاه</th><th>العقد</th><th>الانتهاء</th><th class="num">Strike</th><th class="num">الدخول</th><th class="num">الهدف</th><th class="num">الوقف</th><th class="num">الثقة</th></tr></thead><tbody id="contractHistoryBody"><tr><td colspan="10" class="loadingRow">لا توجد عقود مسجلة بعد</td></tr></tbody></table></div></article>';
@@ -99,6 +111,12 @@ const noContractLine="    }else $('#contract').textContent=d.instrumentPolicy&&!
 const noContractPersist="    }else{const saved=latestSavedContract(s);if(saved)$('#contract').innerHTML=savedContractHTML(saved);else $('#contract').textContent=d.state==='WATCH'?'WATCH — لم يصل التأكيد إلى 70% بعد':(d.instrumentPolicy&&!d.instrumentPolicy.active?'خارج نافذة SPX؛ لا يوجد اقتراح عقد.':'لا يوجد عقد مؤكد/بيانات عقود غير متوفرة')};";
 if(!source.includes(noContractLine))throw new Error('No-contract display anchor missing');
 source=source.replace(noContractLine,noContractPersist);
+
+// Make the visible option chain follow the final signal direction automatically.
+const chainCall="    setOptionChain(d.optionChain||[],d.contract?.symbol||null,d.optionDiagnostics||{});";
+const chainCallSynced="    setOptionChain(d.optionChain||[],d.contract?.symbol||null,d.optionDiagnostics||{});\n    if(['CALL','PUT'].includes(d.direction)){ $('#chainType').value=d.direction; renderOptionChain(); }";
+if(!source.includes(chainCall))throw new Error('Chain direction sync anchor missing');
+source=source.replace(chainCall,chainCallSynced);
 
 const chainClick="$('#chainExpiry').onchange=renderOptionChain;";
 const historyClick="$('#chainExpiry').onchange=renderOptionChain;\n$('#clearContractHistory').onclick=()=>{if(confirm('مسح سجل العقود المقترحة بالكامل؟')){writeContractHistory([]);renderContractHistory()}};";
