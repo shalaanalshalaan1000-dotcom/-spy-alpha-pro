@@ -26,7 +26,7 @@ const safeEngine=\`function safeChooseContract(chain,direction,spot,symbol){
     if(o.type!==type||!(optionPrice(o)>0))return false;
     const sp=spreadPct(o),dte=Number(o.daysToExpiry??99),distance=Math.abs(Number(o.strike)-spot)/spot;
     if(sp!=null&&sp>10)return false;
-    if(dte<10||dte>45)return false;
+    if(dte<5||dte>45)return false;
     if(distance>0.03)return false;
     if(direction==='CALL'&&Number(o.strike)<spot*.995)return false;
     if(direction==='PUT'&&Number(o.strike)>spot*1.005)return false;
