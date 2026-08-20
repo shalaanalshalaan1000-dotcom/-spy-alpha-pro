@@ -3,5 +3,5 @@
   "version": "4.0.0",
   "private": true,
   "type": "module",
-  "scripts": {"start": "node wide-start.js"}
+  "scripts": {"start": "node gold-only-start.js"}
 }
