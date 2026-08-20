@@ -5,9 +5,11 @@ on:
     branches: [main]
     paths:
       - .github/workflows/telegram-signals.yml
+      - gold-telegram-start.js
+      - gold-server-start.js
+      - package.json
   schedule:
-    - cron: "2-57/5 9-15 * * 1-5"
-      timezone: "America/New_York"
+    - cron: "*/10 * * * 0-5"
   workflow_dispatch:
 
 permissions:
