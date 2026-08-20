@@ -3,5 +3,5 @@
   "version": "4.0.0",
   "private": true,
   "type": "module",
-  "scripts": {"start": "node gold-start.js"}
+  "scripts": {"start": "node focus-start.js"}
 }
