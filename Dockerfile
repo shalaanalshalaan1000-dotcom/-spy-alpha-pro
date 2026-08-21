@@ -1,6 +1,6 @@
 FROM node:22-alpine
 WORKDIR /app
-COPY package.json server.js start.js gold-start.js gold-terminal-start.js gold-server-start.js gold-paper-start.js gold-telegram-start.js gold-ict-start.js gold-only-stable-start.js gold-ict-levels-start.js gold-ict-history-start.js ./
+COPY package.json server.js start.js gold-start.js gold-terminal-start.js gold-server-start.js gold-paper-start.js gold-telegram-start.js gold-ict-start.js gold-only-stable-start.js gold-ict-levels-start.js gold-ict-history-start.js gold-ui-clean-start.js ./
 ENV NODE_ENV=production
 EXPOSE 3000
-CMD ["npm","start"]
+CMD ["node","gold-ui-clean-start.js"]
