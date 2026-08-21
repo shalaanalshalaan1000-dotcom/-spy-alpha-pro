@@ -13,7 +13,7 @@ fs.writeFileSync = function patchedWriteFileSync(path, data, ...args) {
     // Hide all legacy stock/options remnants from the gold-only interface.
     source = source.replace(
       '.toolbar,.hero,.grid,.chartCard,.scanner,.specScanner,.chain,.instrumentPolicy{display:none!important}',
-      '.toolbar,.hero,.grid,.chartCard,.scanner,.specScanner,.chain,.instrumentPolicy,.contract,main>article:last-of-type,main>p.risk{display:none!important}'
+      '.toolbar,.hero,.grid,.chartCard,.scanner,.specScanner,.chain,.instrumentPolicy,.contract,main>article:last-of-type,main>p.risk,#reasons{display:none!important}'
     );
 
     // Make the gold workflow visually primary and consistent.
@@ -28,22 +28,32 @@ fs.writeFileSync = function patchedWriteFileSync(path, data, ...args) {
       'الشارت 15 دقيقة من OANDA عبر TradingView، بينما قراءة الدخول الداخلية تُحدّث لحظيًا وقد يظهر فرق بسيط بين المصدرين.'
     );
 
-    // Add a compact ICT confluence strip above the plan without changing the signal engine.
+    // Add a compact, factual setup strip. Do not claim MSS/FVG confirmation before the engine actually detects it.
     const planAnchor = '<section class="goldPlan"><div class="goldPlanHead">';
     if (source.includes(planAnchor)) {
-      const strip = '<section class="ictConfluence"><div><span>ICT STATUS</span><strong id="ictSetupState">NO SETUP</strong></div><div><span>Liquidity</span><strong>PDH / PDL / Asia</strong></div><div><span>Confirmation</span><strong>MSS + FVG</strong></div><div><span>Execution</span><strong>Entry locks after setup</strong></div></section>';
+      const strip = '<section class="ictConfluence"><div><span>SETUP STATUS</span><strong id="ictSetupState">NO SETUP</strong></div><div><span>Liquidity</span><strong id="ictLiquidityState">DATA PENDING</strong></div><div><span>ICT Confirmation</span><strong id="ictConfirmationState">NOT CONFIRMED</strong></div><div><span>Execution</span><strong id="ictExecutionState">WAITING</strong></div></section>';
       source = source.replace(planAnchor, strip + planAnchor);
     }
 
     source = source.replace(
       '.ictLabel{font:700 10px Inter,system-ui,sans-serif}.ictPrice{font:800 10px ui-monospace,SFMono-Regular,Menlo,monospace}',
-      '.ictLabel{font:700 10px Inter,system-ui,sans-serif}.ictPrice{font:800 10px ui-monospace,SFMono-Regular,Menlo,monospace}.ictConfluence{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;padding:12px;border:1px solid #4f4528;border-radius:16px;background:#0d131d}.ictConfluence div{padding:10px;border:1px solid #303745;border-radius:11px;background:#0b111a}.ictConfluence span{display:block;color:#8f987f;font-size:10px}.ictConfluence strong{display:block;margin-top:5px;color:#e9d89f;font-size:12px;direction:ltr;text-align:right}@media(max-width:760px){.ictConfluence{grid-template-columns:repeat(2,1fr)}}'
+      '.ictLabel{font:700 10px Inter,system-ui,sans-serif}.ictPrice{font:800 10px ui-monospace,SFMono-Regular,Menlo,monospace}.ictConfluence{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;padding:12px;border:1px solid #4f4528;border-radius:16px;background:#0d131d}.ictConfluence div{padding:10px;border:1px solid #303745;border-radius:11px;background:#0b111a}.ictConfluence span{display:block;color:#8f987f;font-size:10px}.ictConfluence strong{display:block;margin-top:5px;color:#e9d89f;font-size:12px;direction:ltr;text-align:right}@media(max-width:760px){header{padding:10px 12px}header h1{font-size:20px}header p{font-size:10px}.badge{padding:6px 9px;font-size:11px}.ictConfluence{grid-template-columns:repeat(2,1fr)}main{padding:12px}.goldHead{padding:14px}.goldMetrics{gap:8px}.goldMetric{padding:10px}.goldMetric.price strong{font-size:24px}}'
     );
 
-    // Reflect the live plan state in the compact ICT status label.
+    // Reflect the live model state in the setup label. This is model status, not ICT confirmation.
     source = source.replace(
       "$('#goldPlanStatus').textContent=labels[plan.state]||'انتظار';",
-      "const ictSetupState=$('#ictSetupState');if(ictSetupState)ictSetupState.textContent=plan.state==='UP'?'BUY SETUP':plan.state==='DOWN'?'SELL SETUP':plan.state==='WAIT'?'WATCH':'NO SETUP';$('#goldPlanStatus').textContent=labels[plan.state]||'انتظار';"
+      "const ictSetupState=$('#ictSetupState'),ictExecutionState=$('#ictExecutionState');if(ictSetupState)ictSetupState.textContent=plan.state==='UP'?'BUY SETUP':plan.state==='DOWN'?'SELL SETUP':plan.state==='WAIT'?'WATCH':'NO SETUP';if(ictExecutionState)ictExecutionState.textContent=plan.locked?'ENTRY LOCKED':'WAITING';$('#goldPlanStatus').textContent=labels[plan.state]||'انتظار';"
+    );
+
+    // Sync liquidity availability with the actual native ICT map state.
+    source = source.replace(
+      "if(status)status.textContent='ICT LEVELS • LIVE'",
+      "if(status)status.textContent='ICT LEVELS • LIVE';const ls=document.querySelector('#ictLiquidityState');if(ls)ls.textContent='PDH / PDL / ASIA READY'"
+    );
+    source = source.replace(
+      "if(status)status.textContent='جمع البيانات';host.innerHTML='<div class=\"ictLevelsEmpty\">نحتاج تاريخ سعر كافٍ لحساب PDH / PDL و Asia range.</div>';return",
+      "if(status)status.textContent='جمع البيانات';const ls=document.querySelector('#ictLiquidityState');if(ls)ls.textContent='DATA PENDING';host.innerHTML='<div class=\"ictLevelsEmpty\">نحتاج تاريخ سعر كافٍ لحساب PDH / PDL و Asia range.</div>';return"
     );
 
     out = isBuffer ? Buffer.from(source, 'utf8') : source;
