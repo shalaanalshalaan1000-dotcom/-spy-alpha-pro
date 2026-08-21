@@ -11,40 +11,12 @@ fs.readFileSync = function patchedReadFileSync(path, ...args) {
   const isBuffer = Buffer.isBuffer(data);
   let source = isBuffer ? data.toString('utf8') : String(data);
 
-  // Persist enough browser history for ICT: 72 hours / up to 9,000 samples.
-  source = source.replaceAll('now-2*60*60_000', 'now-72*60*60_000');
-  source = source.replaceAll('slice(-240)', 'slice(-9000)');
-
-  // Expose the merged gold history on the browser reading so the ICT liquidity
-  // panel receives the actual historical sample array instead of an empty array.
-  source = source.replace(
-    'plan:computeGoldPlan(goldSamples,price,now,stale)};',
-    'samples:goldSamples,plan:computeGoldPlan(goldSamples,price,now,stale)};'
-  );
-
-  // Backend historical XAUUSD minute bars from Massive. API key stays server-side.
-  const mapBarsAnchor = "function mapBars(rows=[]){return rows.map(x=>({open:Number(x.o),high:Number(x.h),low:Number(x.l),close:Number(x.c),volume:Number(x.v||0),vwap:x.vw==null?null:Number(x.vw),timestamp:new Date(Number(x.t)).toISOString()})).filter(x=>Number.isFinite(x.close))}";
-  if (source.includes(mapBarsAnchor)) {
-    const historyFn = mapBarsAnchor + "\nasync function fetchGoldHistoricalSamples(){const from=isoDate(daysAgo(3)),to=isoDate(new Date()),data=await massiveGet('/v2/aggs/ticker/C:XAUUSD/range/1/minute/'+from+'/'+to,{adjusted:true,sort:'asc',limit:50000});return (data.results||[]).map(x=>({t:Number(x.t),price:Number(x.c)})).filter(x=>Number.isFinite(x.t)&&Number.isFinite(x.price)&&x.price>0)}";
-    source = source.replace(mapBarsAnchor, historyFn);
-  }
-
-  const configRoute = "if(req.method==='GET'&&url.pathname==='/api/config')return sendJSON(res,200,{watchlist:WATCHLIST,minConfidence:Number(process.env.MIN_CONFIDENCE||70),user:session?.email||null,...currentMode()});";
-  if (source.includes(configRoute)) {
-    source = source.replace(configRoute, configRoute + "\n    if(req.method==='GET'&&url.pathname==='/api/gold-history'){if(!process.env.MASSIVE_API_KEY)return sendJSON(res,503,{error:'MASSIVE_API_KEY is required for historical XAUUSD'});const samples=await fetchGoldHistoricalSamples();return sendJSON(res,200,{samples,count:samples.length,provider:'MASSIVE'});}");
-  }
-
-  // Load historical bars once, merge with live Gold API samples, deduplicate,
-  // retain 72 hours, and persist the same history locally for refresh/restart.
-  const varsAnchor = "const $=s=>document.querySelector(s); let cfg,activeChartSymbol=null,scanLoading=false,specLoading=false,goldLoading=false,goldChartReady=false,goldSamples=[],analysisSeq=0,allContracts=[],suggestedContractSymbol=null,speculativeSymbols=new Set();";
-  if (source.includes(varsAnchor)) {
-    source = source.replace(varsAnchor, varsAnchor + "\nlet goldHistoryLoaded=false;async function ensureGoldHistory(){if(goldHistoryLoaded)return;goldHistoryLoaded=true;try{const r=await fetch('/api/gold-history',{cache:'no-store'}),d=await r.json();if(!r.ok||!Array.isArray(d.samples))throw new Error(d.error||'Historical gold request failed');const cutoff=Date.now()-72*60*60_000,merged=[...(d.samples||[]),...goldSamples].map(x=>({t:Number(x.t),price:Number(x.price)})).filter(x=>Number.isFinite(x.t)&&Number.isFinite(x.price)&&x.price>0&&x.t>=cutoff&&x.t<=Date.now()+60_000).sort((a,b)=>a.t-b.t),unique=[];for(const row of merged){const last=unique.at(-1);if(last&&last.t===row.t)last.price=row.price;else unique.push(row)}goldSamples=unique.slice(-9000);saveGoldSamples()}catch(e){goldHistoryLoaded=false;console.warn('Gold history unavailable:',e.message)}}";
-  }
-
-  const loadGoldAnchor = "async function loadGold(){\n  if(goldLoading)return;";
-  if (source.includes(loadGoldAnchor)) {
-    source = source.replace(loadGoldAnchor, "async function loadGold(){\n  if(goldLoading)return;\n  await ensureGoldHistory();");
-  }
+  // Keep substantially more gold history available to the existing ICT level UI.
+  // These replacements are intentionally exact and non-invasive: if an anchor is
+  // absent in server.js, that line is simply left unchanged.
+  source = source.replaceAll('24*60*60_000', '72*60*60_000');
+  source = source.replaceAll('slice(-3000)', 'slice(-9000)');
+  source = source.replace('samples:goldServerState.samples.slice(-720)', 'samples:goldServerState.samples.slice(-6000)');
 
   return isBuffer ? Buffer.from(source, 'utf8') : source;
 };
