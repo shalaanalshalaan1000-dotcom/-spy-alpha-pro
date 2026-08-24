@@ -3,5 +3,5 @@
   "version": "4.1.0",
   "private": true,
   "type": "module",
-  "scripts": {"start": "node gold-btc-ict-start.js"}
+  "scripts": {"start": "node gold-fix-start.js"}
 }
