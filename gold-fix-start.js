@@ -18,15 +18,10 @@ fs.readFileSync = function patchedReadFileSync(path, ...args) {
     throw new Error('Gold sampling patch target was not found in server.js');
   }
 
-  // Use the local sampling clock so a provider timestamp that repeats does not stop
-  // the live model from accumulating fresh observations.
   source = source.replace(oldGoldClock, newGoldClock);
-
-  // Live XAUUSD chart: 1-minute candles.
   source = source.replace("symbol:'OANDA:XAUUSD',interval:'15'", "symbol:'OANDA:XAUUSD',interval:'1'");
   source = source.replace("symbol:'OANDA:XAUUSD',interval:'5'", "symbol:'OANDA:XAUUSD',interval:'1'");
 
-  // Convert the gold prediction engine from a 5-minute warm-up to a 1-minute engine.
   source = source.replace(
     "if(n<6||span<5)return{...base,note:'جمع '+fixed(span,1)+' من 5 دقائق مطلوبة لبناء التوقع وتقدير الحركة.'};",
     "if(n<3||span<1)return{...base,note:'جمع '+fixed(span,1)+' من دقيقة واحدة مطلوبة لبناء الإشارة اللحظية.'};"
@@ -36,7 +31,6 @@ fs.readFileSync = function patchedReadFileSync(path, ...args) {
     "note:'إشارة لحظية مبنية على نافذة الدقيقة الأخيرة. الحركة المقدرة '+fixed(move,2)+'$ ('+fixed(move/price*100,3)+'%). السيناريو احتمالي ويُلغى عند مستوى الإلغاء.'"
   );
 
-  // Update UI copy so the deployed page clearly reflects live 1-minute operation.
   source = source.replace('توقع الذهب — نموذج 5 دقائق', 'إشارة الذهب اللحظية — نموذج 1 دقيقة');
   source = source.replace('يُعرض السيناريو المتوقع بعد اكتمال 5 دقائق من العينات ووصول التأكيد إلى 75%؛ وإلا تبقى القراءة انتظار.', 'يُعاد تقييم الذهب لحظيًا من نافذة دقيقة واحدة. لا تظهر BUY / SELL إلا عند اكتمال شروط التأكيد؛ وإلا تبقى NO TRADE.');
   source = source.replace('المطلوب 75% على الأقل', 'تأكيد لحظي • 75%+');
@@ -46,4 +40,4 @@ fs.readFileSync = function patchedReadFileSync(path, ...args) {
 };
 
 syncBuiltinESMExports();
-await import('./gold-btc-ict-start.js');
+await import('./gold-ict-history-start.js');
