@@ -15,6 +15,7 @@ fs.readFileSync = function patchedReadFileSync(path, ...args) {
   source = source.replace('<h1>SPY Alpha Pro V4</h1><p>XAUUSD FOCUS • LEADERS • SPX 0DTE • AUTO OPTIONS RADAR</p>', '<h1>SPY Alpha Pro V4</h1><p>XAUUSD + BTCUSD ONLY • FAST TRADING RANGE SIGNALS</p>');
   source = source.replace("function telegramConfigured(){return Boolean(process.env.TELEGRAM_BOT_TOKEN&&process.env.TELEGRAM_CHAT_ID)}", "function telegramConfigured(){return false}");
 
+  // BTC signal policy: exactly two strategies with a 70% minimum.
   const btcCss = `
 .btcPanel{margin:14px 0 0;border:1px solid #714b24;border-radius:18px;background:linear-gradient(145deg,#17130e,#0b111b);padding:16px}
 .btcHead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}.btcTitle{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.btcTitle h2{margin:0;color:#f3bf66;font-size:18px}.btcTag{display:inline-flex;padding:6px 9px;border:1px solid #76512c;border-radius:999px;color:#ffc56e;background:#25180c;font-size:11px;font-weight:900;direction:ltr}
