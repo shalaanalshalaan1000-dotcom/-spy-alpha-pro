@@ -6,13 +6,14 @@ The dashboard is gold-first. Its four core equity/ETF symbols are `SPY`, `QQQ`, 
 
 ## XAUUSD spot reading
 
-The dashboard includes a separate XAU/USD spot panel, intentionally outside the stock/options selector. It shows the current ounce price, source freshness, a short rolling direction, and a 15-minute OANDA chart from TradingView. It never creates or suggests gold option contracts.
+The dashboard includes a separate XAU/USD spot panel, intentionally outside the stock/options selector. It shows the current ounce price, source freshness, a short rolling direction, and a 1-minute OANDA chart from TradingView. It never creates or suggests gold option contracts.
 
 - Spot price source: `https://api.gold-api.com/price/XAU`
-- Browser refresh: 30 seconds (the source allows cross-origin reads and publishes a short public cache)
+- Browser refresh: 20 seconds (the source allows cross-origin reads and publishes a short public cache)
 - Samples are retained locally in the browser for up to two hours so a reload does not immediately discard the observation window.
-- The 15-minute target model fits a short price channel and estimates recent realized movement. Directional targets remain hidden until at least 15 minutes of data exists and confidence reaches 75%.
-- Target arrival is shown as a time range and is conditional on momentum continuing; the invalidation level cancels the scenario.
+- The live target model fits a short price channel and estimates recent realized movement. Directional targets remain hidden until at least one minute of data exists and confidence reaches 75%.
+- Estimated arrival is shown for the first targets and remains conditional on momentum continuing; the invalidation level cancels the scenario.
+- Every locked Gold or Bitcoin setup now carries four progressively wider targets. Reaching a target marks it as achieved and advances the live tracker to the next target without clearing the setup after target one or two.
 - The short direction and target model are analytical estimates, not trade guarantees.
 - Gold API and the OANDA/TradingView chart can differ slightly because they are separate feeds.
 

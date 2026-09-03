@@ -14,6 +14,10 @@ const scenarioCard='<div class="goldPlanGrid"><div class="goldPlanCard"><span>ا
 const scenarioWithEntry=scenarioCard+'<div class="goldPlanCard"><span>الدخول المقفول</span><strong id="goldEntryLocked">—</strong><small id="goldEntryLockStatus">بانتظار إشارة مكتملة</small></div>';
 source=source.replace(scenarioCard,scenarioWithEntry);
 
+const secondTargetCard='<div class="goldPlanCard"><span>الهدف الثاني</span><strong id="goldTarget2">—</strong><small id="goldEta2">المدة: —</small></div>';
+const extendedTargetCards=secondTargetCard+'<div class="goldPlanCard"><span>الهدف الثالث</span><strong id="goldTarget3">—</strong><small id="goldEta3">امتداد بعد الهدف الثاني</small></div><div class="goldPlanCard"><span>الهدف الرابع</span><strong id="goldTarget4">—</strong><small id="goldEta4">الامتداد الأخير للإشارة</small></div>';
+source=source.replace(secondTargetCard,extendedTargetCards);
+
 // Phase 1 ICT: add a lightweight native liquidity chart before the existing TradingView chart.
 source=source.replace(
   '<div id="goldChart" class="goldChartWrap"></div>',
@@ -28,6 +32,7 @@ main{max-width:1280px;padding:18px}.goldPanel{border:0!important;background:tran
 .goldPlan{border-color:#625329;background:linear-gradient(145deg,#17170f,#0c121c);border-radius:18px;padding:16px}
 .goldChartWrap{height:520px;border:1px solid #282d38;border-radius:18px}
 #goldEntryLocked.locked{color:#52e5a5}#goldEntryLockStatus{color:#ffd166}
+.targetHit{color:#52e5a5!important}.targetCurrent{color:#ffd166!important}
 .ictLevelsPanel{margin:0 0 12px;border:1px solid #554923;border-radius:18px;background:linear-gradient(145deg,#15150f,#0b111b);padding:14px;overflow:hidden}
 .ictLevelsHead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.ictLevelsHead strong{display:block;color:#f4dfa0;font-size:14px}.ictLevelsHead span{display:block;color:#9f987c;font-size:10px;margin-top:3px}.ictLevelsHead>span{padding:6px 9px;border:1px solid #514725;border-radius:999px;color:#ffd166;margin:0;font-weight:800}
 .ictLevelsChart{height:300px;border:1px solid #2b3140;border-radius:13px;background:#090e17;position:relative;overflow:hidden}.ictLevelsChart svg{display:block;width:100%;height:100%}.ictLevelsEmpty{height:100%;display:grid;place-items:center;color:#7f8ba3;font-size:12px}
@@ -39,10 +44,13 @@ source=source.replace('</style></head>',css+'</style></head>');
 const renderAnchor='function renderGoldPlan(plan){';
 if(source.includes(renderAnchor)){
   const phase1=`const GOLD_TRADE_LOCK_KEY='gold_alpha_trade_lock_v1';
+function extendGoldTargets(state,entry,target1,target2){const e=Number(entry),t1=Number(target1),t2=Number(target2),sign=state==='UP'?1:-1;if(!['UP','DOWN'].includes(state)||![e,t1,t2].every(Number.isFinite))return{target3:null,target4:null};const d1=Math.abs(t1-e),d2=Math.abs(t2-e);if(!(d1>0)||!(d2>d1))return{target3:null,target4:null};const d3=Math.max(d1*2.2,d2*1.35,d2+d1*.55),d4=Math.max(d1*3,d3*1.3,d3+d1*.7);return{target3:Number((e+sign*d3).toFixed(2)),target4:Number((e+sign*d4).toFixed(2))}}
 function readGoldTradeLock(){try{const x=JSON.parse(localStorage.getItem(GOLD_TRADE_LOCK_KEY)||'null');return x&&['UP','DOWN'].includes(x.state)?x:null}catch{return null}}
 function writeGoldTradeLock(x){try{localStorage.setItem(GOLD_TRADE_LOCK_KEY,JSON.stringify(x))}catch{}}
 function clearGoldTradeLock(){try{localStorage.removeItem(GOLD_TRADE_LOCK_KEY)}catch{}}
-function lockGoldPlan(plan,price){const p=Number(price),active=['UP','DOWN'].includes(plan?.state);let lock=readGoldTradeLock();if(lock){const invalidation=Number(lock.invalidation),invalidated=Number.isFinite(invalidation)&&(lock.state==='UP'?p<=invalidation:p>=invalidation),opposite=active&&plan.state!==lock.state,expired=Date.now()-Number(lock.createdAt||0)>4*60*60_000;if(invalidated||opposite||expired){clearGoldTradeLock();lock=null}}if(!lock&&active&&Number.isFinite(p)&&Number.isFinite(Number(plan.target1))&&Number.isFinite(Number(plan.target2))&&Number.isFinite(Number(plan.invalidation))){lock={state:plan.state,entry:p,target1:Number(plan.target1),target2:Number(plan.target2),invalidation:Number(plan.invalidation),confidence:Number(plan.confidence||0),createdAt:Date.now()};writeGoldTradeLock(lock)}if(!lock)return{...plan,entry:null,locked:false};return{...plan,state:lock.state,confidence:Math.max(Number(plan.confidence||0),Number(lock.confidence||0)),entry:lock.entry,target1:lock.target1,target2:lock.target2,invalidation:lock.invalidation,locked:true,lockCreatedAt:lock.createdAt,note:'ENTRY LOCKED — رقم الدخول والأهداف ووقف الإلغاء ثابتة حتى إلغاء السيناريو أو ظهور اتجاه جديد.'}}
+function lockGoldPlan(plan,price){const p=Number(price),active=['UP','DOWN'].includes(plan?.state);let lock=readGoldTradeLock();if(lock){if(lock.target3==null||lock.target4==null||!Number.isFinite(Number(lock.target3))||!Number.isFinite(Number(lock.target4))){lock={...lock,...extendGoldTargets(lock.state,lock.entry,lock.target1,lock.target2)};writeGoldTradeLock(lock)}const invalidation=Number(lock.invalidation),invalidated=Number.isFinite(invalidation)&&(lock.state==='UP'?p<=invalidation:p>=invalidation),opposite=active&&plan.state!==lock.state,expired=Date.now()-Number(lock.createdAt||0)>4*60*60_000;if(invalidated||opposite||expired){clearGoldTradeLock();lock=null}}if(!lock&&active&&Number.isFinite(p)&&plan.target1!=null&&plan.target2!=null&&plan.invalidation!=null&&Number.isFinite(Number(plan.target1))&&Number.isFinite(Number(plan.target2))&&Number.isFinite(Number(plan.invalidation))){const extension=extendGoldTargets(plan.state,p,plan.target1,plan.target2);lock={state:plan.state,entry:p,target1:Number(plan.target1),target2:Number(plan.target2),target3:extension.target3,target4:extension.target4,invalidation:Number(plan.invalidation),confidence:Number(plan.confidence||0),createdAt:Date.now()};writeGoldTradeLock(lock)}if(!lock)return{...plan,currentPrice:p,entry:null,target3:null,target4:null,locked:false};return{...plan,state:lock.state,confidence:Math.max(Number(plan.confidence||0),Number(lock.confidence||0)),currentPrice:p,entry:lock.entry,target1:lock.target1,target2:lock.target2,target3:lock.target3,target4:lock.target4,invalidation:lock.invalidation,locked:true,lockCreatedAt:lock.createdAt,note:'ENTRY LOCKED — أربعة أهداف متدرجة ثابتة للإشارة. تحقق الهدف لا يلغي الإشارة؛ ينتقل التتبع تلقائيًا إلى الهدف التالي.'}}
+function goldTargetReached(state,price,target){const p=Number(price),t=Number(target);return target!=null&&Number.isFinite(p)&&Number.isFinite(t)&&(state==='UP'?p>=t:state==='DOWN'?p<=t:false)}
+function renderGoldTargetProgress(plan){const targets=[plan.target1,plan.target2,plan.target3,plan.target4],etas=[plan.eta1,plan.eta2,null,null],price=Number(plan.currentPrice),hits=targets.map(t=>goldTargetReached(plan.state,price,t)),next=hits.findIndex(x=>!x);for(let i=0;i<4;i++){const node=$('#goldEta'+(i+1));if(!node)continue;if(!plan.locked||targets[i]==null||!Number.isFinite(Number(targets[i]))){node.textContent='—';node.className='';continue}if(hits[i]){node.textContent='✓ تحقق';node.className='targetHit';continue}if(i===next){node.textContent=(etas[i]?'المدة: '+etas[i]+' • ':'')+'الهدف الحالي';node.className='targetCurrent'}else{node.textContent=i===3?'الامتداد الأخير للإشارة':'امتداد بعد الهدف '+i;node.className=''}}}
 function ictNyKey(ts){const p=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(ts)),v=Object.fromEntries(p.map(x=>[x.type,x.value]));return v.year+'-'+v.month+'-'+v.day}
 function ictNyHour(ts){const p=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'2-digit',hour12:false}).formatToParts(new Date(ts)),v=Object.fromEntries(p.map(x=>[x.type,x.value]));return Number(v.hour)%24}
 function ictLiquidityFromSamples(samples,now){const clean=(samples||[]).map(x=>({t:Number(x.t),price:Number(x.price)})).filter(x=>Number.isFinite(x.t)&&Number.isFinite(x.price)&&x.t<=now&&x.t>=now-72*60*60_000);const today=ictNyKey(now),days=[...new Set(clean.map(x=>ictNyKey(x.t)))],prev=days.filter(x=>x<today).sort().at(-1),pr=prev?clean.filter(x=>ictNyKey(x.t)===prev):[],todayRows=clean.filter(x=>ictNyKey(x.t)===today),asia=todayRows.filter(x=>{const h=ictNyHour(x.t);return h>=20||h<1});const hi=a=>a.length?Math.max(...a.map(x=>x.price)):null,lo=a=>a.length?Math.min(...a.map(x=>x.price)):null;return{clean,pdh:hi(pr),pdl:lo(pr),asiaHigh:hi(asia),asiaLow:lo(asia)}}
@@ -55,11 +63,23 @@ source=source.replace(
   "function renderGoldPlan(plan){\n  const labels=",
   "function renderGoldPlan(plan){\n  const entryNode=$('#goldEntryLocked'),entryStatus=$('#goldEntryLockStatus');if(entryNode){entryNode.textContent=plan.locked?money(plan.entry):'—';entryNode.className=plan.locked?'locked':''}if(entryStatus)entryStatus.textContent=plan.locked?'LOCKED • لا يتغير مع التحديث':'بانتظار إشارة مكتملة';\n  const labels="
 );
+source=source.replace(
+  "  $('#goldTarget2').textContent=active?money(plan.target2):'—';$('#goldTarget2').className=plan.state==='UP'?'positive':plan.state==='DOWN'?'negative':'';",
+  "  $('#goldTarget2').textContent=active?money(plan.target2):'—';$('#goldTarget2').className=plan.state==='UP'?'positive':plan.state==='DOWN'?'negative':'';const target3Node=$('#goldTarget3'),target4Node=$('#goldTarget4');if(target3Node){target3Node.textContent=active&&plan.target3!=null&&Number.isFinite(Number(plan.target3))?money(plan.target3):'—';target3Node.className=plan.state==='UP'?'positive':plan.state==='DOWN'?'negative':''}if(target4Node){target4Node.textContent=active&&plan.target4!=null&&Number.isFinite(Number(plan.target4))?money(plan.target4):'—';target4Node.className=plan.state==='UP'?'positive':plan.state==='DOWN'?'negative':''}"
+);
+source=source.replace(
+  "  $('#goldEta1').textContent='المدة: '+(plan.eta1||'—');$('#goldEta2').textContent='المدة: '+(plan.eta2||'—');",
+  "  $('#goldEta1').textContent='المدة: '+(plan.eta1||'—');$('#goldEta2').textContent='المدة: '+(plan.eta2||'—');renderGoldTargetProgress(plan);"
+);
 source=source.replace('renderGoldPlan(d.plan);','renderGoldPlan(lockGoldPlan(d.plan,d.price));drawIctLiquidityLevels(d.samples||[],d.price);');
 
 const stockStartup="await Promise.all([analyze(),loadScan(),loadSpeculative(),loadGold()]);\n  setInterval(()=>{if($('#auto').checked)analyze()},30000);\n  setInterval(()=>{if($('#auto').checked)loadScan()},60000);\n  setInterval(()=>{if($('#auto').checked)loadSpeculative()},300000);\n  setInterval(()=>{if($('#auto').checked)loadGold()},30000);";
 const goldStartup="await loadGold();\n  setInterval(loadGold,30000);";
 source=source.replace(stockStartup,goldStartup);
+
+for(const marker of ['id="goldTarget3"','id="goldTarget4"','function extendGoldTargets','renderGoldTargetProgress(plan);']){
+  if(!source.includes(marker))throw new Error('Gold four-target patch failed: '+marker);
+}
 
 writeFileSync(runtimePath,source,'utf8');
 await import(pathToFileURL(runtimePath.pathname).href+'?v='+Date.now());
