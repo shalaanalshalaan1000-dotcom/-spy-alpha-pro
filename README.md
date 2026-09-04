@@ -10,8 +10,8 @@ The dashboard includes a separate XAU/USD spot panel, intentionally outside the 
 
 - Preferred spot source: Massive Forex last quote for `C:XAUUSD` (requires Massive Currencies real-time access).
 - Automatic fallback: `https://api.gold-api.com/price/XAU` when the Massive key has no currency entitlement or that feed is unavailable.
-- Browser refresh: one second. The server shares a short cache across visitors, so it requests at most one Massive quote per second. The fallback source normally publishes a new value about every 30 seconds, which the UI labels explicitly.
-- Samples are retained locally in the browser for up to two hours (up to 7,200 one-second observations) so a reload does not immediately discard the observation window.
+- Browser refresh: five seconds. The server shares a short cache across visitors, so it requests at most one Massive quote every five seconds. The fallback source normally publishes a new value about every 30 seconds, which the UI labels explicitly.
+- Samples are retained locally in the browser for up to two hours (up to 1,440 five-second observations) so a reload does not immediately discard the observation window.
 - The live target model fits a short price channel and estimates recent realized movement. Directional targets remain hidden until at least one minute of data exists and confidence reaches 75%.
 - Estimated arrival is shown for the first targets and remains conditional on momentum continuing; the invalidation level cancels the scenario.
 - Every locked Gold or Bitcoin setup now carries four progressively wider targets. Reaching a target marks it as achieved and advances the live tracker to the next target without clearing the setup after target one or two.

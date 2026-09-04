@@ -10,11 +10,11 @@ function replaceRequired(source, before, after, label) {
 
 function applyGoldLiveFeed(source) {
   const backendAnchor = 'const server=http.createServer(async(req,res)=>{';
-  const backend = `const GOLD_LIVE_MASSIVE_CACHE_MS=850,GOLD_LIVE_FALLBACK_CACHE_MS=20000;
+  const backend = `const GOLD_LIVE_MASSIVE_CACHE_MS=4500,GOLD_LIVE_FALLBACK_CACHE_MS=20000;
 const goldLiveState={value:null,expiresAt:0,inFlight:null};
 function normalizeGoldTimestamp(value){let n=Number(value);if(Number.isFinite(n)){if(n>1e17)n/=1e6;else if(n>1e14)n/=1e3;else if(n<1e11)n*=1000;const d=new Date(n);if(!Number.isNaN(d.getTime()))return d.toISOString()}const d=new Date(value||Date.now());return Number.isNaN(d.getTime())?new Date().toISOString():d.toISOString()}
 function goldMassiveFailure(error){const status=Number(error?.providerStatus||0);return status===401||status===403?'MASSIVE_CURRENCIES_NOT_AVAILABLE':'MASSIVE_UNAVAILABLE'}
-async function fetchMassiveGoldQuote(){const apiKey=process.env.MASSIVE_API_KEY;if(!apiKey){const e=new Error('Massive key is not configured');e.providerStatus=401;throw e}const url=new URL(MASSIVE_BASE+'/v1/last_quote/currencies/XAU/USD');url.searchParams.set('apiKey',apiKey);const r=await fetch(url,{headers:{accept:'application/json','user-agent':'GoldAlphaPro/4.2'},signal:AbortSignal.timeout(7000)}),raw=await r.json().catch(()=>({}));if(!r.ok){const e=new Error('Massive gold quote failed');e.providerStatus=r.status;throw e}const quote=raw.last||raw.results?.last||raw.results||{},bid=Number(quote.bid??quote.b),ask=Number(quote.ask??quote.a),price=Number.isFinite(bid)&&bid>0&&Number.isFinite(ask)&&ask>0?(bid+ask)/2:Number.isFinite(bid)&&bid>0?bid:ask;if(!Number.isFinite(price)||price<=0)throw new Error('Massive returned an invalid gold quote');return{price:Number(price.toFixed(3)),bid:Number.isFinite(bid)?bid:null,ask:Number.isFinite(ask)?ask:null,updatedAt:normalizeGoldTimestamp(quote.timestamp??quote.t??raw.updatedAt),provider:'MASSIVE',symbol:'C:XAUUSD',live:true,sourceCadenceMs:1000}}
+async function fetchMassiveGoldQuote(){const apiKey=process.env.MASSIVE_API_KEY;if(!apiKey){const e=new Error('Massive key is not configured');e.providerStatus=401;throw e}const url=new URL(MASSIVE_BASE+'/v1/last_quote/currencies/XAU/USD');url.searchParams.set('apiKey',apiKey);const r=await fetch(url,{headers:{accept:'application/json','user-agent':'GoldAlphaPro/4.2'},signal:AbortSignal.timeout(7000)}),raw=await r.json().catch(()=>({}));if(!r.ok){const e=new Error('Massive gold quote failed');e.providerStatus=r.status;throw e}const quote=raw.last||raw.results?.last||raw.results||{},bid=Number(quote.bid??quote.b),ask=Number(quote.ask??quote.a),price=Number.isFinite(bid)&&bid>0&&Number.isFinite(ask)&&ask>0?(bid+ask)/2:Number.isFinite(bid)&&bid>0?bid:ask;if(!Number.isFinite(price)||price<=0)throw new Error('Massive returned an invalid gold quote');return{price:Number(price.toFixed(3)),bid:Number.isFinite(bid)?bid:null,ask:Number.isFinite(ask)?ask:null,updatedAt:normalizeGoldTimestamp(quote.timestamp??quote.t??raw.updatedAt),provider:'MASSIVE',symbol:'C:XAUUSD',live:true,sourceCadenceMs:5000}}
 async function fetchFallbackGoldQuote(reason){const r=await fetch('https://api.gold-api.com/price/XAU',{cache:'no-store',headers:{accept:'application/json','user-agent':'GoldAlphaPro/4.2'},signal:AbortSignal.timeout(10000)}),raw=await r.json().catch(()=>({})),price=Number(raw.price);if(!r.ok||!Number.isFinite(price)||price<=0)throw new Error('Fallback gold quote failed');return{price:Number(price.toFixed(3)),bid:null,ask:null,updatedAt:normalizeGoldTimestamp(raw.updatedAt),provider:'GOLD_API',symbol:'XAUUSD',live:false,sourceCadenceMs:30000,fallbackReason:reason}}
 async function getGoldLiveQuote(){const now=Date.now();if(goldLiveState.value&&now<goldLiveState.expiresAt)return goldLiveState.value;if(goldLiveState.inFlight)return goldLiveState.inFlight;goldLiveState.inFlight=(async()=>{let value,reason=process.env.MASSIVE_API_KEY?'MASSIVE_UNAVAILABLE':'MASSIVE_API_KEY_NOT_CONFIGURED';if(process.env.MASSIVE_API_KEY){try{value=await fetchMassiveGoldQuote()}catch(error){reason=goldMassiveFailure(error)}}if(!value)value=await fetchFallbackGoldQuote(reason);goldLiveState.value=value;goldLiveState.expiresAt=Date.now()+(value.live?GOLD_LIVE_MASSIVE_CACHE_MS:GOLD_LIVE_FALLBACK_CACHE_MS);return value})();try{return await goldLiveState.inFlight}catch(error){if(goldLiveState.value)return{...goldLiveState.value,degraded:true};throw error}finally{goldLiveState.inFlight=null}}
 `;
@@ -45,17 +45,17 @@ async function getGoldLiveQuote(){const now=Date.now();if(goldLiveState.value&&n
   source = replaceRequired(
     source,
     "$('#goldMeta').textContent='Gold API • آخر تحديث '+new Date(d.updatedAt).toLocaleTimeString('ar-SA',{hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'Asia/Riyadh'})+' بتوقيت الرياض • نافذة الرصد '+(d.windowMinutes<1?'< 1':Math.round(d.windowMinutes))+' د';",
-    "$('#goldMeta').textContent=(d.live?'Massive XAUUSD • تحديث لحظي كل ثانية':'Gold API احتياطي • فحص كل ثانية، والمصدر ينشر قراءة كل نحو 30 ثانية')+' • آخر سعر '+new Date(d.updatedAt).toLocaleTimeString('ar-SA',{hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'Asia/Riyadh'})+' بتوقيت الرياض • نافذة الرصد '+(d.windowMinutes<1?'< 1':Math.round(d.windowMinutes))+' د';",
+    "$('#goldMeta').textContent=(d.live?'Massive XAUUSD • تحديث كل 5 ثوانٍ':'Gold API احتياطي • فحص كل 5 ثوانٍ، والمصدر ينشر قراءة كل نحو 30 ثانية')+' • آخر سعر '+new Date(d.updatedAt).toLocaleTimeString('ar-SA',{hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'Asia/Riyadh'})+' بتوقيت الرياض • نافذة الرصد '+(d.windowMinutes<1?'< 1':Math.round(d.windowMinutes))+' د';",
     'gold status text'
   );
-  source = replaceRequired(source, 'setInterval(loadGold,20000)', 'setInterval(loadGold,1000)', 'one-second refresh');
-  source = source.replaceAll('slice(-240)', 'slice(-7200)');
+  source = replaceRequired(source, 'setInterval(loadGold,20000)', 'setInterval(loadGold,5000)', 'five-second refresh');
+  source = source.replaceAll('slice(-240)', 'slice(-1440)');
   source = source.replace(
     'السعر من Gold API ويُفحص كل 20 ثانية؛ الشارت 1 دقيقة من OANDA عبر TradingView. الهدف والمدة تقديران محافظان وليسا ضمانًا.',
-    'تُفحص قراءة الذهب كل ثانية. يستخدم السعر اللحظي من Massive عند توفر باقة العملات، وإلا ينتقل تلقائيًا إلى Gold API الاحتياطي. الشارت 1 دقيقة من OANDA عبر TradingView، والهدف والمدة تقديران وليسا ضمانًا.'
+    'تُفحص قراءة الذهب كل 5 ثوانٍ. يستخدم السعر اللحظي من Massive عند توفر باقة العملات، وإلا ينتقل تلقائيًا إلى Gold API الاحتياطي. الشارت 1 دقيقة من OANDA عبر TradingView، والهدف والمدة تقديران وليسا ضمانًا.'
   );
 
-  for (const marker of ["url.pathname==='/api/gold-live'", "fetch('/api/gold-live'", 'setInterval(loadGold,1000)', "provider:String(raw.provider||'GOLD_API')"]) {
+  for (const marker of ["url.pathname==='/api/gold-live'", "fetch('/api/gold-live'", 'setInterval(loadGold,5000)', "provider:String(raw.provider||'GOLD_API')"]) {
     if (!source.includes(marker)) throw new Error('Gold live patch failed: ' + marker);
   }
   return source;
