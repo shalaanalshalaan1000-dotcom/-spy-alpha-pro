@@ -18,6 +18,12 @@ The dashboard includes a separate XAU/USD spot panel, intentionally outside the 
 - The short direction and target model are analytical estimates, not trade guarantees.
 - Massive/Gold API and the OANDA/TradingView chart can differ slightly because they are separate feeds.
 
+## JustMarkets MT5 demo execution
+
+The server exposes a short-lived, deterministic gold signal at `/api/auto-trade/signal`. The included `mt5/GoldAlphaExecutor.mq5` Expert Advisor polls that endpoint from MetaTrader 5, sizes positions from equity risk, rejects stale or duplicate signals, and manages the stop through four target levels.
+
+The EA is locked to demo accounts by default. Broker credentials remain inside MT5 and must never be placed in this repository or in Render. See `JUSTMARKETS_MT5_SETUP.md` for installation and safety settings.
+
 ## Automatic speculative options radar
 
 The live radar pulls the top US stock gainers and losers from Massive, then applies minimum price, absolute daily move, share-volume, and dollar-volume filters. It verifies every displayed ticker against Massive's active options-contract reference endpoint before adding it to the selector. Up to six names are cached for 15 minutes; the four fixed symbols remain unchanged.
