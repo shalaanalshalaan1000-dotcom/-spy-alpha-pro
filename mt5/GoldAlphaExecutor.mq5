@@ -1,13 +1,13 @@
 #property strict
-#property version   "1.00"
-#property description "Demo-only XAUUSD executor for SPY Alpha Pro"
+#property version   "1.10"
+#property description "Broker-neutral XAUUSD executor for SPY Alpha Pro on MT5"
 
 #include <Trade/Trade.mqh>
 
 input string SignalUrl            = "https://spy-alpha-pro-1.onrender.com/api/auto-trade/signal";
 input string TradeSymbol          = "";       // Blank: use the chart symbol (recommended).
-input bool   EnableDemoTrading     = true;
-input bool   RequireDemoAccount    = true;     // Keep true until the strategy is independently validated.
+input bool   EnableTrading         = false;    // Observe only by default.
+input bool   AllowLiveAccount      = false;    // Keep false until demo/observation validation is complete.
 input double RiskPercent          = 0.25;      // Maximum equity risk per trade.
 input double MaxDailyLossPercent  = 1.00;      // Stop opening trades after this daily equity loss.
 input double MaxSpreadPrice       = 0.80;      // Maximum ask-bid difference in price units.
@@ -190,7 +190,7 @@ void ProcessSignal()
 {
    ManagePosition();
    // Do not mix this EA with a manual or another automated position on the symbol.
-   if(!EnableDemoTrading || DailyLossLimitReached() || HasAnyPosition()) return;
+   if(DailyLossLimitReached() || HasAnyPosition()) return;
 
    string json;
    if(!FetchSignal(json)) return;
@@ -209,12 +209,19 @@ void ProcessSignal()
 
    double entry_low = JsonNumber(json, "entryLow");
    double entry_high = JsonNumber(json, "entryHigh");
-   double stop = JsonNumber(json, "stop");
-   double tp1 = JsonNumber(json, "tp1");
-   double tp2 = JsonNumber(json, "tp2");
-   double tp3 = JsonNumber(json, "tp3");
-   double tp4 = JsonNumber(json, "tp4");
+   double stop = JsonNumber(json, "stopLoss");
+   double tp1 = JsonNumber(json, "target1");
+   double tp2 = JsonNumber(json, "target2");
+   double tp3 = JsonNumber(json, "target3");
+   double tp4 = JsonNumber(json, "target4");
    double price = side == "BUY" ? tick.ask : tick.bid;
+   bool live_account = AccountInfoInteger(ACCOUNT_TRADE_MODE) == ACCOUNT_TRADE_MODE_REAL;
+   if(!EnableTrading || (live_account && !AllowLiveAccount))
+   {
+      Print("Validated signal observed only: ", side, "; trading remains disabled.");
+      SaveValue("last_signal", (double)issued);
+      return;
+   }
    if(!PriceInside(price, entry_low, entry_high) || stop <= 0 || tp4 <= 0) return;
    if((side == "BUY" && (stop >= price || tp4 <= price)) ||
       (side == "SELL" && (stop <= price || tp4 >= price))) return;
@@ -246,18 +253,16 @@ void ProcessSignal()
 int OnInit()
 {
    g_symbol = TradeSymbol == "" ? _Symbol : TradeSymbol;
-   if(RequireDemoAccount && AccountInfoInteger(ACCOUNT_TRADE_MODE) != ACCOUNT_TRADE_MODE_DEMO)
-   {
-      Alert("GoldAlphaExecutor is locked to demo accounts. Attach it to a JustMarkets demo account.");
-      return INIT_FAILED;
-   }
+   bool live_account = AccountInfoInteger(ACCOUNT_TRADE_MODE) == ACCOUNT_TRADE_MODE_REAL;
+   if(live_account && !AllowLiveAccount)
+      Print("XM live account detected: observation mode only. No orders can be opened.");
    if(!SymbolSelect(g_symbol, true)) return INIT_FAILED;
    g_prefix = "SPYAP_" + (string)AccountInfoInteger(ACCOUNT_LOGIN) + "_" + g_symbol + "_";
    g_day_start = (datetime)LoadValue("day", 0.0);
    g_day_start_equity = LoadValue("day_equity", 0.0);
    RefreshDailyEquity();
    EventSetTimer(MathMax(PollSeconds, 1));
-   Print("GoldAlphaExecutor active on ", g_symbol, " (demo lock: ", RequireDemoAccount, ")");
+   Print("GoldAlphaExecutor active on ", g_symbol, " (trading: ", EnableTrading, ", live allowed: ", AllowLiveAccount, ")");
    return INIT_SUCCEEDED;
 }
 
