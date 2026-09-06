@@ -62,7 +62,7 @@ function applyAggressiveBtc(source){
   source=replaceRequired(
     source,
     "if(!active&&execute&&now>=btcAutoTradeState.cooldownUntil&&['BUY','SELL'].includes(candidate)&&base.confidence>=64){",
-    "if(!active&&execute&&now>=btcAutoTradeState.cooldownUntil&&['BUY','SELL'].includes(candidate)&&base.confidence>=58&&btcAutoTradeState.history.filter(x=>now-Number(x.issuedAtMs||0)<24*60*60_000).length<12){",
+    "if(!active&&execute&&now>=btcAutoTradeState.cooldownUntil&&['BUY','SELL'].includes(candidate)&&base.confidence>=58&&btcAutoTradeState.history.filter(x=>now-Number(x.issuedAtMs||0)<24*60*60_000).length<30){",
     'entry threshold and daily cap'
   );
   source=source.replaceAll("Math.min(AUTO_TRADE_ENTRY_TTL_MS,90_000)","Math.min(AUTO_TRADE_ENTRY_TTL_MS,60_000)");
@@ -71,10 +71,10 @@ function applyAggressiveBtc(source){
   source=source.replaceAll("تهدئة 45 ثانية بعد صفقة BTC قبل البحث عن فرصة جديدة","تهدئة 30 ثانية بعد صفقة BTC قبل البحث عن فرصة جديدة");
 
   source=source.replaceAll("BTCUSD — التداول الآلي السريع","BTCUSD — السكالب الهجومي السريع");
-  source=source.replaceAll("محرك سكالب مستقل للبيتكوين • لا يتأثر بإغلاق الذهب أو تجميع شموعه","محرك BTC هجومي مضبوط • زخم قصير + تأكيد واحد • حد أقصى 12 صفقة/24س");
+  source=source.replaceAll("محرك سكالب مستقل للبيتكوين • لا يتأثر بإغلاق الذهب أو تجميع شموعه","محرك BTC هجومي مضبوط • زخم قصير + تأكيد واحد • حد أقصى 30 صفقة/24س");
   source=source.replaceAll("BTC MT5 READY","BTC FAST READY");
 
-  for(const marker of ['BTC_FAST_AGGRESSIVE_SCALP','rawConfidence>=55','base.confidence>=58','12 صفقة/24س']){
+  for(const marker of ['BTC_FAST_AGGRESSIVE_SCALP','rawConfidence>=55','base.confidence>=58','30 صفقة/24س']){
     if(!source.includes(marker)) throw new Error('BTC aggressive verification failed: '+marker);
   }
   return source;
