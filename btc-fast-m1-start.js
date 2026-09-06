@@ -9,46 +9,32 @@ function replaceRequired(source,before,after,label){
 }
 
 function applyBtcFastM1(source){
-  // Faster M1 detector for BTC scalping. It still requires directional
-  // agreement across at least 2 of the last 3 price moves.
-  source=replaceRequired(
-    source,
-    "gate=Math.max(8,atr1*.12);return delta>=gate&&up>=2?'UP':delta<=-gate&&down>=2?'DOWN':'WAIT'",
-    "gate=Math.max(4,atr1*.06);return delta>=gate&&up>=2?'UP':delta<=-gate&&down>=2?'DOWN':'WAIT'",
-    'micro momentum sensitivity'
-  );
+  // The micro layer now exposes rolling M1/M3/M5 direction and mtfConfirm.
+  // Prefer two-horizon agreement; allow M1 alone only with the pre-existing
+  // impulse confirmation so the executor stays responsive without chasing noise.
 
-  // Let a clear short M1 move override stale/MIXED higher-timeframe bias sooner.
-  // The 2-of-3 directional test above is still mandatory.
-  source=replaceRequired(
-    source,
-    "const candidate=microSide!=='WAIT'&&rawConfidence>=60?microSide:candidate0;",
-    "const candidate=microSide!=='WAIT'&&rawConfidence>=40?microSide:candidate0;",
-    'micro candidate threshold'
-  );
-
-  // Lift a valid micro-momentum setup to an executable confidence band.
   const oldConfidence="let confidence=rawConfidence;if(fastEligible){confidence=Math.max(confidence,58)+(c.impulseConfirm?7:0)+(c.structureMomentum?5:0)+(c.rsiMomentum?4:0)+(liquidityConfirm?3:0);confidence=Math.min(91,confidence)}";
-  const newConfidence="let confidence=rawConfidence;if(microSide!=='WAIT'&&candidate===microSide){confidence=Math.max(confidence,54)+(c.structureMomentum?4:0)+(c.rsiMomentum?3:0)+(c.impulseConfirm?3:0);confidence=Math.min(88,confidence)}else if(fastEligible){confidence=Math.max(confidence,58)+(c.impulseConfirm?7:0)+(c.structureMomentum?5:0)+(c.rsiMomentum?4:0)+(liquidityConfirm?3:0);confidence=Math.min(91,confidence)}";
-  source=replaceRequired(source,oldConfidence,newConfidence,'micro confidence floor');
+  const newConfidence="let confidence=rawConfidence;if(mtfConfirm>=2&&candidate===mtfSide){confidence=Math.max(confidence,58)+(mtfConfirm>=3?5:2)+(c.structureMomentum?4:0)+(c.rsiMomentum?3:0)+(c.impulseConfirm?3:0);confidence=Math.min(91,confidence)}else if(m1Override&&candidate===microSide){confidence=Math.max(confidence,54)+(c.structureMomentum?3:0)+(c.rsiMomentum?2:0)+(c.impulseConfirm?4:0);confidence=Math.min(86,confidence)}else if(fastEligible){confidence=Math.max(confidence,58)+(c.impulseConfirm?7:0)+(c.structureMomentum?5:0)+(c.rsiMomentum?4:0)+(liquidityConfirm?3:0);confidence=Math.min(91,confidence)}";
+  source=replaceRequired(source,oldConfidence,newConfidence,'multi-horizon confidence');
 
-  // Dynamic entry threshold: 54% for confirmed M1 micro momentum, 64% for
-  // other BTC setups. Existing loss brakes and lifecycle protections remain.
+  // Entry thresholds: 56% when at least two of M1/M3/M5 agree, 54% for a
+  // strong M1 impulse override, otherwise preserve the original 64% gate.
   source=replaceRequired(
     source,
     "!sameSideLossBlock&&base.confidence>=64){",
-    "!sameSideLossBlock&&base.confidence>=(microSide!=='WAIT'&&candidate===microSide?54:64)){",
-    'adaptive entry threshold'
+    "!sameSideLossBlock&&base.confidence>=(mtfConfirm>=2&&candidate===mtfSide?56:m1Override&&candidate===microSide?54:64)){",
+    'multi-horizon entry threshold'
   );
 
-  // Repricing uses the same adaptive threshold.
+  // Repricing uses the same threshold, so a live short-horizon scalp follows
+  // current price while its directional agreement remains valid.
   source=source.replaceAll(
     "candidate===active.side&&base.confidence>=58&&Math.abs(price-active.entry)>repriceThreshold",
-    "candidate===active.side&&base.confidence>=(microSide!=='WAIT'&&candidate===microSide?54:64)&&Math.abs(price-active.entry)>repriceThreshold"
+    "candidate===active.side&&base.confidence>=(mtfConfirm>=2&&candidate===mtfSide?56:m1Override&&candidate===microSide?54:64)&&Math.abs(price-active.entry)>repriceThreshold"
   );
 
-  for(const marker of ["rawConfidence>=40?microSide:candidate0","Math.max(confidence,54)","microSide!=='WAIT'&&candidate===microSide?54:64","gate=Math.max(4,atr1*.06)"]){
-    if(!source.includes(marker)) throw new Error('BTC fast M1 verification failed: '+marker);
+  for(const marker of ['trend3m:','trend5m:','mtfConfirm>=2',"Math.max(confidence,58)","m1Override&&candidate===microSide?54:64"]){
+    if(!source.includes(marker)) throw new Error('BTC 1m/3m/5m verification failed: '+marker);
   }
   return source;
 }
