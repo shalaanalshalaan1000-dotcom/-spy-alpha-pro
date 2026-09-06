@@ -3,5 +3,5 @@
   "version": "4.1.1",
   "private": true,
   "type": "module",
-  "scripts": {"start": "node fast-warmup-start.js"}
+  "scripts": {"start": "node btc-auto-ui-start.js"}
 }
