@@ -3,5 +3,5 @@
   "version": "4.1.2",
   "private": true,
   "type": "module",
-  "scripts": {"start": "node platform-hardening-start.js"}
+  "scripts": {"start": "node btc-scenario-lifecycle-start.js"}
 }
