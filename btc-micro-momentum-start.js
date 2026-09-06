@@ -9,27 +9,27 @@ function replaceRequired(source,before,after,label){
 }
 
 function applyBtcMicroMomentum(source){
-  // Expose a very short M1 direction based on the last four 1m closes.
+  // Expose 1m, 3m and 5m rolling direction horizons from the live M1 feed.
+  // M1 = latest close-to-close impulse, M3 = net move over 3 minutes with
+  // 2-of-3 agreement, M5 = net move over 5 minutes with 3-of-5 agreement.
   source=replaceRequired(
     source,
     'impulseRatio:round(impulseRatio,2),sweepLow,sweepHigh,mssBull,mssBear,bullFvg,bearFvg,setup,reasons:reasons.slice(0,8)',
-    "impulseRatio:round(impulseRatio,2),microMomentum:(()=>{const a=one.slice(-4).map(x=>Number(x.close)).filter(Number.isFinite);if(a.length<4)return'WAIT';const delta=a.at(-1)-a[0],up=(a[1]>a[0]?1:0)+(a[2]>a[1]?1:0)+(a[3]>a[2]?1:0),down=(a[1]<a[0]?1:0)+(a[2]<a[1]?1:0)+(a[3]<a[2]?1:0),gate=Math.max(8,atr1*.12);return delta>=gate&&up>=2?'UP':delta<=-gate&&down>=2?'DOWN':'WAIT'})(),sweepLow,sweepHigh,mssBull,mssBear,bullFvg,bearFvg,setup,reasons:reasons.slice(0,8)",
-    'M1 micro momentum'
+    "impulseRatio:round(impulseRatio,2),microMomentum:(()=>{const a=one.slice(-2).map(x=>Number(x.close)).filter(Number.isFinite);if(a.length<2)return'WAIT';const delta=a[1]-a[0],gate=Math.max(3,atr1*.04);return delta>=gate?'UP':delta<=-gate?'DOWN':'WAIT'})(),trend3m:(()=>{const a=one.slice(-4).map(x=>Number(x.close)).filter(Number.isFinite);if(a.length<4)return'WAIT';const delta=a.at(-1)-a[0],up=(a[1]>a[0]?1:0)+(a[2]>a[1]?1:0)+(a[3]>a[2]?1:0),down=(a[1]<a[0]?1:0)+(a[2]<a[1]?1:0)+(a[3]<a[2]?1:0),gate=Math.max(5,atr1*.07);return delta>=gate&&up>=2?'UP':delta<=-gate&&down>=2?'DOWN':'WAIT'})(),trend5m:(()=>{const a=one.slice(-6).map(x=>Number(x.close)).filter(Number.isFinite);if(a.length<6)return'WAIT';const delta=a.at(-1)-a[0];let up=0,down=0;for(let i=1;i<a.length;i++){if(a[i]>a[i-1])up++;else if(a[i]<a[i-1])down++;}const gate=Math.max(7,atr1*.10);return delta>=gate&&up>=3?'UP':delta<=-gate&&down>=3?'DOWN':'WAIT'})(),sweepLow,sweepHigh,mssBull,mssBear,bullFvg,bearFvg,setup,reasons:reasons.slice(0,8)",
+    'M1 M3 M5 direction horizons'
   );
 
-  // Let the last few M1 candles veto stale directional bias and, when the
-  // short move is strong enough, flip the scalp side instead of repeating it.
+  // Build the execution side from the short horizons. Normal entry requires
+  // agreement from at least two horizons. A strong M1 impulse may override
+  // alone only when the existing impulse confirmation is also present.
   source=replaceRequired(
     source,
     "const candidate=hardCandidate!=='WAIT'?hardCandidate:fastEligible?(fastDirection==='UP'?'BUY':'SELL'):'WAIT';",
-    "const candidate0=hardCandidate!=='WAIT'?hardCandidate:fastEligible?(fastDirection==='UP'?'BUY':'SELL'):'WAIT',micro=String(c.microMomentum||'WAIT'),microSide=micro==='UP'?'BUY':micro==='DOWN'?'SELL':'WAIT';const candidate=microSide!=='WAIT'&&rawConfidence>=60?microSide:candidate0;",
-    'micro direction candidate'
+    "const candidate0=hardCandidate!=='WAIT'?hardCandidate:fastEligible?(fastDirection==='UP'?'BUY':'SELL'):'WAIT',micro=String(c.microMomentum||'WAIT'),trend3=String(c.trend3m||'WAIT'),trend5=String(c.trend5m||'WAIT'),microSide=micro==='UP'?'BUY':micro==='DOWN'?'SELL':'WAIT',trend3Side=trend3==='UP'?'BUY':trend3==='DOWN'?'SELL':'WAIT',trend5Side=trend5==='UP'?'BUY':trend5==='DOWN'?'SELL':'WAIT';const buyVotes=(microSide==='BUY'?1:0)+(trend3Side==='BUY'?1:0)+(trend5Side==='BUY'?1:0),sellVotes=(microSide==='SELL'?1:0)+(trend3Side==='SELL'?1:0)+(trend5Side==='SELL'?1:0),mtfSide=buyVotes>=2?'BUY':sellVotes>=2?'SELL':'WAIT',mtfConfirm=mtfSide==='BUY'?buyVotes:mtfSide==='SELL'?sellVotes:0,m1Override=microSide!=='WAIT'&&c.impulseConfirm&&rawConfidence>=52;const candidate=mtfConfirm>=2&&rawConfidence>=40?mtfSide:m1Override?microSide:candidate0;",
+    '1m 3m 5m candidate vote'
   );
 
   // Match the server target/stop geometry to the wider ATR stop used by MT5.
-  // Target 1 is at least about $75 while the server stop is at least $60,
-  // preventing the old pattern where losing trades were structurally larger
-  // than winning scalps after the EA widened the broker stop.
   source=source.replace(
     "const scalpDistance=Number.isFinite(price)&&price>0?Math.min(65,Math.max(20,price*0.00032)):null;",
     "const scalpDistance=Number.isFinite(price)&&price>0?Math.min(120,Math.max(75,price*0.00095)):null;"
@@ -63,7 +63,7 @@ function applyBtcMicroMomentum(source){
     'loss brake response'
   );
 
-  for(const marker of ['microMomentum:',"rawConfidence>=60?microSide:candidate0",'sameSideLossBlock','Math.max(75,price*0.00095)']){
+  for(const marker of ['microMomentum:','trend3m:','trend5m:','mtfConfirm>=2','m1Override','sameSideLossBlock','Math.max(75,price*0.00095)']){
     if(!source.includes(marker)) throw new Error('BTC micro momentum verification failed: '+marker);
   }
   return source;
