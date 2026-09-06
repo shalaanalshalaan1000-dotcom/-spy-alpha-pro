@@ -74,4 +74,4 @@ fs.writeFileSync = function patchedWriteFileSync(path, data, ...args) {
 };
 
 syncBuiltinESMExports();
-await import('./gold-only-stable-start.js');
+await import('./gold-ict-history-start.js');
