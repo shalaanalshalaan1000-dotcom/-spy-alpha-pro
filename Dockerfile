@@ -1,6 +1,6 @@
 FROM node:22-alpine
 WORKDIR /app
-COPY package.json server.js start.js gold-start.js gold-terminal-start.js gold-server-start.js gold-paper-start.js gold-telegram-start.js gold-ict-start.js gold-only-stable-start.js gold-ict-levels-start.js gold-ict-history-start.js gold-ui-clean-start.js gold-ict-first-start.js gold-btc-ict-start.js gold-fix-start.js gold-live-start.js justmarkets-start.js multi-asset-start.js fast-warmup-start.js btc-auto-ui-start.js platform-hardening-start.js btc-aggressive-start.js ./
+COPY package.json server.js start.js gold-start.js gold-terminal-start.js gold-server-start.js gold-paper-start.js gold-telegram-start.js gold-ict-start.js gold-only-stable-start.js gold-ict-levels-start.js gold-ict-history-start.js gold-ui-clean-start.js gold-ict-first-start.js gold-btc-ict-start.js gold-fix-start.js gold-live-start.js justmarkets-start.js multi-asset-start.js fast-warmup-start.js btc-auto-ui-start.js platform-hardening-start.js btc-aggressive-start.js btc-fast-m1-start.js btc-micro-momentum-start.js btc-scenario-lifecycle-start.js ./
 ENV NODE_ENV=production
 EXPOSE 3000
-CMD ["node","btc-aggressive-start.js"]
+CMD ["node","btc-fast-m1-start.js"]
