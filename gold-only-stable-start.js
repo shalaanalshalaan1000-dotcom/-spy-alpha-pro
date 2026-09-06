@@ -27,25 +27,28 @@ main{max-width:1280px;padding:18px}.goldPanel{border:0!important;background:tran
 `;
 source=source.replace('</style></head>',css+'</style></head>');
 
-// Lock the first actionable gold plan in browser storage. Once locked, Entry/TP/SL
-// do not move on every 30-second refresh. The lock is released only when the
-// invalidation is hit, an opposite actionable signal appears, or after 4 hours.
+// Lock the first actionable gold plan in browser storage. Once the final saved
+// target is reached, release the old lock so the engine can search for a fresh
+// setup. A short cooldown prevents the same just-completed setup from re-locking.
 const renderAnchor='function renderGoldPlan(plan){';
 if(source.includes(renderAnchor)){
-  const lockEngine=`const GOLD_TRADE_LOCK_KEY='gold_alpha_trade_lock_v1';
+  const lockEngine=`const GOLD_TRADE_LOCK_KEY='gold_alpha_trade_lock_v1',GOLD_TRADE_COOLDOWN_KEY='gold_alpha_trade_cooldown_v1';
 function readGoldTradeLock(){try{const x=JSON.parse(localStorage.getItem(GOLD_TRADE_LOCK_KEY)||'null');return x&&['UP','DOWN'].includes(x.state)?x:null}catch{return null}}
 function writeGoldTradeLock(x){try{localStorage.setItem(GOLD_TRADE_LOCK_KEY,JSON.stringify(x))}catch{}}
 function clearGoldTradeLock(){try{localStorage.removeItem(GOLD_TRADE_LOCK_KEY)}catch{}}
-function lockGoldPlan(plan,price){const p=Number(price),active=['UP','DOWN'].includes(plan?.state);let lock=readGoldTradeLock();if(lock){const invalidation=Number(lock.invalidation),invalidated=Number.isFinite(invalidation)&&(lock.state==='UP'?p<=invalidation:p>=invalidation),opposite=active&&plan.state!==lock.state,expired=Date.now()-Number(lock.createdAt||0)>4*60*60_000;if(invalidated||opposite||expired){clearGoldTradeLock();lock=null}}
-if(!lock&&active&&Number.isFinite(p)&&Number.isFinite(Number(plan.target1))&&Number.isFinite(Number(plan.target2))&&Number.isFinite(Number(plan.invalidation))){lock={state:plan.state,entry:p,target1:Number(plan.target1),target2:Number(plan.target2),invalidation:Number(plan.invalidation),confidence:Number(plan.confidence||0),createdAt:Date.now()};writeGoldTradeLock(lock)}
-if(!lock)return{...plan,entry:null,locked:false};return{...plan,state:lock.state,confidence:Math.max(Number(plan.confidence||0),Number(lock.confidence||0)),entry:lock.entry,target1:lock.target1,target2:lock.target2,invalidation:lock.invalidation,locked:true,lockCreatedAt:lock.createdAt,note:'ENTRY LOCKED — رقم الدخول والأهداف ووقف الإلغاء ثابتة حتى إلغاء السيناريو أو ظهور اتجاه جديد.'}}
+function readGoldCooldown(){try{return Number(localStorage.getItem(GOLD_TRADE_COOLDOWN_KEY)||0)}catch{return 0}}
+function setGoldCooldown(){try{localStorage.setItem(GOLD_TRADE_COOLDOWN_KEY,String(Date.now()+90_000))}catch{}}
+function lockGoldPlan(plan,price){const p=Number(price),active=['UP','DOWN'].includes(plan?.state);let lock=readGoldTradeLock(),completedNow=false;if(lock){const invalidation=Number(lock.invalidation),finalTarget=Number(lock.target2),invalidated=Number.isFinite(invalidation)&&(lock.state==='UP'?p<=invalidation:p>=invalidation),completed=Number.isFinite(finalTarget)&&(lock.state==='UP'?p>=finalTarget:p<=finalTarget),opposite=active&&plan.state!==lock.state,expired=Date.now()-Number(lock.createdAt||0)>4*60*60_000;if(completed){clearGoldTradeLock();setGoldCooldown();lock=null;completedNow=true}else if(invalidated||opposite||expired){clearGoldTradeLock();lock=null}}
+if(completedNow)return{...plan,entry:null,locked:false,tradeCompleted:true,note:'تم تحقيق آخر هدف محفوظ — أُغلقت الإشارة السابقة ويبحث النظام الآن عن صفقة جديدة.'};
+const cooling=Date.now()<readGoldCooldown();if(!lock&&!cooling&&active&&Number.isFinite(p)&&Number.isFinite(Number(plan.target1))&&Number.isFinite(Number(plan.target2))&&Number.isFinite(Number(plan.invalidation))){lock={state:plan.state,entry:p,target1:Number(plan.target1),target2:Number(plan.target2),invalidation:Number(plan.invalidation),confidence:Number(plan.confidence||0),createdAt:Date.now()};writeGoldTradeLock(lock)}
+if(!lock)return{...plan,entry:null,locked:false,cooling};return{...plan,state:lock.state,confidence:Math.max(Number(plan.confidence||0),Number(lock.confidence||0)),entry:lock.entry,target1:lock.target1,target2:lock.target2,invalidation:lock.invalidation,locked:true,lockCreatedAt:lock.createdAt,note:'ENTRY LOCKED — رقم الدخول والأهداف ووقف الإلغاء ثابتة حتى اكتمال الأهداف أو إلغاء السيناريو أو ظهور اتجاه جديد.'}}
 `;
   source=source.replace(renderAnchor,lockEngine+renderAnchor);
 }
 
 source=source.replace(
   "function renderGoldPlan(plan){\n  const labels=",
-  "function renderGoldPlan(plan){\n  const entryNode=$('#goldEntryLocked'),entryStatus=$('#goldEntryLockStatus');if(entryNode){entryNode.textContent=plan.locked?money(plan.entry):'—';entryNode.className=plan.locked?'locked':''}if(entryStatus)entryStatus.textContent=plan.locked?'LOCKED • لا يتغير مع التحديث':'بانتظار إشارة مكتملة';\n  const labels="
+  "function renderGoldPlan(plan){\n  const entryNode=$('#goldEntryLocked'),entryStatus=$('#goldEntryLockStatus');if(entryNode){entryNode.textContent=plan.locked?money(plan.entry):'—';entryNode.className=plan.locked?'locked':''}if(entryStatus)entryStatus.textContent=plan.tradeCompleted?'✓ اكتملت الصفقة — يبحث عن إشارة جديدة':plan.cooling?'إعادة تقييم السوق…':plan.locked?'LOCKED • لا يتغير مع التحديث':'بانتظار إشارة مكتملة';\n  const labels="
 );
 source=source.replace('renderGoldPlan(d.plan);','renderGoldPlan(lockGoldPlan(d.plan,d.price));');
 
