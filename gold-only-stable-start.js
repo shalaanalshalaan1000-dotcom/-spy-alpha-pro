@@ -49,6 +49,20 @@ source=source.replace(
 );
 source=source.replace('renderGoldPlan(d.plan);','renderGoldPlan(lockGoldPlan(d.plan,d.price));');
 
+// Browser-side quote guard: keep the last valid XAU response and reuse it if
+// gold-api temporarily returns an invalid body/price. This avoids replacing a
+// known-good market price with bad provider data and survives page refreshes.
+const startupAnchor='(async()=>{';
+if(source.includes(startupAnchor)){
+  const quoteGuard=`const GOLD_LAST_VALID_QUOTE_KEY='gold_alpha_last_valid_quote_v1';
+const goldNativeFetch=window.fetch.bind(window);
+function goldReadCachedQuote(){try{const x=JSON.parse(localStorage.getItem(GOLD_LAST_VALID_QUOTE_KEY)||'null');return x&&Number.isFinite(Number(x.price))&&Number(x.price)>0?x:null}catch{return null}}
+function goldSaveCachedQuote(x){try{if(x&&Number.isFinite(Number(x.price))&&Number(x.price)>0)localStorage.setItem(GOLD_LAST_VALID_QUOTE_KEY,JSON.stringify(x))}catch{}}
+window.fetch=async function(input,init){const url=typeof input==='string'?input:String(input?.url||input);const response=await goldNativeFetch(input,init);if(!url.includes('api.gold-api.com/price/XAU'))return response;try{const data=await response.clone().json(),price=Number(data?.price);if(response.ok&&Number.isFinite(price)&&price>0){goldSaveCachedQuote(data);return response}const cached=goldReadCachedQuote();if(cached)return new Response(JSON.stringify({...cached,cachedFallback:true}),{status:200,headers:{'content-type':'application/json'}})}catch{const cached=goldReadCachedQuote();if(cached)return new Response(JSON.stringify({...cached,cachedFallback:true}),{status:200,headers:{'content-type':'application/json'}})}return response};
+`;
+  source=source.replace(startupAnchor,quoteGuard+'\n'+startupAnchor);
+}
+
 // Stop stock/options polling in the browser when the known startup block is present.
 const stockStartup="await Promise.all([analyze(),loadScan(),loadSpeculative(),loadGold()]);\n  setInterval(()=>{if($('#auto').checked)analyze()},30000);\n  setInterval(()=>{if($('#auto').checked)loadScan()},60000);\n  setInterval(()=>{if($('#auto').checked)loadSpeculative()},300000);\n  setInterval(()=>{if($('#auto').checked)loadGold()},30000);";
 const goldStartup="await loadGold();\n  setInterval(loadGold,30000);";
