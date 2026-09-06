@@ -9,31 +9,31 @@ function replaceRequired(source,before,after,label){
 }
 
 function applyBtcFastM1(source){
-  // The micro layer now exposes rolling M1/M3/M5 direction and mtfConfirm.
-  // Prefer two-horizon agreement; allow M1 alone only with the pre-existing
-  // impulse confirmation so the executor stays responsive without chasing noise.
+  // Fast BTC execution: use the 1m/3m/5m direction layer with only two
+  // short-horizon confirmations for normal entries. A strong M1 impulse can
+  // enter alone at a slightly lower threshold, while the fallback path stays
+  // stricter so we do not turn every small tick into a trade.
 
   const oldConfidence="let confidence=rawConfidence;if(fastEligible){confidence=Math.max(confidence,58)+(c.impulseConfirm?7:0)+(c.structureMomentum?5:0)+(c.rsiMomentum?4:0)+(liquidityConfirm?3:0);confidence=Math.min(91,confidence)}";
-  const newConfidence="let confidence=rawConfidence;if(mtfConfirm>=2&&candidate===mtfSide){confidence=Math.max(confidence,58)+(mtfConfirm>=3?5:2)+(c.structureMomentum?4:0)+(c.rsiMomentum?3:0)+(c.impulseConfirm?3:0);confidence=Math.min(91,confidence)}else if(m1Override&&candidate===microSide){confidence=Math.max(confidence,54)+(c.structureMomentum?3:0)+(c.rsiMomentum?2:0)+(c.impulseConfirm?4:0);confidence=Math.min(86,confidence)}else if(fastEligible){confidence=Math.max(confidence,58)+(c.impulseConfirm?7:0)+(c.structureMomentum?5:0)+(c.rsiMomentum?4:0)+(liquidityConfirm?3:0);confidence=Math.min(91,confidence)}";
+  const newConfidence="let confidence=rawConfidence;if(mtfConfirm>=2&&candidate===mtfSide){confidence=Math.max(confidence,56)+(mtfConfirm>=3?5:2)+(c.structureMomentum?4:0)+(c.rsiMomentum?3:0)+(c.impulseConfirm?3:0);confidence=Math.min(91,confidence)}else if(m1Override&&candidate===microSide){confidence=Math.max(confidence,52)+(c.structureMomentum?3:0)+(c.rsiMomentum?2:0)+(c.impulseConfirm?4:0);confidence=Math.min(86,confidence)}else if(fastEligible){confidence=Math.max(confidence,58)+(c.impulseConfirm?7:0)+(c.structureMomentum?5:0)+(c.rsiMomentum?4:0)+(liquidityConfirm?3:0);confidence=Math.min(91,confidence)}";
   source=replaceRequired(source,oldConfidence,newConfidence,'multi-horizon confidence');
 
-  // Entry thresholds: 56% when at least two of M1/M3/M5 agree, 54% for a
-  // strong M1 impulse override, otherwise preserve the original 64% gate.
+  // Entry thresholds: 52% when at least two of M1/M3/M5 agree, 50% for a
+  // strong M1 impulse override, otherwise keep a 58% fallback gate.
   source=replaceRequired(
     source,
     "!sameSideLossBlock&&base.confidence>=64){",
-    "!sameSideLossBlock&&base.confidence>=(mtfConfirm>=2&&candidate===mtfSide?56:m1Override&&candidate===microSide?54:64)){",
+    "!sameSideLossBlock&&base.confidence>=(mtfConfirm>=2&&candidate===mtfSide?52:m1Override&&candidate===microSide?50:58)){",
     'multi-horizon entry threshold'
   );
 
-  // Repricing uses the same threshold, so a live short-horizon scalp follows
-  // current price while its directional agreement remains valid.
+  // Repricing follows the same threshold so a valid scalp stays responsive.
   source=source.replaceAll(
     "candidate===active.side&&base.confidence>=58&&Math.abs(price-active.entry)>repriceThreshold",
-    "candidate===active.side&&base.confidence>=(mtfConfirm>=2&&candidate===mtfSide?56:m1Override&&candidate===microSide?54:64)&&Math.abs(price-active.entry)>repriceThreshold"
+    "candidate===active.side&&base.confidence>=(mtfConfirm>=2&&candidate===mtfSide?52:m1Override&&candidate===microSide?50:58)&&Math.abs(price-active.entry)>repriceThreshold"
   );
 
-  for(const marker of ['trend3m:','trend5m:','mtfConfirm>=2',"Math.max(confidence,58)","m1Override&&candidate===microSide?54:64"]){
+  for(const marker of ['trend3m:','trend5m:','mtfConfirm>=2',"Math.max(confidence,56)","m1Override&&candidate===microSide?50:58"]){
     if(!source.includes(marker)) throw new Error('BTC 1m/3m/5m verification failed: '+marker);
   }
   return source;
