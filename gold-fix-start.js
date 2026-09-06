@@ -69,10 +69,9 @@ fs.writeFileSync = function patchedWriteFileSync(path, data, ...args) {
     "if(entryStatus)entryStatus.textContent=plan.locked?'LOCKED • لا يتغير مع التحديث':'بانتظار إشارة مكتملة';const rangeNode=$('#goldTradeRange'),rangeEntry=Number(plan.entry),rangeTarget=Number(plan.target1),rangeHalf=Number.isFinite(rangeEntry)&&Number.isFinite(rangeTarget)?Math.max(.05,Math.abs(rangeTarget-rangeEntry)*.12):null;if(rangeNode)rangeNode.textContent=plan.locked&&Number.isFinite(rangeHalf)?money(rangeEntry-rangeHalf)+' — '+money(rangeEntry+rangeHalf):'—';"
   );
   source = source.replaceAll('setInterval(loadGold,30000)', 'setInterval(loadGold,20000)');
-  source = source.replaceAll("setInterval(()=>loadBtc(),30000)", "setInterval(()=>loadBtc(),20000)");
 
   return originalWriteFileSync(path, isBuffer ? Buffer.from(source, 'utf8') : source, ...args);
 };
 
 syncBuiltinESMExports();
-await import('./gold-btc-ict-start.js');
+await import('./gold-only-stable-start.js');
