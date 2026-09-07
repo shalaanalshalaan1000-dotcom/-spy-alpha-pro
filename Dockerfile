@@ -1,6 +1,6 @@
 FROM node:22-alpine
 WORKDIR /app
-COPY package.json server.js gold-only-stable-start.js gold-news-start.js ./
+COPY package.json server.js *.js ./
 ENV NODE_ENV=production
 EXPOSE 3000
-CMD ["node","gold-news-start.js"]
+CMD ["node","render-gold-start.js"]
