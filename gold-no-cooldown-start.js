@@ -17,6 +17,36 @@ fs.writeFileSync=function(path,data,...args){
     'const completed=readGoldCompleted(),cooling=false,fresh=isFreshAfterCompleted(plan,completed);if(!lock&&fresh&&active');
   source=source.replace("plan.cooling?'حماية بعد الإغلاق • إعادة تقييم…':",'');
 
+  // Hard safety rule for the 5-minute gold setup: if the structural invalidation
+  // is more than $3 from current price, do not lock or present it as tradable.
+  source=source.replace(
+    "function lockGoldPlan(plan,price){const p=Number(price),active=['UP','DOWN'].includes(plan?.state);let lock=readGoldTradeLock();",
+    "function lockGoldPlan(plan,price){const p=Number(price),active=['UP','DOWN'].includes(plan?.state),proposedRisk=Math.abs(p-Number(plan?.invalidation)),stopTooWide=active&&Number.isFinite(proposedRisk)&&proposedRisk>3.0;let lock=readGoldTradeLock();"
+  );
+  source=source.replace(
+    "if(!lock&&!cooling&&fresh&&active&&Number.isFinite(p)&&Number.isFinite(Number(plan.target1))&&Number.isFinite(Number(plan.target2))&&Number.isFinite(Number(plan.invalidation))){",
+    "if(!lock&&!cooling&&fresh&&active&&!stopTooWide&&Number.isFinite(p)&&Number.isFinite(Number(plan.target1))&&Number.isFinite(Number(plan.target2))&&Number.isFinite(Number(plan.invalidation))){"
+  );
+  source=source.replace(
+    "if(!lock&&fresh&&active&&Number.isFinite(p)&&Number.isFinite(Number(plan.target1))&&Number.isFinite(Number(plan.target2))&&Number.isFinite(Number(plan.invalidation))){",
+    "if(!lock&&fresh&&active&&!stopTooWide&&Number.isFinite(p)&&Number.isFinite(Number(plan.target1))&&Number.isFinite(Number(plan.target2))&&Number.isFinite(Number(plan.invalidation))){"
+  );
+  source=source.replace(
+    "if(!lock){const consumed=Boolean(completed&&!fresh);return{...plan,entry:null,locked:false,cooling,consumed,tradeCompleted:Boolean(completed)",
+    "if(!lock){if(stopTooWide)return{...plan,state:'WAIT',entry:null,locked:false,cooling:false,consumed:false,tradeCompleted:false,tp1Hit:false,tp2Hit:false,note:'NO TRADE — الوقف البنيوي أكبر من 3$؛ ننتظر دخولًا أقرب أو بنية جديدة.'};const consumed=Boolean(completed&&!fresh);return{...plan,entry:null,locked:false,cooling,consumed,tradeCompleted:Boolean(completed)"
+  );
+
+  // A stop-out consumes that exact structure too. Re-entry is blocked until the
+  // direction changes or the structural levels shift materially.
+  source=source.replace(
+    "function setGoldCompleted(lock){try{localStorage.setItem(GOLD_TRADE_COMPLETED_KEY,JSON.stringify({state:lock.state,entry:lock.entry,target1:lock.target1,target2:lock.target2,invalidation:lock.invalidation,tp1Hit:true,tp2Hit:true,completedAt:Date.now()}))}catch{}}",
+    "function setGoldCompleted(lock){try{localStorage.setItem(GOLD_TRADE_COMPLETED_KEY,JSON.stringify({state:lock.state,entry:lock.entry,target1:lock.target1,target2:lock.target2,invalidation:lock.invalidation,tp1Hit:true,tp2Hit:true,result:'TP2',completedAt:Date.now()}))}catch{}}function setGoldStopped(lock){try{localStorage.setItem(GOLD_TRADE_COMPLETED_KEY,JSON.stringify({state:lock.state,entry:lock.entry,target1:lock.target1,target2:lock.target2,invalidation:lock.invalidation,tp1Hit:Boolean(lock.tp1Hit),tp2Hit:false,result:'STOPPED',completedAt:Date.now()}))}catch{}}"
+  );
+  source=source.replace(
+    "if(invalidated||opposite||expired){clearGoldTradeLock();lock=null}else writeGoldTradeLock(lock)",
+    "if(invalidated){setGoldStopped(lock);clearGoldTradeLock();lock=null}else if(opposite||expired){clearGoldTradeLock();lock=null}else writeGoldTradeLock(lock)"
+  );
+
   // Fast target-hit monitoring for LIVE/MASSIVE. The previous 5-second cycle could
   // miss a quick wick through TP1 before price bounced. Refresh once per second and
   // keep the hit sticky in localStorage as soon as a sampled live price touches it.
