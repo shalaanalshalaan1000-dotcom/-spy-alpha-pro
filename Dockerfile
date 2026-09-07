@@ -1,6 +1,6 @@
 FROM node:22-alpine
 WORKDIR /app
-COPY package.json server.js gold-only-stable-start.js gold-news-start.js ./
+COPY package.json server.js gold-only-stable-start.js gold-news-start.js gold-research-auto-start.js ./
 ENV NODE_ENV=production
 EXPOSE 3000
-CMD ["node","gold-news-start.js"]
+CMD ["node","gold-research-auto-start.js"]
