@@ -9,7 +9,7 @@ function patchGoldAutoUISafe(source){
 `;
   if(!source.includes('.goldAutoPanel')&&source.includes('</style></head>'))source=source.replace('</style></head>',css+'</style></head>');
 
-  const panel=`<article class="goldAutoPanel" id="goldAutoPanel"><div class="goldAutoHead"><div><h2>XAUUSD — التداول الآلي</h2><p>تنفيذ MT5 للذهب فقط • BTC متوقف</p></div><span id="goldAutoBadge" class="goldAutoBadge">MT5 XAU</span></div><section class="goldAutoGrid"><div class="goldAutoCard"><span>حالة التنفيذ</span><strong id="goldAutoAction">انتظار</strong><small id="goldAutoConfidence">جاري القراءة</small></div><div class="goldAutoCard"><span>نطاق الدخول</span><strong id="goldAutoRange">—</strong><small id="goldAutoEntryState">لا توجد إشارة فعالة</small></div><div class="goldAutoCard"><span>وقف الخسارة</span><strong id="goldAutoStop">—</strong><small>وقف بنيوي</small></div><div class="goldAutoCard"><span>الهدف الأول</span><strong id="goldAutoT1">—</strong><small id="goldAutoRR">R:R —</small></div><div class="goldAutoCard"><span>الهدف الثاني</span><strong id="goldAutoT2">—</strong><small id="goldAutoT2State">امتداد الصفقة</small></div><div class="goldAutoCard locked" id="goldAutoT3Card"><span>الهدف الثالث</span><strong id="goldAutoT3">🔒</strong><small id="goldAutoT3State">يتفعل بعد تحقق الهدفين 1 و2</small></div><div class="goldAutoCard locked" id="goldAutoT4Card"><span>الهدف الرابع</span><strong id="goldAutoT4">🔒</strong><small id="goldAutoT4State">يتفعل بعد تحقق الهدفين 1 و2</small></div><div class="goldAutoCard"><span>حالة MT5</span><strong id="goldAutoMt5">جاهز</strong><small id="goldAutoUpdated">—</small></div></section><p id="goldAutoNote" class="goldAutoNote">المحرك يقرأ الذهب ويصدر BUY/SELL فقط عند اكتمال شروط التنفيذ.</p></article>`;
+  const panel=`<article class="goldAutoPanel" id="goldAutoPanel"><div class="goldAutoHead"><div><h2>XAUUSD — التداول الآلي</h2><p>تنفيذ MT5 للذهب فقط • BTC متوقف</p></div><span id="goldAutoBadge" class="goldAutoBadge">MT5 XAU</span></div><section class="goldAutoGrid"><div class="goldAutoCard"><span>حالة التنفيذ</span><strong id="goldAutoAction">انتظار</strong><small id="goldAutoConfidence">جاري القراءة</small></div><div class="goldAutoCard"><span>نطاق الدخول</span><strong id="goldAutoRange">—</strong><small id="goldAutoEntryState">لا توجد إشارة فعالة</small></div><div class="goldAutoCard"><span>الدخول المفعّل</span><strong id="goldAutoEntry">—</strong><small id="goldAutoEntryFilledState">بانتظار تفعيل الدخول</small></div><div class="goldAutoCard"><span>الهدف الأول</span><strong id="goldAutoT1">—</strong><small id="goldAutoRR">R:R —</small></div><div class="goldAutoCard"><span>الهدف الثاني</span><strong id="goldAutoT2">—</strong><small id="goldAutoT2State">امتداد الصفقة</small></div><div class="goldAutoCard locked" id="goldAutoT3Card"><span>الهدف الثالث</span><strong id="goldAutoT3">🔒</strong><small id="goldAutoT3State">يتفعل بعد تحقق الهدفين 1 و2</small></div><div class="goldAutoCard locked" id="goldAutoT4Card"><span>الهدف الرابع</span><strong id="goldAutoT4">🔒</strong><small id="goldAutoT4State">يتفعل بعد تحقق الهدفين 1 و2</small></div><div class="goldAutoCard"><span>وقف الخسارة</span><strong id="goldAutoStop">—</strong><small>وقف بنيوي</small></div><div class="goldAutoCard"><span>حالة MT5</span><strong id="goldAutoMt5">جاهز</strong><small id="goldAutoUpdated">—</small></div></section><p id="goldAutoNote" class="goldAutoNote">المحرك يقرأ الذهب ويصدر BUY/SELL فقط عند اكتمال شروط التنفيذ.</p></article>`;
 
   if(!source.includes('id="goldAutoPanel"')){
     if(source.includes('<article class="goldPanel">')) source=source.replace('<article class="goldPanel">',panel+'<article class="goldPanel">');
@@ -36,13 +36,16 @@ async function loadGoldAutoUi(){
     if(!r.ok||d.error)throw new Error(d.error||'Auto signal unavailable');
     const side=['BUY','SELL'].includes(d.action)?d.action:['BUY','SELL'].includes(d.candidateAction)?d.candidateAction:'WAIT';
     const active=['BUY','SELL'].includes(side),status=String(d.status||'WAIT').toUpperCase();
+    const entered=Boolean(d.entered)||status==='MANAGING';
     const actionLabel=side==='BUY'?'شراء':side==='SELL'?'بيع':status==='COLLECTING'?'جاري القراءة':'انتظار';
     const q=s=>document.querySelector(s); if(!q('#goldAutoAction'))return;
     q('#goldAutoAction').textContent=actionLabel;
     q('#goldAutoAction').className=side==='BUY'?'positive':side==='SELL'?'negative':'WATCH';
     q('#goldAutoConfidence').textContent='الثقة '+Number(d.confidence||0)+'% • '+Number(d.sampleCount||0)+' عينة';
     q('#goldAutoRange').textContent=active?goldAutoMoney(d.entryLow)+' — '+goldAutoMoney(d.entryHigh):'—';
-    q('#goldAutoEntryState').textContent=status==='ACTIVE'?'إشارة فعالة':status==='MANAGING'?'إدارة صفقة قائمة':status==='CANDIDATE'?'مرشح للدخول':status==='COLLECTING'?'يجمع شموع M1':'لا توجد إشارة فعالة';
+    q('#goldAutoEntryState').textContent=status==='ACTIVE'?'النطاق جاهز للدخول':status==='MANAGING'?'تم تفعيل الدخول':status==='CANDIDATE'?'مرشح للدخول':status==='COLLECTING'?'يجمع شموع M1':'لا توجد إشارة فعالة';
+    q('#goldAutoEntry').textContent=active&&entered?goldAutoMoney(d.entry):'—';
+    q('#goldAutoEntryFilledState').textContent=entered?'تم تفعيل الدخول الفعلي':'بانتظار لمس نطاق الدخول';
     q('#goldAutoStop').textContent=active?goldAutoMoney(d.stopLoss):'—';
     q('#goldAutoT1').textContent=active?goldAutoMoney(d.target1):'—';
     q('#goldAutoT2').textContent=active?goldAutoMoney(d.target2):'—';
@@ -51,7 +54,6 @@ async function loadGoldAutoUi(){
     if(!active||!d.signalId){tpState=null;try{localStorage.removeItem(GOLD_AUTO_TP_STATE_KEY)}catch{}}
     else{
       if(!tpState||tpState.signalId!==d.signalId)tpState={signalId:d.signalId,tp1:false,tp2:false};
-      const entered=Boolean(d.entered)||status==='MANAGING';
       if(entered&&goldAutoReached(side,d.price,d.target1))tpState.tp1=true;
       if(tpState.tp1&&entered&&goldAutoReached(side,d.price,d.target2))tpState.tp2=true;
       writeGoldAutoTpState(tpState);
