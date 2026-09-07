@@ -5,15 +5,21 @@ const previousWriteFileSync=fs.writeFileSync.bind(fs);
 
 function patchGoldAutoUISafe(source){
   const css=`
-.goldAutoPanel{margin:0 0 14px;border:1px solid #2f6a57;border-radius:18px;background:linear-gradient(145deg,#0f1e1a,#0b111b);padding:16px}.goldAutoHead{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:12px}.goldAutoHead h2{margin:0;color:#74e3b8;font-size:18px}.goldAutoHead p{margin:5px 0 0;color:#8fa9a0;font-size:11px}.goldAutoBadge{padding:6px 9px;border:1px solid #397963;border-radius:999px;color:#74e3b8;background:#10271f;font-size:11px;font-weight:900}.goldAutoGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}.goldAutoCard{padding:11px;border:1px solid #29473f;border-radius:11px;background:#0d1421}.goldAutoCard span,.goldAutoCard small{display:block;color:#8fa9a0;font-size:11px}.goldAutoCard strong{display:block;margin:6px 0;font-size:18px;direction:ltr;text-align:right}.goldAutoNote{margin:10px 0 0;color:#8fa9a0;font-size:11px;line-height:1.7}@media(max-width:760px){.goldAutoGrid{grid-template-columns:repeat(2,1fr)}.goldAutoHead{flex-direction:column}}
+.goldAutoPanel{margin:14px 0;border:1px solid #2f6a57;border-radius:18px;background:linear-gradient(145deg,#0f1e1a,#0b111b);padding:16px}.goldAutoHead{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:12px}.goldAutoHead h2{margin:0;color:#74e3b8;font-size:18px}.goldAutoHead p{margin:5px 0 0;color:#8fa9a0;font-size:11px}.goldAutoBadge{padding:6px 9px;border:1px solid #397963;border-radius:999px;color:#74e3b8;background:#10271f;font-size:11px;font-weight:900}.goldAutoGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}.goldAutoCard{padding:11px;border:1px solid #29473f;border-radius:11px;background:#0d1421}.goldAutoCard span,.goldAutoCard small{display:block;color:#8fa9a0;font-size:11px}.goldAutoCard strong{display:block;margin:6px 0;font-size:18px;direction:ltr;text-align:right}.goldAutoNote{margin:10px 0 0;color:#8fa9a0;font-size:11px;line-height:1.7}@media(max-width:760px){.goldAutoGrid{grid-template-columns:repeat(2,1fr)}.goldAutoHead{flex-direction:column}}
 `;
-  if(!source.includes('.goldAutoPanel')&&source.includes('</style></head>')){
-    source=source.replace('</style></head>',css+'</style></head>');
-  }
+  if(!source.includes('.goldAutoPanel')&&source.includes('</style></head>'))source=source.replace('</style></head>',css+'</style></head>');
 
-  const panel=`<article class="goldAutoPanel"><div class="goldAutoHead"><div><h2>XAUUSD — التداول الآلي</h2><p>تنفيذ MT5 للذهب فقط • BTC متوقف</p></div><span id="goldAutoBadge" class="goldAutoBadge">MT5 XAU</span></div><section class="goldAutoGrid"><div class="goldAutoCard"><span>حالة التنفيذ</span><strong id="goldAutoAction">انتظار</strong><small id="goldAutoConfidence">جاري القراءة</small></div><div class="goldAutoCard"><span>نطاق الدخول</span><strong id="goldAutoRange">—</strong><small id="goldAutoEntryState">لا توجد إشارة فعالة</small></div><div class="goldAutoCard"><span>وقف الخسارة</span><strong id="goldAutoStop">—</strong><small>وقف بنيوي</small></div><div class="goldAutoCard"><span>الهدف الأول</span><strong id="goldAutoT1">—</strong><small id="goldAutoRR">R:R —</small></div><div class="goldAutoCard"><span>الهدف الثاني</span><strong id="goldAutoT2">—</strong><small>امتداد الصفقة</small></div><div class="goldAutoCard"><span>الهدف الثالث</span><strong id="goldAutoT3">—</strong><small>امتداد متقدم</small></div><div class="goldAutoCard"><span>الهدف الرابع</span><strong id="goldAutoT4">—</strong><small>الهدف الأخير</small></div><div class="goldAutoCard"><span>حالة MT5</span><strong id="goldAutoMt5">جاهز</strong><small id="goldAutoUpdated">—</small></div></section><p id="goldAutoNote" class="goldAutoNote">المحرك يقرأ الذهب ويصدر BUY/SELL فقط عند اكتمال شروط التنفيذ.</p></article>`;
-  if(!source.includes('id="goldAutoAction"')&&source.includes('<article class="goldPanel">')){
-    source=source.replace('<article class="goldPanel">',panel+'<article class="goldPanel">');
+  const panel=`<article class="goldAutoPanel" id="goldAutoPanel"><div class="goldAutoHead"><div><h2>XAUUSD — التداول الآلي</h2><p>تنفيذ MT5 للذهب فقط • BTC متوقف</p></div><span id="goldAutoBadge" class="goldAutoBadge">MT5 XAU</span></div><section class="goldAutoGrid"><div class="goldAutoCard"><span>حالة التنفيذ</span><strong id="goldAutoAction">انتظار</strong><small id="goldAutoConfidence">جاري القراءة</small></div><div class="goldAutoCard"><span>نطاق الدخول</span><strong id="goldAutoRange">—</strong><small id="goldAutoEntryState">لا توجد إشارة فعالة</small></div><div class="goldAutoCard"><span>وقف الخسارة</span><strong id="goldAutoStop">—</strong><small>وقف بنيوي</small></div><div class="goldAutoCard"><span>الهدف الأول</span><strong id="goldAutoT1">—</strong><small id="goldAutoRR">R:R —</small></div><div class="goldAutoCard"><span>الهدف الثاني</span><strong id="goldAutoT2">—</strong><small>امتداد الصفقة</small></div><div class="goldAutoCard"><span>الهدف الثالث</span><strong id="goldAutoT3">—</strong><small>امتداد متقدم</small></div><div class="goldAutoCard"><span>الهدف الرابع</span><strong id="goldAutoT4">—</strong><small>الهدف الأخير</small></div><div class="goldAutoCard"><span>حالة MT5</span><strong id="goldAutoMt5">جاهز</strong><small id="goldAutoUpdated">—</small></div></section><p id="goldAutoNote" class="goldAutoNote">المحرك يقرأ الذهب ويصدر BUY/SELL فقط عند اكتمال شروط التنفيذ.</p></article>`;
+
+  if(!source.includes('id="goldAutoPanel"')&&!source.includes('id="goldAutoAction"')){
+    if(source.includes('<article class="goldPanel">')) source=source.replace('<article class="goldPanel">',panel+'<article class="goldPanel">');
+    else if(source.includes('<main')){
+      const p=source.indexOf('>',source.indexOf('<main'));
+      if(p>=0) source=source.slice(0,p+1)+panel+source.slice(p+1);
+    } else if(source.includes('<body')){
+      const p=source.indexOf('>',source.indexOf('<body'));
+      if(p>=0) source=source.slice(0,p+1)+panel+source.slice(p+1);
+    }
   }
 
   const client=`
@@ -27,8 +33,7 @@ async function loadGoldAutoUi(){
     const side=['BUY','SELL'].includes(d.action)?d.action:['BUY','SELL'].includes(d.candidateAction)?d.candidateAction:'WAIT';
     const active=['BUY','SELL'].includes(side),status=String(d.status||'WAIT').toUpperCase();
     const actionLabel=side==='BUY'?'شراء':side==='SELL'?'بيع':status==='COLLECTING'?'جاري القراءة':'انتظار';
-    const q=s=>document.querySelector(s);
-    if(!q('#goldAutoAction'))return;
+    const q=s=>document.querySelector(s); if(!q('#goldAutoAction'))return;
     q('#goldAutoAction').textContent=actionLabel;
     q('#goldAutoAction').className=side==='BUY'?'positive':side==='SELL'?'negative':'WATCH';
     q('#goldAutoConfidence').textContent='الثقة '+Number(d.confidence||0)+'% • '+Number(d.sampleCount||0)+' عينة';
@@ -41,16 +46,11 @@ async function loadGoldAutoUi(){
     q('#goldAutoBadge').textContent=status==='ACTIVE'?'XAU ACTIVE':status==='MANAGING'?'XAU MANAGING':'MT5 XAU';
     q('#goldAutoUpdated').textContent=d.updatedAt?new Date(d.updatedAt).toLocaleTimeString('ar-SA',{hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'Asia/Riyadh'}):'—';
     q('#goldAutoNote').textContent=d.reason||'المحرك يقرأ الذهب ويصدر BUY/SELL فقط عند اكتمال شروط التنفيذ.';
-  }catch(e){
-    const q=s=>document.querySelector(s);if(q('#goldAutoBadge'))q('#goldAutoBadge').textContent='غير متاح';if(q('#goldAutoMt5'))q('#goldAutoMt5').textContent='خطأ';if(q('#goldAutoNote'))q('#goldAutoNote').textContent=e.message;
-  }finally{goldAutoUiLoading=false}
+  }catch(e){const q=s=>document.querySelector(s);if(q('#goldAutoBadge'))q('#goldAutoBadge').textContent='غير متاح';if(q('#goldAutoMt5'))q('#goldAutoMt5').textContent='خطأ';if(q('#goldAutoNote'))q('#goldAutoNote').textContent=e.message;}finally{goldAutoUiLoading=false}
 }
-setTimeout(loadGoldAutoUi,800);
-setInterval(loadGoldAutoUi,5000);
+setTimeout(loadGoldAutoUi,500);setInterval(loadGoldAutoUi,1000);
 `;
-  if(!source.includes('function loadGoldAutoUi')&&source.includes('(async()=>{')){
-    source=source.replace('(async()=>{',client+'\n(async()=>{');
-  }
+  if(!source.includes('function loadGoldAutoUi')&&source.includes('(async()=>{'))source=source.replace('(async()=>{',client+'\n(async()=>{');
   return source;
 }
 
