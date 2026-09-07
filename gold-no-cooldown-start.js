@@ -65,6 +65,32 @@ fs.writeFileSync=function(path,data,...args){
     "if(t2){t2.classList.toggle('goldHit',!!plan.tp2Hit);if(plan.tp2Hit){t2.textContent=t2.textContent.replace(/^✓\\s*/,'');t2.textContent='✓ تحقق الهدف الثاني • '+t2.textContent}}"
   );
 
+  // Gold trade notifications: user-initiated permission button + one alert per new locked setup.
+  const notifyCss=`
+#goldNotifyBtn{position:fixed;left:18px;bottom:18px;z-index:9998;border:1px solid #8b763b;border-radius:14px;padding:12px 16px;background:#17160f;color:#ffd166;font-weight:800;box-shadow:0 10px 35px rgba(0,0,0,.35)}
+#goldTradeToast{position:fixed;left:50%;top:18px;transform:translateX(-50%) translateY(-150%);z-index:9999;width:min(92vw,520px);padding:18px 20px;border:1px solid #8b763b;border-radius:18px;background:linear-gradient(145deg,#1b1910,#0b1119);box-shadow:0 18px 50px rgba(0,0,0,.45);transition:.25s ease;color:#fff;text-align:right;direction:rtl}
+#goldTradeToast.show{transform:translateX(-50%) translateY(0)}
+#goldTradeToast strong{display:block;font-size:22px;margin-bottom:8px;color:#ffd166}#goldTradeToast span{display:block;line-height:1.7;font-size:15px;color:#eef2f7}
+`;
+  source=source.replace('</style></head>',notifyCss+'</style></head>');
+  source=source.replace('</body>',`<button id="goldNotifyBtn" type="button">🔔 تفعيل إشعارات الصفقات</button><div id="goldTradeToast" role="status" aria-live="polite"><strong id="goldTradeToastTitle">🚨 صفقة ذهب جديدة</strong><span id="goldTradeToastBody"></span></div></body>`);
+
+  const notifyJs=`
+const GOLD_NOTIFY_LAST_KEY='gold_alpha_last_notified_trade_v1';
+function goldNotifyTradeKey(plan){return [plan?.state,Number(plan?.entry).toFixed(2),Number(plan?.target1).toFixed(2),Number(plan?.target2).toFixed(2),Number(plan?.invalidation).toFixed(2),Number(plan?.lockCreatedAt||0)].join('|')}
+function goldTradeText(plan){const side=plan.state==='UP'?'شراء BUY':'بيع SELL';return side+' • دخول '+Number(plan.entry).toFixed(2)+' • وقف '+Number(plan.invalidation).toFixed(2)+' • هدف1 '+Number(plan.target1).toFixed(2)+' • هدف2 '+Number(plan.target2).toFixed(2)+' • ثقة '+Math.round(Number(plan.confidence||0))+'%'}
+function showGoldTradeToast(plan){const box=document.getElementById('goldTradeToast'),body=document.getElementById('goldTradeToastBody');if(!box||!body)return;body.textContent=goldTradeText(plan);box.classList.add('show');clearTimeout(window.__goldToastTimer);window.__goldToastTimer=setTimeout(()=>box.classList.remove('show'),10000)}
+async function requestGoldNotifications(){const btn=document.getElementById('goldNotifyBtn');if(!('Notification' in window)){if(btn)btn.textContent='الإشعارات غير مدعومة هنا';return false}try{const permission=await Notification.requestPermission();if(btn)btn.textContent=permission==='granted'?'🔔 الإشعارات مفعلة':permission==='denied'?'الإشعارات مرفوضة من إعدادات الجهاز':'🔔 تفعيل إشعارات الصفقات';return permission==='granted'}catch{if(btn)btn.textContent='تعذر تفعيل الإشعارات';return false}}
+function updateGoldNotifyButton(){const btn=document.getElementById('goldNotifyBtn');if(!btn)return;btn.onclick=requestGoldNotifications;if('Notification' in window&&Notification.permission==='granted')btn.textContent='🔔 الإشعارات مفعلة';else if('Notification' in window&&Notification.permission==='denied')btn.textContent='الإشعارات مرفوضة من إعدادات الجهاز'}
+function notifyGoldTradeOnce(plan){if(!plan?.locked)return;const key=goldNotifyTradeKey(plan);let last='';try{last=localStorage.getItem(GOLD_NOTIFY_LAST_KEY)||''}catch{}if(last===key)return;try{localStorage.setItem(GOLD_NOTIFY_LAST_KEY,key)}catch{}showGoldTradeToast(plan);if('Notification' in window&&Notification.permission==='granted'){try{new Notification('🚨 صفقة ذهب جديدة — Gold Alpha Pro',{body:goldTradeText(plan),tag:'gold-trade-'+key,renotify:false})}catch{}}}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',updateGoldNotifyButton);else updateGoldNotifyButton();
+`;
+  source=source.replace('function renderGoldPlan(plan){',notifyJs+'\nfunction renderGoldPlan(plan){');
+  source=source.replace(
+    '{const goldLockedPlan=lockGoldPlan(d.plan,d.price);renderGoldPlan(goldLockedPlan);renderGoldHitState(goldLockedPlan);}',
+    '{const goldLockedPlan=lockGoldPlan(d.plan,d.price);renderGoldPlan(goldLockedPlan);renderGoldHitState(goldLockedPlan);notifyGoldTradeOnce(goldLockedPlan);}'
+  );
+
   return originalWriteFileSync(path,isBuffer?Buffer.from(source,'utf8'):source,...args);
 };
 
