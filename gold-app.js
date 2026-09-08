@@ -117,7 +117,7 @@ function analyze(price) {
   const prev3 = recent.slice(-4,-1);
   const hi3 = Math.max(...prev3.map(b=>b.high));
   const lo3 = Math.min(...prev3.map(b=>b.low));
-  let side=null, strategy=null, confidence=0, stop=null;
+  let side=null, strategy=null, confidence=0, stop=null, entryBase=null;
 
   const trendUp = slope > atr*.75 && closes.at(-1) > hi3;
   const trendDown = slope < -atr*.75 && closes.at(-1) < lo3;
@@ -125,10 +125,12 @@ function analyze(price) {
     side='BUY'; strategy='TREND_CONTINUATION';
     confidence = 65 + Math.min(15, Math.round(Math.abs(slope)/Math.max(atr,.01)*5));
     stop = Math.min(...recent.slice(-3).map(b=>b.low)) - .25;
+    entryBase = hi3;
   } else if (trendDown) {
     side='SELL'; strategy='TREND_CONTINUATION';
     confidence = 65 + Math.min(15, Math.round(Math.abs(slope)/Math.max(atr,.01)*5));
     stop = Math.max(...recent.slice(-3).map(b=>b.high)) + .25;
+    entryBase = lo3;
   }
 
   if (!side && recent.length >= 6) {
@@ -140,8 +142,8 @@ function analyze(price) {
       const bearSweep = c.high > ph && c.close < ph;
       const bullMss = bullSweep && after.some(b=>b.close > Math.max(...prior.slice(-2).map(x=>x.high)));
       const bearMss = bearSweep && after.some(b=>b.close < Math.min(...prior.slice(-2).map(x=>x.low)));
-      if (bullMss) { side='BUY'; strategy='ICT_REVERSAL'; confidence=72; stop=c.low-.25; }
-      if (bearMss) { side='SELL'; strategy='ICT_REVERSAL'; confidence=72; stop=c.high+.25; }
+      if (bullMss) { side='BUY'; strategy='ICT_REVERSAL'; confidence=72; stop=c.low-.25; entryBase=Math.max(...prior.slice(-2).map(x=>x.high)); }
+      if (bearMss) { side='SELL'; strategy='ICT_REVERSAL'; confidence=72; stop=c.high+.25; entryBase=Math.min(...prior.slice(-2).map(x=>x.low)); }
     }
   }
 
@@ -151,7 +153,13 @@ function analyze(price) {
   }
 
   confidence = Math.min(90, confidence);
-  const risk = Math.abs(price-stop);
+  const chaseDistance = Math.abs(price-entryBase);
+  const maxChase = Math.max(1.25, atr*.75);
+  if (chaseDistance > maxChase) {
+    return {...base,status:'WAIT',candidateAction:'WAIT',confidence,strategy,
+      reason:'NO CHASE: تحرك السعر بعيدًا عن مستوى الدخول؛ ننتظر إعادة اختبار أو إشارة جديدة'};
+  }
+  const risk = Math.abs(entryBase-stop);
   if (risk < .6 || risk > 6) {
     return {...base,status:'WAIT',candidateAction:side,confidence,strategy,
       reason:risk<.6?'إشارة موجودة لكن وقف الخسارة قريب جدًا':'إشارة موجودة لكن وقف الخسارة واسع أكثر من 6$'};
@@ -161,8 +169,8 @@ function analyze(price) {
   const d1=Math.max(1.8,risk*1.4), d2=Math.max(3,risk*2), d3=Math.max(4,risk*2.5), d4=Math.max(5,risk*3);
   return {
     ...base,status:'CANDIDATE',candidateAction:side,side,strategy,confidence,
-    entry:round(price),entryLow:round(price-half),entryHigh:round(price+half),stopLoss:round(stop),
-    target1:round(price+dir*d1),target2:round(price+dir*d2),target3:round(price+dir*d3),target4:round(price+dir*d4),
+    entry:round(entryBase),entryLow:round(entryBase-half),entryHigh:round(entryBase+half),stopLoss:round(stop),
+    target1:round(entryBase+dir*d1),target2:round(entryBase+dir*d2),target3:round(entryBase+dir*d3),target4:round(entryBase+dir*d4),
     riskReward:round(d4/risk,2),
     reason:strategy==='ICT_REVERSAL'?'ICT reversal مكتمل':'استمرار ترند مؤكد'
   };
@@ -174,10 +182,9 @@ function updateStableCandidate(model) {
   const t = state.candidateTrack;
 
   if (side === 'WAIT') {
-    if (t.lastSeen && now - t.lastSeen > CONFIRM_WINDOW_MS) {
-      state.candidateTrack = { side:'WAIT', count:0, firstSeen:0, lastSeen:now, model:null };
-    } else {
-      t.lastSeen = now;
+    if (t.side !== 'WAIT' && t.lastSeen && now - t.lastSeen > CONFIRM_WINDOW_MS) {
+      state.candidateTrack = { side:'WAIT', count:0, firstSeen:0, lastSeen:0, model:null };
+      if (!state.signal) state.stableView = null;
     }
     return;
   }
@@ -222,6 +229,18 @@ async function signal(execute) {
 
   const model = state.stableView || rawModel;
   let s = state.signal;
+  const pendingSide = model.candidateAction;
+  const pendingRange = ['BUY','SELL'].includes(pendingSide) &&
+    Number.isFinite(Number(model.entryLow)) && Number.isFinite(Number(model.entryHigh));
+  const pendingInRange = pendingRange && q.price>=model.entryLow && q.price<=model.entryHigh;
+  const pendingTargetPassed = pendingRange && Number.isFinite(Number(model.target1)) && hit(pendingSide,q.price,model.target1);
+  const pendingStopBroken = pendingRange && Number.isFinite(Number(model.stopLoss)) &&
+    (pendingSide==='BUY' ? q.price<=model.stopLoss : q.price>=model.stopLoss);
+
+  if (!s && (pendingTargetPassed || pendingStopBroken)) {
+    state.stableView = null;
+    state.candidateTrack = { side:'WAIT', count:0, firstSeen:0, lastSeen:0, model:null };
+  }
 
   if (s) {
     const stopped = s.side==='BUY' ? q.price<=s.stopLoss : q.price>=s.stopLoss;
@@ -239,7 +258,8 @@ async function signal(execute) {
 
   if (!s && execute &&
       ['BUY','SELL'].includes(model.candidateAction) && model.confidence>=MIN_CONFIDENCE &&
-      model.entryLow && model.entryHigh && state.candidateTrack.count>=CONFIRM_COUNT) {
+      model.entryLow && model.entryHigh && state.candidateTrack.count>=CONFIRM_COUNT &&
+      pendingInRange && !pendingTargetPassed && !pendingStopBroken) {
     s = {
       signalId:`XAU-${now}-${model.candidateAction}`, side:model.candidateAction,
       strategy:model.strategy, confidence:model.confidence, entry:model.entry,
@@ -277,7 +297,10 @@ async function signal(execute) {
     executionMode:'XAUUSD_ONLY',
     confirmationCount:state.candidateTrack.count,
     confirmationRequired:CONFIRM_COUNT,
-    reason: state.stableView ? shown.reason : (['BUY','SELL'].includes(rawModel.candidateAction)
+    reason: pendingTargetPassed ? 'MISSED ENTRY: وصل السعر إلى الهدف قبل لمس نطاق الدخول؛ ألغيت الإشارة القديمة' :
+      pendingStopBroken ? 'INVALIDATED: كُسر وقف الهيكل قبل الدخول؛ ألغيت الإشارة' :
+      (state.stableView && pendingRange && !pendingInRange) ? 'بانتظار عودة السعر إلى نطاق الدخول؛ ممنوع مطاردة السعر' :
+      state.stableView ? shown.reason : (['BUY','SELL'].includes(rawModel.candidateAction)
       ? `انتظار تثبيت ${rawModel.candidateAction}: ${state.candidateTrack.count}/${CONFIRM_COUNT}`
       : rawModel.reason)
   };
