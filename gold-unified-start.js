@@ -20,7 +20,7 @@ function injectAuto(html){
   const panel=`<section id="alphaAutoDock"><h3>الرصد الآلي — Gold Alpha</h3><div class="alphaAutoGrid"><div class="alphaAutoBox"><span>حالة الروبوت</span><strong id="aaConn" class="alphaAutoWarn">جاري الفحص</strong></div><div class="alphaAutoBox"><span>الإشارة التنفيذية</span><strong id="aaAction" class="alphaAutoWarn">WAIT</strong></div><div class="alphaAutoBox"><span>نطاق الدخول</span><strong id="aaRange">—</strong></div><div class="alphaAutoBox"><span>سبب القرار</span><strong id="aaReason">—</strong></div></div></section>`;
   const js=`<script>
 (function(){
- const m=v=>Number.isFinite(Number(v))?'$'+Number(v).toFixed(2):'—';
+ const m=v=>Number.isFinite(Number(v))?String.fromCharCode(36)+Number(v).toFixed(2):'—';
  async function aa(){try{const [sr,st]=await Promise.all([fetch('/api/auto-trade/signal?observe=1',{cache:'no-store'}),fetch('/api/auto-trade/status',{cache:'no-store'})]);const s=await sr.json(),x=await st.json();const c=document.getElementById('aaConn'),a=document.getElementById('aaAction'),r=document.getElementById('aaRange'),n=document.getElementById('aaReason');if(!c)return;const connected=!!x.mt5?.connected;c.textContent=connected?'V9.1 متصل ويعمل':'غير متصل';c.className=connected?'alphaAutoOk':'alphaAutoBad';const act=s.action&&s.action!=='WAIT'?s.action:(s.status==='ACTIVE'&&['BUY','SELL'].includes(s.candidateAction)?s.candidateAction:'WAIT');a.textContent=act;a.className=act==='BUY'?'alphaAutoOk':act==='SELL'?'alphaAutoBad':'alphaAutoWarn';r.textContent=s.entryLow?m(s.entryLow)+' — '+m(s.entryHigh):'—';n.textContent=s.reason||'—';}catch(e){const c=document.getElementById('aaConn');if(c){c.textContent='تعذر التحديث';c.className='alphaAutoBad';}}}
  aa();setInterval(aa,5000);
 })();
