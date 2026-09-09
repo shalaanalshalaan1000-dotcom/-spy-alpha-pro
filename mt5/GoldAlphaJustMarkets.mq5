@@ -1,6 +1,6 @@
 #property strict
-#property version   "2.10"
-#property description "Gold Alpha Pro executor for JustMarkets MT5 (XAUUSD only)"
+#property version   "2.11"
+#property description "Gold Alpha Pro for JustMarkets MT5 Standard Cent - 10 USD profile"
 
 #include <Trade/Trade.mqh>
 
@@ -9,10 +9,11 @@ input string ReportUrl            = "https://spy-alpha-pro-1.onrender.com/api/au
 input string TradeSymbol          = "";
 input bool   RequireJustMarkets    = true;
 input bool   RequireGoldSymbol     = true;
+input bool   RequireCentAccount    = true;
 input bool   EnableTrading         = false;
 input bool   AllowLiveAccount      = false;
-input double RiskPercent           = 0.25;
-input double MaxDailyLossPercent   = 1.00;
+input double RiskPercent           = 1.00;
+input double MaxDailyLossPercent   = 3.00;
 input double MaxSpreadPrice        = 0.80;
 input int    PollSeconds           = 5;
 input int    RequestTimeoutMs      = 15000;
@@ -333,6 +334,8 @@ int OnInit()
    g_symbol=TradeSymbol==""?_Symbol:TradeSymbol;
    if(RequireGoldSymbol && !IsGoldSymbol(g_symbol)){ Print("Attach this EA to the JustMarkets gold chart only. Current symbol: ",g_symbol); return INIT_FAILED; }
    if(RequireJustMarkets && !IsJustMarketsBroker()){ Print("JustMarkets account/server not detected. Company: ",AccountInfoString(ACCOUNT_COMPANY)," Server: ",AccountInfoString(ACCOUNT_SERVER)); return INIT_FAILED; }
+   string account_currency=AccountInfoString(ACCOUNT_CURRENCY);
+   if(RequireCentAccount && account_currency!="USC"){ Print("A 10 USD balance must use JustMarkets Standard Cent. Detected currency: ",account_currency); return INIT_FAILED; }
    bool live_account=AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_REAL;
    if(live_account && !AllowLiveAccount) Print("Live account detected: observation only unless AllowLiveAccount=true.");
    if(!SymbolSelect(g_symbol,true)) return INIT_FAILED;
@@ -346,7 +349,7 @@ int OnInit()
    RefreshDailyEquity();
    EventSetTimer(MathMax(PollSeconds,1));
    ReportHeartbeat();
-   Print("GoldAlpha JustMarkets v2.10 active on ",g_symbol," (trading: ",EnableTrading,", live allowed: ",AllowLiveAccount,")");
+   Print("GoldAlpha JustMarkets v2.11 Cent profile active on ",g_symbol," (currency: ",account_currency,", risk: ",RiskPercent,"%)");
    return INIT_SUCCEEDED;
 }
 
