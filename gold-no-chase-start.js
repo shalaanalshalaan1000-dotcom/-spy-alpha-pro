@@ -13,60 +13,6 @@ function patchNoChase(source){
     "q('#goldAutoEntryState').textContent=status==='ACTIVE'?'النطاق جاهز للدخول':status==='MANAGING'?'تم تفعيل الدخول':status==='CANDIDATE'?'مرشح للدخول':status==='COLLECTING'?'يجمع شموع M1':'لا توجد إشارة فعالة';",
     "q('#goldAutoEntryState').textContent=status==='ACTIVE'&&!entered?'بانتظار لمس نطاق دخول جديد':status==='MANAGING'?'تم تفعيل الدخول':status==='CANDIDATE'?'مرشح جديد — غير منفذ':status==='COLLECTING'?'يجمع شموع M1':'لا توجد إشارة فعالة';"
   );
-
-  const tgAnchor="const goldAutoState={samples:[],signal:null,cooldownUntil:0,lastStopped:null};";
-  if(!source.includes(tgAnchor)) throw new Error('Telegram state anchor missing');
-  source=source.replace(tgAnchor,tgAnchor+`
-const telegramBotToken=String(process.env.TELEGRAM_BOT_TOKEN||'').trim();
-const telegramChatId=String(process.env.TELEGRAM_CHAT_ID||'').trim();
-async function goldTelegram(text){
-  if(!telegramBotToken||!telegramChatId)return false;
-  try{
-    const r=await fetch('https://api.telegram.org/bot'+telegramBotToken+'/sendMessage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:telegramChatId,text,disable_web_page_preview:true}),signal:AbortSignal.timeout(10000)});
-    return r.ok;
-  }catch{return false}
-}
-function goldTelegramPrice(v){return Number.isFinite(Number(v))?'$'+Number(v).toFixed(2):'—'}
-`);
-
-  const lifecycleAnchor="let active=goldAutoState.signal;if(active){const stopped=";
-  if(!source.includes(lifecycleAnchor)) throw new Error('Telegram lifecycle anchor missing');
-  source=source.replace(lifecycleAnchor,`let active=goldAutoState.signal;if(active){
-    if(active.entered){
-      active.telegramTargets=active.telegramTargets||{};
-      const checks=[[1,active.target1],[2,active.target2],[3,active.target3],[4,active.target4]];
-      for(const [n,t] of checks){
-        if(!active.telegramTargets[n]&&goldAutoTargetHit(active,sample.price,t)){
-          active.telegramTargets[n]=true;
-          void goldTelegram('🎯 XAUUSD تحقق الهدف '+n+'\n'+(active.side==='BUY'?'شراء':'بيع')+' | السعر '+goldTelegramPrice(sample.price)+'\nالهدف: '+goldTelegramPrice(t)+'\nالثقة: '+active.confidence+'%');
-        }
-      }
-    }
-    const stopped=`);
-
-  const stopAnchor="if(stopped){goldAutoState.lastStopped={side:active.side,entry:active.entry,stopLoss:active.stopLoss,stoppedAt:sample.now};";
-  if(!source.includes(stopAnchor)) throw new Error('Telegram stop anchor missing');
-  source=source.replace(stopAnchor,"if(stopped){void goldTelegram('🛑 XAUUSD ضرب وقف الخسارة\n'+(active.side==='BUY'?'شراء':'بيع')+' | السعر '+goldTelegramPrice(sample.price)+'\nالوقف: '+goldTelegramPrice(active.stopLoss));goldAutoState.lastStopped={side:active.side,entry:active.entry,stopLoss:active.stopLoss,stoppedAt:sample.now};");
-
-  const entryAnchor="if(!active.entered&&entryOpen&&inRange){active.entered=true;active.enteredAtMs=sample.now;goldAutoState.signal=active}const executable=";
-  if(!source.includes(entryAnchor)) throw new Error('Telegram entry anchor missing');
-  source=source.replace(entryAnchor,`if(!active.entered&&entryOpen&&inRange){active.entered=true;active.enteredAtMs=sample.now;goldAutoState.signal=active}
-    if(active.entered&&!active.telegramEntryNotified){
-      active.telegramEntryNotified=true;
-      goldAutoState.signal=active;
-      void goldTelegram('🚨 XAUUSD دخول '+(active.side==='BUY'?'شراء':'بيع')+'\nالدخول: '+goldTelegramPrice(active.entryLow)+' — '+goldTelegramPrice(active.entryHigh)+'\nوقف الخسارة: '+goldTelegramPrice(active.stopLoss)+'\nTP1: '+goldTelegramPrice(active.target1)+' | TP2: '+goldTelegramPrice(active.target2)+'\nTP3: '+goldTelegramPrice(active.target3)+' | TP4: '+goldTelegramPrice(active.target4)+'\nالثقة: '+active.confidence+'%');
-    }
-    const executable=`);
-
-  const configAnchor="if(req.method==='GET'&&url.pathname==='/api/config')return sendJSON(res,200,{watchlist:WATCHLIST,minConfidence:Number(process.env.MIN_CONFIDENCE||70),user:session?.email||null,...currentMode()});";
-  if(!source.includes(configAnchor)) throw new Error('Telegram test route anchor missing');
-  source=source.replace(configAnchor,`if(req.method==='GET'&&url.pathname==='/api/telegram-test'){const tokenConfigured=Boolean(telegramBotToken),chatConfigured=Boolean(telegramChatId),ok=tokenConfigured&&chatConfigured?await goldTelegram('✅ اختبار Gold Alpha Pro\nتم ربط تيليجرام بنجاح.\nتنبيهات الدخول والأهداف TP1–TP4 ووقف الخسارة مفعلة.'):false;return sendJSON(res,200,{ok,tokenConfigured,chatConfigured,telegramConfigured:tokenConfigured&&chatConfigured,status:ok?'SENT':(!tokenConfigured?'MISSING_BOT_TOKEN':!chatConfigured?'MISSING_CHAT_ID':'TELEGRAM_SEND_FAILED')})}\n    `+configAnchor);
-
-  source=source.replace(
-    "if(authEnabled()&&!session&&url.pathname!=='/api/auto-trade/signal')return url.pathname.startsWith('/api/')?sendJSON(res,401,{error:'Authentication required'}):redirect(res,'/login');",
-    "if(authEnabled()&&!session&&url.pathname!=='/api/auto-trade/signal'&&url.pathname!=='/api/telegram-test')return url.pathname.startsWith('/api/')?sendJSON(res,401,{error:'Authentication required'}):redirect(res,'/login');"
-  );
-
   return source;
 }
 
