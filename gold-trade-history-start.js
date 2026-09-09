@@ -41,4 +41,4 @@ fs.writeFileSync=function(path,data,...args){
 };
 
 syncBuiltinESMExports();
-await import('./gold-target-sticky-start.js');
+await import('./gold-target-range-fix-start.js');
