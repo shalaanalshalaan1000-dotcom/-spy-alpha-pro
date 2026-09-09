@@ -1,7 +1,7 @@
 {
   "name": "spy-alpha-pro-v4-mobile",
-  "version": "4.2.0",
+  "version": "4.2.1",
   "private": true,
   "type": "module",
-  "scripts": {"start": "node gold-commercial-journal-start.js"}
+  "scripts": {"start": "node gold-commercial-dashboard-start.js"}
 }
