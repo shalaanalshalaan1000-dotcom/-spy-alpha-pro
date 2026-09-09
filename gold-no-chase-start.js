@@ -9,13 +9,11 @@ function patchNoChase(source){
   if(!source.includes(oldModel)) throw new Error('No-chase model anchor missing');
   source=source.replace(oldModel,newModel);
 
-  // Never present a pre-entry signal as actionable after the first target is already passed.
   source=source.replace(
     "q('#goldAutoEntryState').textContent=status==='ACTIVE'?'النطاق جاهز للدخول':status==='MANAGING'?'تم تفعيل الدخول':status==='CANDIDATE'?'مرشح للدخول':status==='COLLECTING'?'يجمع شموع M1':'لا توجد إشارة فعالة';",
     "q('#goldAutoEntryState').textContent=status==='ACTIVE'&&!entered?'بانتظار لمس نطاق دخول جديد':status==='MANAGING'?'تم تفعيل الدخول':status==='CANDIDATE'?'مرشح جديد — غير منفذ':status==='COLLECTING'?'يجمع شموع M1':'لا توجد إشارة فعالة';"
   );
 
-  // Telegram alerts use the existing Render environment variables from the previous setup.
   const tgAnchor="const goldAutoState={samples:[],signal:null,cooldownUntil:0,lastStopped:null};";
   if(!source.includes(tgAnchor)) throw new Error('Telegram state anchor missing');
   source=source.replace(tgAnchor,tgAnchor+`
@@ -31,7 +29,6 @@ async function goldTelegram(text){
 function goldTelegramPrice(v){return Number.isFinite(Number(v))?'$'+Number(v).toFixed(2):'—'}
 `);
 
-  // Send TP1..TP4 once, and send a stop alert before the active signal is cleared.
   const lifecycleAnchor="let active=goldAutoState.signal;if(active){const stopped=";
   if(!source.includes(lifecycleAnchor)) throw new Error('Telegram lifecycle anchor missing');
   source=source.replace(lifecycleAnchor,`let active=goldAutoState.signal;if(active){
@@ -51,7 +48,6 @@ function goldTelegramPrice(v){return Number.isFinite(Number(v))?'$'+Number(v).to
   if(!source.includes(stopAnchor)) throw new Error('Telegram stop anchor missing');
   source=source.replace(stopAnchor,"if(stopped){void goldTelegram('🛑 XAUUSD ضرب وقف الخسارة\\n'+(active.side==='BUY'?'شراء':'بيع')+' | السعر '+goldTelegramPrice(sample.price)+'\\nالوقف: '+goldTelegramPrice(active.stopLoss));goldAutoState.lastStopped={side:active.side,entry:active.entry,stopLoss:active.stopLoss,stoppedAt:sample.now};");
 
-  // Send the entry alert once, only after price actually touches the valid entry range.
   const entryAnchor="if(!active.entered&&entryOpen&&inRange){active.entered=true;active.enteredAtMs=sample.now;goldAutoState.signal=active}const executable=";
   if(!source.includes(entryAnchor)) throw new Error('Telegram entry anchor missing');
   source=source.replace(entryAnchor,`if(!active.entered&&entryOpen&&inRange){active.entered=true;active.enteredAtMs=sample.now;goldAutoState.signal=active}
@@ -61,6 +57,15 @@ function goldTelegramPrice(v){return Number.isFinite(Number(v))?'$'+Number(v).to
       void goldTelegram('🚨 XAUUSD دخول '+(active.side==='BUY'?'شراء':'بيع')+'\\nالدخول: '+goldTelegramPrice(active.entryLow)+' — '+goldTelegramPrice(active.entryHigh)+'\\nوقف الخسارة: '+goldTelegramPrice(active.stopLoss)+'\\nTP1: '+goldTelegramPrice(active.target1)+' | TP2: '+goldTelegramPrice(active.target2)+'\\nTP3: '+goldTelegramPrice(active.target3)+' | TP4: '+goldTelegramPrice(active.target4)+'\\nالثقة: '+active.confidence+'%');
     }
     const executable=`);
+
+  const configAnchor="if(req.method==='GET'&&url.pathname==='/api/config')return sendJSON(res,200,{watchlist:WATCHLIST,minConfidence:Number(process.env.MIN_CONFIDENCE||70),user:session?.email||null,...currentMode()});";
+  if(!source.includes(configAnchor)) throw new Error('Telegram test route anchor missing');
+  source=source.replace(configAnchor,`if(req.method==='GET'&&url.pathname==='/api/telegram-test'){const ok=await goldTelegram('✅ اختبار Gold Alpha Pro\\nتم ربط تيليجرام بنجاح.\\nتنبيهات الدخول والأهداف TP1–TP4 ووقف الخسارة مفعلة.');return sendJSON(res,ok?200:503,{ok,telegramConfigured:Boolean(telegramBotToken&&telegramChatId)})}\n    `+configAnchor);
+
+  source=source.replace(
+    "if(authEnabled()&&!session&&url.pathname!=='/api/auto-trade/signal')return url.pathname.startsWith('/api/')?sendJSON(res,401,{error:'Authentication required'}):redirect(res,'/login');",
+    "if(authEnabled()&&!session&&url.pathname!=='/api/auto-trade/signal'&&url.pathname!=='/api/telegram-test')return url.pathname.startsWith('/api/')?sendJSON(res,401,{error:'Authentication required'}):redirect(res,'/login');"
+  );
 
   return source;
 }
