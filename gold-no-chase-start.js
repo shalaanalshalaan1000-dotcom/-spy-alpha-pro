@@ -14,6 +14,54 @@ function patchNoChase(source){
     "q('#goldAutoEntryState').textContent=status==='ACTIVE'?'النطاق جاهز للدخول':status==='MANAGING'?'تم تفعيل الدخول':status==='CANDIDATE'?'مرشح للدخول':status==='COLLECTING'?'يجمع شموع M1':'لا توجد إشارة فعالة';",
     "q('#goldAutoEntryState').textContent=status==='ACTIVE'&&!entered?'بانتظار لمس نطاق دخول جديد':status==='MANAGING'?'تم تفعيل الدخول':status==='CANDIDATE'?'مرشح جديد — غير منفذ':status==='COLLECTING'?'يجمع شموع M1':'لا توجد إشارة فعالة';"
   );
+
+  // Telegram alerts use the existing Render environment variables from the previous setup.
+  const tgAnchor="const goldAutoState={samples:[],signal:null,cooldownUntil:0,lastStopped:null};";
+  if(!source.includes(tgAnchor)) throw new Error('Telegram state anchor missing');
+  source=source.replace(tgAnchor,tgAnchor+`
+const telegramBotToken=String(process.env.TELEGRAM_BOT_TOKEN||'').trim();
+const telegramChatId=String(process.env.TELEGRAM_CHAT_ID||'').trim();
+async function goldTelegram(text){
+  if(!telegramBotToken||!telegramChatId)return false;
+  try{
+    const r=await fetch('https://api.telegram.org/bot'+telegramBotToken+'/sendMessage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({chat_id:telegramChatId,text,disable_web_page_preview:true}),signal:AbortSignal.timeout(10000)});
+    return r.ok;
+  }catch{return false}
+}
+function goldTelegramPrice(v){return Number.isFinite(Number(v))?'$'+Number(v).toFixed(2):'—'}
+`);
+
+  // Send TP1..TP4 once, and send a stop alert before the active signal is cleared.
+  const lifecycleAnchor="let active=goldAutoState.signal;if(active){const stopped=";
+  if(!source.includes(lifecycleAnchor)) throw new Error('Telegram lifecycle anchor missing');
+  source=source.replace(lifecycleAnchor,`let active=goldAutoState.signal;if(active){
+    if(active.entered){
+      active.telegramTargets=active.telegramTargets||{};
+      const checks=[[1,active.target1],[2,active.target2],[3,active.target3],[4,active.target4]];
+      for(const [n,t] of checks){
+        if(!active.telegramTargets[n]&&goldAutoTargetHit(active,sample.price,t)){
+          active.telegramTargets[n]=true;
+          void goldTelegram('🎯 XAUUSD تحقق الهدف '+n+'\\n'+(active.side==='BUY'?'شراء':'بيع')+' | السعر '+goldTelegramPrice(sample.price)+'\\nالهدف: '+goldTelegramPrice(t)+'\\nالثقة: '+active.confidence+'%');
+        }
+      }
+    }
+    const stopped=`);
+
+  const stopAnchor="if(stopped){goldAutoState.lastStopped={side:active.side,entry:active.entry,stopLoss:active.stopLoss,stoppedAt:sample.now};";
+  if(!source.includes(stopAnchor)) throw new Error('Telegram stop anchor missing');
+  source=source.replace(stopAnchor,"if(stopped){void goldTelegram('🛑 XAUUSD ضرب وقف الخسارة\\n'+(active.side==='BUY'?'شراء':'بيع')+' | السعر '+goldTelegramPrice(sample.price)+'\\nالوقف: '+goldTelegramPrice(active.stopLoss));goldAutoState.lastStopped={side:active.side,entry:active.entry,stopLoss:active.stopLoss,stoppedAt:sample.now};");
+
+  // Send the entry alert once, only after price actually touches the valid entry range.
+  const entryAnchor="if(!active.entered&&entryOpen&&inRange){active.entered=true;active.enteredAtMs=sample.now;goldAutoState.signal=active}const executable=";
+  if(!source.includes(entryAnchor)) throw new Error('Telegram entry anchor missing');
+  source=source.replace(entryAnchor,`if(!active.entered&&entryOpen&&inRange){active.entered=true;active.enteredAtMs=sample.now;goldAutoState.signal=active}
+    if(active.entered&&!active.telegramEntryNotified){
+      active.telegramEntryNotified=true;
+      goldAutoState.signal=active;
+      void goldTelegram('🚨 XAUUSD دخول '+(active.side==='BUY'?'شراء':'بيع')+'\\nالدخول: '+goldTelegramPrice(active.entryLow)+' — '+goldTelegramPrice(active.entryHigh)+'\\nوقف الخسارة: '+goldTelegramPrice(active.stopLoss)+'\\nTP1: '+goldTelegramPrice(active.target1)+' | TP2: '+goldTelegramPrice(active.target2)+'\\nTP3: '+goldTelegramPrice(active.target3)+' | TP4: '+goldTelegramPrice(active.target4)+'\\nالثقة: '+active.confidence+'%');
+    }
+    const executable=`);
+
   return source;
 }
 
