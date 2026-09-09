@@ -5,7 +5,7 @@ const PORT=Number(process.env.PORT||3000);
 const UI_PORT=3001;
 const AUTO_PORT=3002;
 
-const ui=spawn(process.execPath,['gold-trade-history-start.js'],{env:{...process.env,PORT:String(UI_PORT)},stdio:['ignore','inherit','inherit']});
+const ui=spawn(process.execPath,['gold-target-range-fix-start.js'],{env:{...process.env,PORT:String(UI_PORT)},stdio:['ignore','inherit','inherit']});
 const auto=spawn(process.execPath,['gold-app.js'],{env:{...process.env,PORT:String(AUTO_PORT)},stdio:['ignore','inherit','inherit']});
 ui.on('exit',c=>console.error('gold UI child exited',c));
 auto.on('exit',c=>console.error('gold AUTO child exited',c));
