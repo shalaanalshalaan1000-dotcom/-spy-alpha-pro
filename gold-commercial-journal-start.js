@@ -18,13 +18,14 @@ function get(id){return journal.find(x=>x.signalId===id)}
 function upsertSignal(s){
   if(!s?.signalId||!['BUY','SELL'].includes(s.side||s.candidateAction))return null;
   let row=get(s.signalId);
-  if(!row){row={signalId:s.signalId,symbol:'XAUUSD',side:s.side||s.candidateAction,strategy:s.strategy||null,confidence:n(s.confidence),issuedAt:s.issuedAt||new Date().toISOString(),entryLow:n(s.entryLow),entryHigh:n(s.entryHigh),plannedEntry:n(s.entry),stopLoss:n(s.stopLoss),target1:n(s.target1),target2:n(s.target2),target3:n(s.target3),target4:n(s.target4),status:'SIGNAL',executed:false,executedAt:null,executedPrice:null,tp1:false,tp2:false,tp3:false,tp4:false,stopped:false,closedAt:null,result:null,maxFavorablePrice:null,maxAdversePrice:null,lastPrice:null,lastSeenAt:null};journal.push(row);save()}
+  if(!row){row={signalId:s.signalId,symbol:'XAUUSD',side:s.side||s.candidateAction,strategy:s.strategy||null,confidence:n(s.confidence),issuedAt:s.issuedAt||new Date().toISOString(),entryLow:n(s.entryLow),entryHigh:n(s.entryHigh),plannedEntry:n(s.entry),stopLoss:n(s.stopLoss),target1:n(s.target1),target2:n(s.target2),target3:n(s.target3),target4:n(s.target4),profilePOC:n(s.profilePOC),profileVAH:n(s.profileVAH),profileVAL:n(s.profileVAL),profileScore:n(s.profileScore),status:'SIGNAL',executed:false,executedAt:null,executedPrice:null,tp1:false,tp2:false,tp3:false,tp4:false,stopped:false,closedAt:null,result:null,maxFavorablePrice:null,maxAdversePrice:null,lastPrice:null,lastSeenAt:null};journal.push(row);save()}
   return row;
 }
 function update(s){
   const row=upsertSignal(s);if(!row)return;
   const p=n(s.price);if(p==null)return;
   let changed=false;row.lastPrice=p;row.lastSeenAt=new Date().toISOString();
+  if(row.profilePOC==null&&n(s.profilePOC)!=null){row.profilePOC=n(s.profilePOC);row.profileVAH=n(s.profileVAH);row.profileVAL=n(s.profileVAL);row.profileScore=n(s.profileScore);changed=true}
   if(!row.executed&&(s.entered===true||String(s.status).toUpperCase()==='MANAGING')){row.executed=true;row.executedAt=s.enteredAtMs?new Date(s.enteredAtMs).toISOString():new Date().toISOString();row.executedPrice=n(s.entry)??p;row.status='OPEN';changed=true}
   if(row.executed&&!row.closedAt){
     row.maxFavorablePrice=row.maxFavorablePrice==null?p:(row.side==='BUY'?Math.max(row.maxFavorablePrice,p):Math.min(row.maxFavorablePrice,p));
@@ -39,7 +40,7 @@ function update(s){
 }
 async function poll(){try{const r=await fetch(`http://127.0.0.1:${PORT}/api/auto-trade/signal?observe=1`,{cache:'no-store',signal:AbortSignal.timeout(4000)});if(r.ok)update(await r.json())}catch{}}
 
-await import('./gold-no-chase-start.js');
+await import('./gold-volume-profile-start.js');
 booted=true;
 console.log(`Gold commercial journal enabled: ${JOURNAL_FILE}${DATA_DIR.startsWith('/tmp/')?' (EPHEMERAL: configure GOLD_ALPHA_DATA_DIR on a persistent disk before paid launch)':''}`);
 setInterval(()=>{if(booted)poll()},POLL_MS);
