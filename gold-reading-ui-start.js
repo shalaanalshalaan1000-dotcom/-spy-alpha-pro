@@ -36,13 +36,21 @@ function patchGoldReadingUI(source){
   // Make the status pill explicitly show that the engine is working while waiting.
   source=source.replace(
     "$('#goldPlanStatus').textContent=labels[plan.state]||'انتظار';",
-    "$('#goldPlanStatus').textContent=plan.state==='COLLECTING'?'جاري القراءة':plan.state==='WAIT'?'يقرأ السوق — انتظار':(labels[plan.state]||'انتظار');"
+    "$('#goldPlanStatus').textContent=plan.closedReason==='STOP_HIT'?'وقف الخسارة تحقق':plan.state==='COLLECTING'?'جاري القراءة':plan.state==='WAIT'?'يقرأ السوق — انتظار':(labels[plan.state]||'انتظار');"
+  );
+  source=source.replace(
+    "$('#goldPlanStatus').className='goldPlanStatus '+(classes[plan.state]||'muted');",
+    "$('#goldPlanStatus').className='goldPlanStatus '+(plan.closedReason==='STOP_HIT'?'negative':(classes[plan.state]||'muted'));"
+  );
+  source=source.replace(
+    "$('#goldScenario').textContent=labels[plan.state]||'انتظار';$('#goldScenario').className=classes[plan.state]||'muted';",
+    "$('#goldScenario').textContent=plan.closedReason==='STOP_HIT'?'STOP LOSS HIT':(labels[plan.state]||'انتظار');$('#goldScenario').className=plan.closedReason==='STOP_HIT'?'negative':(classes[plan.state]||'muted');"
   );
 
   // Show a clear explanatory note while no trade is active.
   source=source.replace(
     "$('#goldPlanNote').textContent=plan.note;",
-    "$('#goldPlanNote').textContent=plan.state==='COLLECTING'?'المحرك يجمع بيانات M1 ويحدّث القراءة باستمرار.':plan.state==='WAIT'?('المحرك يقرأ السوق الآن، لكن شروط الدخول لم تكتمل. '+(plan.note||'')):(plan.note||'');"
+    "$('#goldPlanNote').textContent=plan.closedReason==='STOP_HIT'?'انتهت الصفقة عند وقف الخسارة، أُغلقت الإشارة ولن يُسمح بإعادة الدخول عليها.':plan.state==='COLLECTING'?'المحرك يجمع بيانات M1 ويحدّث القراءة باستمرار.':plan.state==='WAIT'?('المحرك يقرأ السوق الآن، لكن شروط الدخول لم تكتمل. '+(plan.note||'')):(plan.note||'');"
   );
 
   return source;

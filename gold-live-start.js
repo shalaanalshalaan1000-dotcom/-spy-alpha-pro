@@ -30,7 +30,7 @@ async function getGoldLiveQuote(){const now=Date.now();if(goldLiveState.value&&n
   source = replaceRequired(
     source,
     "const r=await fetch('https://api.gold-api.com/price/XAU',{cache:'no-store'}),raw=await r.json(),d=goldBrowserReading(raw);",
-    "const r=await fetch('/api/gold-live',{cache:'no-store'}),raw=await r.json(),d=goldBrowserReading(raw);",
+    "const goldLiveLock=typeof readGoldTradeLock==='function'?readGoldTradeLock():null,goldLiveSince=Number(goldLiveLock?.createdAt),goldLiveQuery=Number.isFinite(goldLiveSince)&&goldLiveSince>0?'?since='+encodeURIComponent(goldLiveSince):'',r=await fetch('/api/gold-live'+goldLiveQuery,{cache:'no-store'}),raw=await r.json(),d=goldBrowserReading(raw);",
     'browser gold request'
   );
   source = replaceRequired(
@@ -42,7 +42,7 @@ async function getGoldLiveQuote(){const now=Date.now();if(goldLiveState.value&&n
   source = replaceRequired(
     source,
     "return{price:fixed(price),updatedAt:normalizedAt,ageSeconds:",
-    "return{price:fixed(price),provider:String(raw.provider||'GOLD_API'),live:raw.live===true,bid:fixed(Number(raw.bid)),ask:fixed(Number(raw.ask)),sourceCadenceMs:Number(raw.sourceCadenceMs)||null,updatedAt:normalizedAt,ageSeconds:",
+    "return{price:fixed(price),provider:String(raw.provider||'GOLD_API'),live:raw.live===true,bid:fixed(Number(raw.bid)),ask:fixed(Number(raw.ask)),observedLow:fixed(Number(raw.observedLow),3),observedHigh:fixed(Number(raw.observedHigh),3),observedFromMs:Number(raw.observedFromMs)||null,observedToMs:Number(raw.observedToMs)||null,extremesProvider:String(raw.extremesProvider||''),sourceCadenceMs:Number(raw.sourceCadenceMs)||null,updatedAt:normalizedAt,ageSeconds:",
     'gold feed metadata'
   );
   source = replaceRequired(
@@ -58,7 +58,7 @@ async function getGoldLiveQuote(){const now=Date.now();if(goldLiveState.value&&n
     'تُفحص قراءة الذهب كل 5 ثوانٍ. يستخدم السعر اللحظي من Massive عند توفر باقة العملات، وإلا ينتقل تلقائيًا إلى Gold API الاحتياطي. الشارت 1 دقيقة من OANDA عبر TradingView، والهدف والمدة تقديران وليسا ضمانًا.'
   );
 
-  for (const marker of ["url.pathname==='/api/gold-live'", "fetch('/api/gold-live'", 'setInterval(loadGold,5000)', "provider:String(raw.provider||'GOLD_API')"]) {
+  for (const marker of ["url.pathname==='/api/gold-live'", "fetch('/api/gold-live'+goldLiveQuery", 'setInterval(loadGold,5000)', "observedLow:fixed(Number(raw.observedLow),3)"]) {
     if (!source.includes(marker)) throw new Error('Gold live patch failed: ' + marker);
   }
   return source;

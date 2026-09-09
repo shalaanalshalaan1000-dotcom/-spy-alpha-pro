@@ -34,50 +34,58 @@ async function loadGoldAutoUi(){
   try{
     const r=await fetch('/api/auto-trade/signal?observe=1',{cache:'no-store'}),d=await r.json();
     if(!r.ok||d.error)throw new Error(d.error||'Auto signal unavailable');
-    const side=['BUY','SELL'].includes(d.action)?d.action:['BUY','SELL'].includes(d.candidateAction)?d.candidateAction:'WAIT';
-    const active=['BUY','SELL'].includes(side),status=String(d.status||'WAIT').toUpperCase();
-    const entered=Boolean(d.entered)||status==='MANAGING';
-    const actionLabel=side==='BUY'?'شراء':side==='SELL'?'بيع':status==='COLLECTING'?'جاري القراءة':'انتظار';
+    const terminal=d.terminalEvent&&Number(d.terminalEvent.closedAtMs)>=Date.now()-5*60_000?d.terminalEvent:null,view=terminal||d;
+    const side=['BUY','SELL'].includes(view.action)?view.action:['BUY','SELL'].includes(view.candidateAction)?view.candidateAction:['BUY','SELL'].includes(view.side)?view.side:'WAIT';
+    const active=['BUY','SELL'].includes(side),status=terminal?'STOPPED':String(d.status||'WAIT').toUpperCase();
+    const entered=Boolean(view.entered)||(!terminal&&status==='MANAGING');
+    const terminalLabel=terminal?.outcome==='SL'?'وقف الخسارة تحقق':terminal?.outcome==='PREENTRY_INVALIDATED'?'أُلغي قبل الدخول':terminal?.outcome==='TP4'?'اكتملت الأهداف':'أُغلقت الصفقة';
+    const actionLabel=terminal?terminalLabel:side==='BUY'?'شراء':side==='SELL'?'بيع':status==='COLLECTING'?'جاري القراءة':'انتظار';
     const q=s=>document.querySelector(s); if(!q('#goldAutoAction'))return;
     q('#goldAutoAction').textContent=actionLabel;
-    q('#goldAutoAction').className=side==='BUY'?'positive':side==='SELL'?'negative':'WATCH';
-    q('#goldAutoConfidence').textContent='الثقة '+Number(d.confidence||0)+'% • '+Number(d.sampleCount||0)+' عينة';
-    q('#goldAutoRange').textContent=active?goldAutoMoney(d.entryLow)+' — '+goldAutoMoney(d.entryHigh):'—';
-    q('#goldAutoEntryState').textContent=status==='ACTIVE'?'النطاق جاهز للدخول':status==='MANAGING'?'تم تفعيل الدخول':status==='CANDIDATE'?'مرشح للدخول':status==='COLLECTING'?'يجمع شموع M1':'لا توجد إشارة فعالة';
-    q('#goldAutoEntry').textContent=active&&entered?goldAutoMoney(d.entry):'—';
-    q('#goldAutoEntryFilledState').textContent=entered?'تم تفعيل الدخول الفعلي':'بانتظار لمس نطاق الدخول';
-    q('#goldAutoStop').textContent=active?goldAutoMoney(d.stopLoss):'—';
-    q('#goldAutoT1').textContent=active?goldAutoMoney(d.target1):'—';
-    q('#goldAutoT2').textContent=active?goldAutoMoney(d.target2):'—';
+    q('#goldAutoAction').className=terminal?.outcome==='TP4'?'positive':terminal?'negative':side==='BUY'?'positive':side==='SELL'?'negative':'WATCH';
+    q('#goldAutoConfidence').textContent='الثقة '+Number(view.confidence||0)+'% • '+Number(d.sampleCount||0)+' عينة';
+    q('#goldAutoRange').textContent=active?goldAutoMoney(view.entryLow)+' — '+goldAutoMoney(view.entryHigh):'—';
+    q('#goldAutoEntryState').textContent=terminal?(entered?'انتهت الصفقة وأُغلقت':'الصفقة لم تتفعل'):status==='ACTIVE'&&!entered?'بانتظار لمس نطاق دخول جديد':status==='MANAGING'?'تم تفعيل الدخول':status==='CANDIDATE'?'مرشح جديد — غير منفذ':status==='COLLECTING'?'يجمع شموع M1':'لا توجد إشارة فعالة';
+    q('#goldAutoEntry').textContent=active&&entered?goldAutoMoney(view.entry):'—';
+    q('#goldAutoEntryFilledState').textContent=terminal?(entered?'كان الدخول مفعّلًا':'لم يحدث دخول'):entered?'تم تفعيل الدخول الفعلي':'بانتظار لمس نطاق الدخول';
+    q('#goldAutoStop').textContent=active?goldAutoMoney(view.stopLoss):'—';
+    q('#goldAutoT1').textContent=active?goldAutoMoney(view.target1):'—';
+    q('#goldAutoT2').textContent=active?goldAutoMoney(view.target2):'—';
 
     let tpState=readGoldAutoTpState();
-    if(!active||!d.signalId){tpState=null;try{localStorage.removeItem(GOLD_AUTO_TP_STATE_KEY)}catch{}}
+    if(!active||!view.signalId){tpState=null;try{localStorage.removeItem(GOLD_AUTO_TP_STATE_KEY)}catch{}}
     else{
-      if(!tpState||tpState.signalId!==d.signalId)tpState={signalId:d.signalId,tp1:false,tp2:false};
-      if(entered&&goldAutoReached(side,d.price,d.target1))tpState.tp1=true;
-      if(tpState.tp1&&entered&&goldAutoReached(side,d.price,d.target2))tpState.tp2=true;
+      if(!tpState||tpState.signalId!==view.signalId)tpState={signalId:view.signalId,tp1:false,tp2:false};
+      const progressPrice=terminal?view.exitPrice:d.price;
+      if(entered&&goldAutoReached(side,progressPrice,view.target1))tpState.tp1=true;
+      if(tpState.tp1&&entered&&goldAutoReached(side,progressPrice,view.target2))tpState.tp2=true;
       writeGoldAutoTpState(tpState);
     }
     const extendedUnlocked=Boolean(tpState?.tp1&&tpState?.tp2);
     const t3Card=q('#goldAutoT3Card'),t4Card=q('#goldAutoT4Card');
     if(t3Card)t3Card.className='goldAutoCard '+(extendedUnlocked?'unlocked':'locked');
     if(t4Card)t4Card.className='goldAutoCard '+(extendedUnlocked?'unlocked':'locked');
-    q('#goldAutoT3').textContent=active&&extendedUnlocked?goldAutoMoney(d.target3):'🔒';
-    q('#goldAutoT4').textContent=active&&extendedUnlocked?goldAutoMoney(d.target4):'🔒';
+    q('#goldAutoT3').textContent=active&&extendedUnlocked?goldAutoMoney(view.target3):'🔒';
+    q('#goldAutoT4').textContent=active&&extendedUnlocked?goldAutoMoney(view.target4):'🔒';
     q('#goldAutoT3State').textContent=extendedUnlocked?'مفعّل بعد تحقق الهدفين 1 و2':'يتفعل بعد تحقق الهدفين 1 و2';
     q('#goldAutoT4State').textContent=extendedUnlocked?'مفعّل بعد تحقق الهدفين 1 و2':'يتفعل بعد تحقق الهدفين 1 و2';
     if(q('#goldAutoT2State'))q('#goldAutoT2State').textContent=tpState?.tp1?'الهدف 1 تحقق — متابعة الهدف 2':'امتداد الصفقة';
 
-    q('#goldAutoRR').textContent=d.riskReward!=null?'R:R 1:'+Number(d.riskReward).toFixed(2):'R:R —';
-    q('#goldAutoMt5').textContent=status==='ACTIVE'&&['BUY','SELL'].includes(d.action)?'تنفيذ الآن':status==='MANAGING'?'إدارة':'جاهز';
-    q('#goldAutoBadge').textContent=status==='ACTIVE'?'XAU ACTIVE':status==='MANAGING'?'XAU MANAGING':'MT5 XAU';
-    q('#goldAutoUpdated').textContent=d.updatedAt?new Date(d.updatedAt).toLocaleTimeString('ar-SA',{hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'Asia/Riyadh'}):'—';
-    q('#goldAutoNote').textContent=d.reason||'المحرك يقرأ الذهب ويصدر BUY/SELL فقط عند اكتمال شروط التنفيذ.';
+    q('#goldAutoRR').textContent=view.riskReward!=null?'R:R 1:'+Number(view.riskReward).toFixed(2):'R:R —';
+    q('#goldAutoMt5').textContent=terminal?'مغلق':status==='ACTIVE'&&['BUY','SELL'].includes(d.action)?'تنفيذ الآن':status==='MANAGING'?'إدارة':'جاهز';
+    q('#goldAutoBadge').textContent=terminal?.outcome==='SL'?'XAU SL':terminal?.outcome==='PREENTRY_INVALIDATED'?'XAU CANCELLED':terminal?.outcome==='TP4'?'XAU TP4':status==='ACTIVE'?'XAU ACTIVE':status==='MANAGING'?'XAU MANAGING':'MT5 XAU';
+    const updatedAt=terminal?.closedAt||d.updatedAt;q('#goldAutoUpdated').textContent=updatedAt?new Date(updatedAt).toLocaleTimeString('ar-SA',{hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'Asia/Riyadh'}):'—';
+    q('#goldAutoNote').textContent=terminal?.outcome==='SL'?('تم إغلاق الصفقة عند وقف الخسارة '+goldAutoMoney(view.stopLoss)+'؛ أوقفت الإشارة القديمة ولن يعاد دخولها.'):terminal?.outcome==='PREENTRY_INVALIDATED'?'وصل السعر إلى حد الإلغاء قبل تفعيل الدخول؛ أُلغي السيناريو ولم يُحسب كخسارة.':terminal?.outcome==='TP4'?'تحقق الهدف الرابع وأُغلقت الصفقة.':d.reason||'المحرك يقرأ الذهب ويصدر BUY/SELL فقط عند اكتمال شروط التنفيذ.';
   }catch(e){const q=s=>document.querySelector(s);if(q('#goldAutoBadge'))q('#goldAutoBadge').textContent='غير متاح';if(q('#goldAutoMt5'))q('#goldAutoMt5').textContent='خطأ';if(q('#goldAutoNote'))q('#goldAutoNote').textContent=e.message;}finally{goldAutoUiLoading=false}
 }
 setTimeout(loadGoldAutoUi,500);setInterval(loadGoldAutoUi,1000);
 `;
-  if(!source.includes('function loadGoldAutoUi')&&source.includes('(async()=>{'))source=source.replace('(async()=>{',client+'\n(async()=>{');
+  if(!source.includes('function loadGoldAutoUi')){
+    const panelIndex=source.indexOf('id="goldAutoPanel"');
+    const scriptEnd=panelIndex>=0?source.indexOf('</script></body>',panelIndex):-1;
+    if(scriptEnd<0)throw new Error('Gold auto UI script anchor missing');
+    source=source.slice(0,scriptEnd)+client+source.slice(scriptEnd);
+  }
   return source;
 }
 

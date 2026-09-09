@@ -21,9 +21,18 @@ function upsertSignal(s){
   if(!row){row={signalId:s.signalId,symbol:'XAUUSD',side:s.side||s.candidateAction,strategy:s.strategy||null,confidence:n(s.confidence),issuedAt:s.issuedAt||new Date().toISOString(),entryLow:n(s.entryLow),entryHigh:n(s.entryHigh),plannedEntry:n(s.entry),stopLoss:n(s.stopLoss),target1:n(s.target1),target2:n(s.target2),target3:n(s.target3),target4:n(s.target4),profilePOC:n(s.profilePOC),profileVAH:n(s.profileVAH),profileVAL:n(s.profileVAL),profileScore:n(s.profileScore),status:'SIGNAL',executed:false,executedAt:null,executedPrice:null,tp1:false,tp2:false,tp3:false,tp4:false,stopped:false,closedAt:null,result:null,maxFavorablePrice:null,maxAdversePrice:null,lastPrice:null,lastSeenAt:null};journal.push(row);save()}
   return row;
 }
+function closeFromTerminal(event,currentPrice){
+  if(!event?.signalId)return;
+  const row=upsertSignal(event);if(!row||row.closedAt)return;
+  const p=n(event.exitPrice)??n(currentPrice)??n(event.price),entered=row.executed||event.entered===true,outcome=String(event.outcome||event.result||'CLOSED').toUpperCase(),closedAt=event.closedAt||new Date(n(event.closedAtMs)??Date.now()).toISOString();
+  if(entered&&!row.executed){row.executed=true;row.executedAt=event.enteredAtMs?new Date(event.enteredAtMs).toISOString():closedAt;row.executedPrice=n(event.entry)??p}
+  if(p!=null){row.lastPrice=p;row.lastSeenAt=closedAt;for(const k of [1,2,3,4]){const key='tp'+k,t=n(row['target'+k]);if(entered&&!row[key]&&t!=null&&hit(row.side,p,t)){row[key]=true;row[key+'At']=closedAt}}}
+  if(outcome==='TP4'&&entered)row.tp1=row.tp2=row.tp3=row.tp4=true;
+  row.stopped=outcome==='SL'&&entered;row.status=entered?'CLOSED':'CANCELLED';row.closedAt=closedAt;row.result=entered?(outcome==='PREENTRY_INVALIDATED'?'CANCELLED':outcome):'CANCELLED';save();
+}
 function update(s){
-  const row=upsertSignal(s);if(!row)return;
-  const p=n(s.price);if(p==null)return;
+  const p=n(s?.price);closeFromTerminal(s?.terminalEvent,p);
+  const row=upsertSignal(s);if(!row||p==null)return;
   let changed=false;row.lastPrice=p;row.lastSeenAt=new Date().toISOString();
   if(row.profilePOC==null&&n(s.profilePOC)!=null){row.profilePOC=n(s.profilePOC);row.profileVAH=n(s.profileVAH);row.profileVAL=n(s.profileVAL);row.profileScore=n(s.profileScore);changed=true}
   if(!row.executed&&(s.entered===true||String(s.status).toUpperCase()==='MANAGING')){row.executed=true;row.executedAt=s.enteredAtMs?new Date(s.enteredAtMs).toISOString():new Date().toISOString();row.executedPrice=n(s.entry)??p;row.status='OPEN';changed=true}
