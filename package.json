@@ -3,5 +3,8 @@
   "version": "4.2.1",
   "private": true,
   "type": "module",
-  "scripts": {"start": "node gold-commercial-dashboard-start.js"}
+  "scripts": {
+    "start": "node gold-unified-start.js",
+    "test": "node --test"
+  }
 }

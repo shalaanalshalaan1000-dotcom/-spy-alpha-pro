@@ -1,11 +1,19 @@
 import http from 'node:http';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
+import { join } from 'node:path';
+import {
+  applyBrokerTargetReport,
+  confirmBrokerOpen,
+  normalizeLifecycleState,
+  processSignalLifecycle,
+  setupFingerprint,
+  signalResponse
+} from './gold-trade-lifecycle.js';
 
 const PORT = Number(process.env.PORT || 3000);
-const MIN_CONFIDENCE = 65;
-const SIGNAL_TTL_MS = 90_000;
-const SIGNAL_MAX_LIFE_MS = 4 * 60 * 60_000;
-const STORE_PATH = '/tmp/gold-alpha-trades.json';
+const MIN_CONFIDENCE = Number(process.env.MIN_CONFIDENCE || 65);
+const DATA_DIR = process.env.GOLD_ALPHA_DATA_DIR || '/tmp/gold-alpha';
+const STORE_PATH = process.env.GOLD_ALPHA_STORE_PATH || join(DATA_DIR, 'state.json');
 const CONFIRM_COUNT = 3;
 const CONFIRM_WINDOW_MS = 20_000;
 
@@ -14,8 +22,10 @@ const state = {
   quote: null,
   quoteAt: 0,
   signal: null,
+  lastTerminal: null,
+  blockedSetupIds: [],
   cooldownUntil: 0,
-  candidateTrack: { side: 'WAIT', count: 0, firstSeen: 0, lastSeen: 0, model: null },
+  candidateTrack: { side: 'WAIT', setupId:null, count: 0, firstSeen: 0, lastSeen: 0, lastQuoteAt:0, model: null },
   stableView: null,
   mt5: { lastSeen: 0, tradingEnabled: false, liveAccount: false, positionOpen: false, symbol: 'XAUUSD' },
   trades: []
@@ -23,13 +33,29 @@ const state = {
 
 function loadStore() {
   try {
+    mkdirSync(DATA_DIR, {recursive:true});
     if (!existsSync(STORE_PATH)) return;
     const x = JSON.parse(readFileSync(STORE_PATH, 'utf8'));
     if (Array.isArray(x.trades)) state.trades = x.trades.slice(-200);
+    if (Array.isArray(x.samples)) state.samples = x.samples.slice(-1800);
+    if (Array.isArray(x.blockedSetupIds)) state.blockedSetupIds = x.blockedSetupIds.slice(-50);
+    if (x.signal && typeof x.signal === 'object') state.signal = x.signal;
+    if (x.lastTerminal && typeof x.lastTerminal === 'object') state.lastTerminal = x.lastTerminal;
+    if (Number.isFinite(Number(x.cooldownUntil))) state.cooldownUntil = Number(x.cooldownUntil);
   } catch {}
+  normalizeLifecycleState(state);
 }
 function saveStore() {
-  try { writeFileSync(STORE_PATH, JSON.stringify({trades: state.trades.slice(-200)})); } catch {}
+  try {
+    mkdirSync(DATA_DIR, {recursive:true});
+    const tmp = `${STORE_PATH}.tmp`;
+    writeFileSync(tmp, JSON.stringify({
+      trades:state.trades.slice(-200), samples:state.samples.slice(-1800),
+      signal:state.signal, lastTerminal:state.lastTerminal,
+      blockedSetupIds:state.blockedSetupIds.slice(-50), cooldownUntil:state.cooldownUntil
+    }));
+    renameSync(tmp, STORE_PATH);
+  } catch {}
 }
 loadStore();
 
@@ -47,36 +73,67 @@ const html = (res, body) => {
   res.end(body);
 };
 const round = (v, d=2) => Number.isFinite(Number(v)) ? Number(Number(v).toFixed(d)) : null;
+function timestampMs(value, fallback=Date.now()) {
+  const n=Number(value);
+  if(Number.isFinite(n)&&n>0) return n>1e17?Math.floor(n/1e6):n>1e14?Math.floor(n/1e3):n>1e11?n:n>1e9?n*1000:fallback;
+  const parsed=Date.parse(value);return Number.isFinite(parsed)?parsed:fallback;
+}
 
 async function getQuote() {
   const now = Date.now();
   if (state.quote && now - state.quoteAt < 4500) return state.quote;
-  try {
-    const r = await fetch('https://api.gold-api.com/price/XAU', {
-      cache:'no-store',
-      headers:{accept:'application/json','user-agent':'GoldAlphaPro/6.1'},
-      signal: AbortSignal.timeout(12000)
-    });
-    const d = await r.json().catch(()=>({}));
-    const price = Number(d.price);
-    if (!r.ok || !Number.isFinite(price) || price <= 0) throw new Error('invalid gold quote');
-    state.quote = {price, updatedAt:d.updatedAt || new Date().toISOString(), provider:'GOLD_API', degraded:false};
-    state.quoteAt = now;
-    return state.quote;
-  } catch (e) {
-    if (state.quote) return {...state.quote, degraded:true};
-    throw e;
+  const providers = [];
+  if (process.env.GOLD_ALPHA_QUOTE_URL) providers.push(async()=>{
+    const r=await fetch(process.env.GOLD_ALPHA_QUOTE_URL,{cache:'no-store',headers:{accept:'application/json'},signal:AbortSignal.timeout(5000)});
+    const d=await r.json().catch(()=>({})); const bid=Number(d.bid),ask=Number(d.ask);
+    const price=Number(d.price??(Number.isFinite(bid)&&Number.isFinite(ask)?(bid+ask)/2:NaN));
+    if(!r.ok||!Number.isFinite(price)||price<=0) throw new Error('invalid configured quote');
+    const t=timestampMs(d.t??d.updatedAt,now);
+    return {price,bid:Number.isFinite(bid)?bid:price,ask:Number.isFinite(ask)?ask:price,t,updatedAt:d.updatedAt||new Date(t).toISOString(),provider:d.provider||'CONFIGURED',degraded:now-t>30_000};
+  });
+  if (process.env.MASSIVE_API_KEY) providers.push(async()=>{
+    const u=new URL('https://api.massive.com/v1/last_quote/currencies/XAU/USD');u.searchParams.set('apiKey',process.env.MASSIVE_API_KEY);
+    const r=await fetch(u,{cache:'no-store',headers:{accept:'application/json','user-agent':'GoldAlphaPro/7.0'},signal:AbortSignal.timeout(9000)});
+    const d=await r.json().catch(()=>({})); const x=d.last||d.results?.last||d.results||d;
+    const bid=Number(x.bid??x.b??x.bid_price), ask=Number(x.ask??x.a??x.ask_price);
+    const price=Number.isFinite(bid)&&Number.isFinite(ask)?(bid+ask)/2:Number(x.price);
+    if(!r.ok||!Number.isFinite(price)||price<=0) throw new Error('invalid Massive quote');
+    const t=timestampMs(x.timestamp??x.t??x.sip_timestamp??x.participant_timestamp,now);
+    return {price,bid:Number.isFinite(bid)?bid:price,ask:Number.isFinite(ask)?ask:price,t,updatedAt:new Date(t).toISOString(),provider:'MASSIVE',degraded:now-t>30_000};
+  });
+  providers.push(async()=>{
+    const r=await fetch('https://api.gold-api.com/price/XAU',{cache:'no-store',headers:{accept:'application/json','user-agent':'GoldAlphaPro/7.0'},signal:AbortSignal.timeout(9000)});
+    const d=await r.json().catch(()=>({})); const price=Number(d.price);
+    if(!r.ok||!Number.isFinite(price)||price<=0) throw new Error('invalid Gold API quote');
+    const t=timestampMs(d.updatedAt??d.timestamp,now);
+    return {price,bid:price,ask:price,t,updatedAt:d.updatedAt||new Date(t).toISOString(),provider:'GOLD_API',degraded:now-t>30_000};
+  });
+  providers.push(async()=>{
+    const r=await fetch('https://data-asg.goldprice.org/dbXRates/USD',{cache:'no-store',headers:{accept:'application/json','user-agent':'Mozilla/5.0 GoldAlphaPro/7.0'},signal:AbortSignal.timeout(9000)});
+    const d=await r.json().catch(()=>({})); const price=Number(d.items?.[0]?.xauPrice);
+    if(!r.ok||!Number.isFinite(price)||price<=0) throw new Error('invalid GoldPrice quote');
+    const t=timestampMs(d.ts??d.timestamp,now);
+    return {price,bid:price,ask:price,t,updatedAt:new Date(t).toISOString(),provider:'GOLDPRICE',degraded:now-t>30_000};
+  });
+  let lastError;
+  for (const provider of providers) {
+    try { state.quote=await provider(); state.quoteAt=now; return state.quote; }
+    catch(e){ lastError=e; }
   }
+  if (state.quote && now-state.quoteAt<=120_000) return {...state.quote,degraded:true};
+  throw lastError||new Error('no gold quote provider available');
 }
 
-function record(price) {
-  const now = Date.now();
-  const p = Number(price);
+function record(quote) {
+  const now = Number(quote.t)||Date.now();
+  const p = Number(quote.price);
   if (!Number.isFinite(p) || p <= 0) return;
   const last = state.samples.at(-1);
-  if (!last || now-last.t >= 4000) state.samples.push({t:now,p});
-  else last.p = p;
-  state.samples = state.samples.filter(x=>x.t >= now-2*60*60_000).slice(-1800);
+  const row={t:now,p,price:p,bid:Number(quote.bid)||p,ask:Number(quote.ask)||p};
+  if (!last || now-last.t >= 4000) state.samples.push(row);
+  else Object.assign(last,row);
+  const cutoff=Date.now()-2*60*60_000;
+  state.samples = state.samples.filter(x=>x.t >= cutoff).slice(-1800);
 }
 
 function bars1m() {
@@ -117,7 +174,7 @@ function analyze(price) {
   const prev3 = recent.slice(-4,-1);
   const hi3 = Math.max(...prev3.map(b=>b.high));
   const lo3 = Math.min(...prev3.map(b=>b.low));
-  let side=null, strategy=null, confidence=0, stop=null, entryBase=null;
+  let side=null, strategy=null, confidence=0, stop=null, entryBase=null, structureAt=null;
 
   const trendUp = slope > atr*.75 && closes.at(-1) > hi3;
   const trendDown = slope < -atr*.75 && closes.at(-1) < lo3;
@@ -126,11 +183,13 @@ function analyze(price) {
     confidence = 65 + Math.min(15, Math.round(Math.abs(slope)/Math.max(atr,.01)*5));
     stop = Math.min(...recent.slice(-3).map(b=>b.low)) - .25;
     entryBase = hi3;
+    structureAt = recent.at(-1).t;
   } else if (trendDown) {
     side='SELL'; strategy='TREND_CONTINUATION';
     confidence = 65 + Math.min(15, Math.round(Math.abs(slope)/Math.max(atr,.01)*5));
     stop = Math.max(...recent.slice(-3).map(b=>b.high)) + .25;
     entryBase = lo3;
+    structureAt = recent.at(-1).t;
   }
 
   if (!side && recent.length >= 6) {
@@ -142,8 +201,8 @@ function analyze(price) {
       const bearSweep = c.high > ph && c.close < ph;
       const bullMss = bullSweep && after.some(b=>b.close > Math.max(...prior.slice(-2).map(x=>x.high)));
       const bearMss = bearSweep && after.some(b=>b.close < Math.min(...prior.slice(-2).map(x=>x.low)));
-      if (bullMss) { side='BUY'; strategy='ICT_REVERSAL'; confidence=72; stop=c.low-.25; entryBase=Math.max(...prior.slice(-2).map(x=>x.high)); }
-      if (bearMss) { side='SELL'; strategy='ICT_REVERSAL'; confidence=72; stop=c.high+.25; entryBase=Math.min(...prior.slice(-2).map(x=>x.low)); }
+      if (bullMss) { side='BUY'; strategy='ICT_REVERSAL'; confidence=72; stop=c.low-.25; entryBase=Math.max(...prior.slice(-2).map(x=>x.high)); structureAt=c.t; }
+      if (bearMss) { side='SELL'; strategy='ICT_REVERSAL'; confidence=72; stop=c.high+.25; entryBase=Math.min(...prior.slice(-2).map(x=>x.low)); structureAt=c.t; }
     }
   }
 
@@ -167,8 +226,10 @@ function analyze(price) {
   const dir = side==='BUY' ? 1 : -1;
   const half = Math.min(.8, Math.max(.20, atr*.18));
   const d1=Math.max(1.8,risk*1.4), d2=Math.max(3,risk*2), d3=Math.max(4,risk*2.5), d4=Math.max(5,risk*3);
+  const setupId=[side,strategy,structureAt,round(entryBase),round(stop)].join('|');
   return {
     ...base,status:'CANDIDATE',candidateAction:side,side,strategy,confidence,
+    setupId,structureAt,
     entry:round(entryBase),entryLow:round(entryBase-half),entryHigh:round(entryBase+half),stopLoss:round(stop),
     target1:round(entryBase+dir*d1),target2:round(entryBase+dir*d2),target3:round(entryBase+dir*d3),target4:round(entryBase+dir*d4),
     riskReward:round(d4/risk,2),
@@ -176,26 +237,29 @@ function analyze(price) {
   };
 }
 
-function updateStableCandidate(model) {
+function updateStableCandidate(model, quoteAt) {
   const now = Date.now();
   const side = ['BUY','SELL'].includes(model.candidateAction) ? model.candidateAction : 'WAIT';
+  const setupId = side === 'WAIT' ? null : setupFingerprint(model);
   const t = state.candidateTrack;
 
   if (side === 'WAIT') {
     if (t.side !== 'WAIT' && t.lastSeen && now - t.lastSeen > CONFIRM_WINDOW_MS) {
-      state.candidateTrack = { side:'WAIT', count:0, firstSeen:0, lastSeen:0, model:null };
+      state.candidateTrack = { side:'WAIT', setupId:null, count:0, firstSeen:0, lastSeen:0, lastQuoteAt:0, model:null };
       if (!state.signal) state.stableView = null;
     }
     return;
   }
 
-  if (t.side !== side || now - t.lastSeen > CONFIRM_WINDOW_MS) {
-    state.candidateTrack = { side, count:1, firstSeen:now, lastSeen:now, model };
+  if (t.side !== side || t.setupId !== setupId || now - t.lastSeen > CONFIRM_WINDOW_MS) {
+    state.candidateTrack = { side, setupId, count:1, firstSeen:now, lastSeen:now, lastQuoteAt:Number(quoteAt)||now, model };
     return;
   }
 
+  if (Number(quoteAt) && Number(quoteAt) === Number(t.lastQuoteAt)) return;
   t.count += 1;
   t.lastSeen = now;
+  t.lastQuoteAt = Number(quoteAt)||now;
   t.model = model;
 
   if (t.count >= CONFIRM_COUNT) {
@@ -210,105 +274,44 @@ function updateStableCandidate(model) {
   }
 }
 
-function clearStableViewIfInvalid(price) {
-  const s = state.stableView;
-  if (!s || !['BUY','SELL'].includes(s.candidateAction)) return;
-  const stopped = s.candidateAction==='BUY' ? price<=s.stopLoss : price>=s.stopLoss;
-  if (stopped) state.stableView = null;
-}
-
-function hit(side,p,t){ return side==='BUY' ? p>=t : p<=t; }
-
 async function signal(execute) {
   const q = await getQuote();
-  record(q.price);
+  record(q);
   const now = Date.now();
   const rawModel = analyze(q.price);
-  updateStableCandidate(rawModel);
-  clearStableViewIfInvalid(q.price);
-
-  const model = state.stableView || rawModel;
-  let s = state.signal;
-  const pendingSide = model.candidateAction;
-  const pendingRange = ['BUY','SELL'].includes(pendingSide) &&
-    Number.isFinite(Number(model.entryLow)) && Number.isFinite(Number(model.entryHigh));
-  const pendingInRange = pendingRange && q.price>=model.entryLow && q.price<=model.entryHigh;
-  const pendingTargetPassed = pendingRange && Number.isFinite(Number(model.target1)) && hit(pendingSide,q.price,model.target1);
-  const pendingStopBroken = pendingRange && Number.isFinite(Number(model.stopLoss)) &&
-    (pendingSide==='BUY' ? q.price<=model.stopLoss : q.price>=model.stopLoss);
-
-  if (!s && (pendingTargetPassed || pendingStopBroken)) {
-    state.stableView = null;
-    state.candidateTrack = { side:'WAIT', count:0, firstSeen:0, lastSeen:0, model:null };
+  updateStableCandidate(rawModel,q.t);
+  let model=state.stableView||rawModel;
+  if(model.setupId&&state.blockedSetupIds.includes(setupFingerprint(model))){state.stableView=null;model=rawModel;}
+  const eligible=state.candidateTrack.count>=CONFIRM_COUNT?model:{...model,candidateAction:'WAIT'};
+  const safeExecute=execute&&!q.degraded&&now-(Number(q.t)||now)<=30_000;
+  const result=processSignalLifecycle(state,{model:eligible,quote:{...q,t:Number(q.t)||now},observations:state.samples,now,execute:safeExecute,minConfidence:MIN_CONFIDENCE});
+  if(result.terminal){
+    upsertTrade({...result.terminal,status:'CLOSED'});
+    state.stableView=null;
+    state.candidateTrack={side:'WAIT',setupId:null,count:0,firstSeen:0,lastSeen:now,lastQuoteAt:0,model:null};
+  }else if(state.signal){
+    upsertTrade({...state.signal,status:state.signal.brokerConfirmed?'OPEN':'SIGNAL'});
   }
-
-  if (s) {
-    const stopped = s.side==='BUY' ? q.price<=s.stopLoss : q.price>=s.stopLoss;
-    const done = hit(s.side,q.price,s.target4);
-    const expired = now-s.issuedAtMs > SIGNAL_MAX_LIFE_MS;
-    if (stopped || done || expired) {
-      s.result = stopped ? 'STOPPED' : done ? 'TP4' : 'EXPIRED';
-      state.signal = null;
-      state.cooldownUntil = 0;
-      state.stableView = null;
-      state.candidateTrack = { side:'WAIT', count:0, firstSeen:0, lastSeen:now, model:null };
-      s = null;
-    }
-  }
-
-  if (!s && execute &&
-      ['BUY','SELL'].includes(model.candidateAction) && model.confidence>=MIN_CONFIDENCE &&
-      model.entryLow && model.entryHigh && state.candidateTrack.count>=CONFIRM_COUNT &&
-      pendingInRange && !pendingTargetPassed && !pendingStopBroken) {
-    s = {
-      signalId:`XAU-${now}-${model.candidateAction}`, side:model.candidateAction,
-      strategy:model.strategy, confidence:model.confidence, entry:model.entry,
-      entryLow:model.entryLow,entryHigh:model.entryHigh,stopLoss:model.stopLoss,
-      target1:model.target1,target2:model.target2,target3:model.target3,target4:model.target4,
-      riskReward:model.riskReward,issuedAtMs:now,issuedAt:new Date(now).toISOString(),
-      expiresAtMs:now+SIGNAL_TTL_MS,expiresAt:new Date(now+SIGNAL_TTL_MS).toISOString()
-    };
-    state.signal=s;
-  }
-
-  if (s) {
-    const active = now<=s.expiresAtMs;
-    const inRange = q.price>=s.entryLow && q.price<=s.entryHigh;
-    return {
-      ...s, status:active?'ACTIVE':'MANAGING',
-      action:execute&&active&&inRange?s.side:'WAIT',
-      candidateAction:s.side, price:round(q.price),
-      readingCompleteness:rawModel.readingCompleteness,
-      signalConfidence:s.confidence,
-      confidence:s.confidence,
-      provider:q.provider,degraded:q.degraded,
-      updatedAt:new Date(now).toISOString(),
-      confirmationCount:state.candidateTrack.count,
-      reason:active ? (inRange?'جاهز للتنفيذ على MT5':'الإشارة ثابتة لكن السعر خارج نطاق الدخول') : 'إدارة الإشارة القائمة'
-    };
-  }
-
-  const shown = state.stableView || rawModel;
-  return {
-    ...shown,
-    action:'WAIT',
-    signalConfidence:shown.confidence,
-    provider:q.provider,degraded:q.degraded,
-    executionMode:'XAUUSD_ONLY',
-    confirmationCount:state.candidateTrack.count,
-    confirmationRequired:CONFIRM_COUNT,
-    reason: pendingTargetPassed ? 'MISSED ENTRY: وصل السعر إلى الهدف قبل لمس نطاق الدخول؛ ألغيت الإشارة القديمة' :
-      pendingStopBroken ? 'INVALIDATED: كُسر وقف الهيكل قبل الدخول؛ ألغيت الإشارة' :
-      (state.stableView && pendingRange && !pendingInRange) ? 'بانتظار عودة السعر إلى نطاق الدخول؛ ممنوع مطاردة السعر' :
-      state.stableView ? shown.reason : (['BUY','SELL'].includes(rawModel.candidateAction)
-      ? `انتظار تثبيت ${rawModel.candidateAction}: ${state.candidateTrack.count}/${CONFIRM_COUNT}`
-      : rawModel.reason)
-  };
+  saveStore();
+  const shown=state.signal?model:(state.stableView||rawModel);
+  const response=signalResponse(state,shown,q,now,safeExecute);
+  Object.assign(response,{
+    readingCompleteness:rawModel.readingCompleteness,barCount:rawModel.barCount,
+    sampleCount:rawModel.sampleCount,signalConfidence:state.signal?.confidence??shown.confidence,
+    confirmationCount:state.candidateTrack.count,confirmationRequired:CONFIRM_COUNT
+  });
+  if(!state.signal&&['BUY','SELL'].includes(rawModel.candidateAction)&&state.candidateTrack.count<CONFIRM_COUNT)
+    response.reason=`انتظار تثبيت ${rawModel.candidateAction}: ${state.candidateTrack.count}/${CONFIRM_COUNT}`;
+  if(!state.signal&&response.blockedAfterStop) response.reason='SETUP BLOCKED: أُلغيت هذه البنية سابقًا؛ ننتظر بنية سوق جديدة';
+  else if(!state.signal&&now<state.cooldownUntil) response.reason='COOLDOWN: انتظار انتهاء فترة الحماية قبل إشارة جديدة';
+  if(q.degraded) response.reason='STALE QUOTE: أوقف التنفيذ لأن بيانات السعر متأخرة أو احتياطية';
+  return response;
 }
 
 function upsertTrade(ev) {
-  const key = String(ev.positionId || ev.ticket || ev.signalId || '');
-  let t = key ? state.trades.find(x=>String(x.positionId||x.ticket||x.signalId||'')===key) : null;
+  const identities=[ev.signalId,ev.positionId,ev.ticket].filter(v=>v!=null&&String(v)!=='').map(String);
+  const key=identities[0]||'';
+  let t=identities.length?state.trades.find(x=>[x.signalId,x.positionId,x.ticket].filter(v=>v!=null).map(String).some(v=>identities.includes(v))):null;
   if (!t) {
     t = { id:key || `event-${Date.now()}`, createdAt:new Date().toISOString() };
     state.trades.push(t);
@@ -330,11 +333,35 @@ function handleReport(body) {
     return {ok:true};
   }
   if (['OPEN','UPDATE','CLOSE'].includes(type)) {
+    const now=Date.now();
     const ev={...body,type};
-    if (type==='OPEN') ev.status='OPEN';
-    if (type==='CLOSE') ev.status='CLOSED';
+    if(type==='OPEN'){
+      const active=confirmBrokerOpen(state,body,now);
+      if(active) Object.assign(ev,{signalId:active.signalId,setupId:active.setupId,status:'OPEN'});
+      else ev.status='OPEN_UNMATCHED';
+    }
+    if(type==='UPDATE'){
+      const active=applyBrokerTargetReport(state,body);
+      if(active) Object.assign(ev,{signalId:active.signalId,setupId:active.setupId,targetHits:active.targetHits,status:'OPEN'});
+    }
+    if(type==='CLOSE'){
+      const active=state.signal;
+      const reportPosition=String(body.positionId??body.ticket??'');
+      const samePosition=!active?.brokerPositionId||!reportPosition||String(active.brokerPositionId)===reportPosition;
+      if(active&&samePosition){
+        const reason=String(body.closeReason||body.reason||'CLOSED').toUpperCase();
+        const outcome=reason.includes('SL')||reason.includes('STOP')?'SL':reason.includes('TP4')?'TP4':'BROKER_CLOSED';
+        state.lastTerminal={...active,...body,outcome,result:outcome,closedAtMs:now,closedAt:body.closedAt||new Date(now).toISOString(),exitPrice:Number(body.exitPrice??body.closePrice)||null};
+        if(outcome==='SL'&&active.setupId) state.blockedSetupIds=[...new Set([...state.blockedSetupIds,active.setupId])].slice(-50);
+        state.cooldownUntil=now+(outcome==='SL'?180_000:90_000);
+        state.signal=null;
+        Object.assign(ev,{signalId:active.signalId,setupId:active.setupId,outcome});
+      }
+      ev.status='CLOSED';
+    }
     const t=upsertTrade(ev);
     state.mt5.positionOpen=type!=='CLOSE';
+    saveStore();
     return {ok:true,trade:t};
   }
   return {ok:false,error:'Unsupported report type'};
@@ -354,17 +381,26 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='OPTIONS'){res.writeHead(204,{'access-control-allow-origin':'*','access-control-allow-methods':'GET,POST,OPTIONS','access-control-allow-headers':'content-type'});return res.end();}
   try{
     if(req.method==='GET'&&url.pathname==='/') return html(res,PAGE);
-    if(req.method==='GET'&&url.pathname==='/api/health') return json(res,200,{ok:true,service:'gold-alpha-pro',btc:false,signalStabilization:true});
+    if(req.method==='GET'&&url.pathname==='/api/health') return json(res,200,{ok:true,service:'gold-alpha-pro',btc:false,lifecycle:'unified-v2',quoteProvider:state.quote?.provider||null,quoteAgeMs:state.quoteAt?Date.now()-state.quoteAt:null});
     if(req.method==='GET'&&url.pathname==='/api/gold'){
-      const q=await getQuote(); record(q.price); return json(res,200,{...q,analysis:analyze(q.price)});
+      const q=await getQuote(); record(q); return json(res,200,{...q,analysis:analyze(q.price)});
+    }
+    if(req.method==='GET'&&url.pathname==='/api/gold-live'){
+      const q=await getQuote(); record(q); const recent=state.samples.filter(x=>x.t>=Date.now()-60*60_000);
+      return json(res,200,{...q,observedLow:recent.length?Math.min(...recent.map(x=>x.p)):q.price,observedHigh:recent.length?Math.max(...recent.map(x=>x.p)):q.price,sampleCount:recent.length});
     }
     if(req.method==='GET'&&url.pathname==='/api/auto-trade/signal'){
       return json(res,200,await signal(url.searchParams.get('observe')!=='1'));
     }
     if(req.method==='GET'&&url.pathname==='/api/auto-trade/trades') return json(res,200,{trades:state.trades});
+    if(req.method==='GET'&&url.pathname==='/api/performance/journal'){
+      const closed=state.trades.filter(x=>x.status==='CLOSED');
+      const wins=closed.filter(x=>x.outcome==='TP4'||Number(x.profit)>0).length;
+      return json(res,200,{summary:{total:state.trades.length,closed:closed.length,wins,losses:closed.length-wins,winRate:closed.length?round(wins/closed.length*100,1):0},activeSignal:state.signal,lastTerminal:state.lastTerminal,trades:state.trades.slice().reverse()});
+    }
     if(req.method==='GET'&&url.pathname==='/api/auto-trade/status'){
       const connected=Date.now()-state.mt5.lastSeen<20_000;
-      return json(res,200,{mt5:{...state.mt5,connected},trades:state.trades,stabilization:{track:state.candidateTrack,stable:state.stableView}});
+      return json(res,200,{mt5:{...state.mt5,connected},activeSignal:state.signal,lastTerminal:state.lastTerminal,trades:state.trades,stabilization:{track:state.candidateTrack,stable:state.stableView},blockedSetupIds:state.blockedSetupIds});
     }
     if(req.method==='POST'&&url.pathname==='/api/auto-trade/report'){
       const raw=await readBody(req); let body={}; try{body=JSON.parse(raw||'{}')}catch{return json(res,400,{ok:false,error:'Invalid JSON'})}
