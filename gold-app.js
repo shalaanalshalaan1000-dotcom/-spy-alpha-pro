@@ -27,7 +27,7 @@ const state = {
   cooldownUntil: 0,
   candidateTrack: { side: 'WAIT', setupId:null, count: 0, firstSeen: 0, lastSeen: 0, lastQuoteAt:0, model: null },
   stableView: null,
-  mt5: { lastSeen: 0, tradingEnabled: false, liveAccount: false, positionOpen: false, symbol: 'XAUUSD' },
+  mt5: { lastSeen: 0, tradingEnabled: false, liveAccount: false, positionOpen: false, symbol: 'XAUUSD', quote:null },
   trades: []
 };
 
@@ -81,6 +81,9 @@ function timestampMs(value, fallback=Date.now()) {
 
 async function getQuote() {
   const now = Date.now();
+  if(state.mt5.quote&&now-state.mt5.lastSeen<20_000){
+    const q=state.mt5.quote;state.quote={...q,provider:'MT5_BROKER',degraded:now-Number(q.t)>30_000};state.quoteAt=now;return state.quote;
+  }
   if (state.quote && now - state.quoteAt < 4500) return state.quote;
   const providers = [];
   if (process.env.GOLD_ALPHA_QUOTE_URL) providers.push(async()=>{
@@ -114,6 +117,21 @@ async function getQuote() {
     if(!r.ok||!Number.isFinite(price)||price<=0) throw new Error('invalid GoldPrice quote');
     const t=timestampMs(d.ts??d.timestamp,now);
     return {price,bid:price,ask:price,t,updatedAt:new Date(t).toISOString(),provider:'GOLDPRICE',degraded:now-t>30_000};
+  });
+  providers.push(async()=>{
+    const r=await fetch('https://stooq.com/q/l/?s=xauusd&i=1',{cache:'no-store',headers:{accept:'text/csv','user-agent':'GoldAlphaPro/7.0'},signal:AbortSignal.timeout(9000)});
+    const text=await r.text();const rows=text.trim().split(/\r?\n/);const cells=(rows.at(-1)||'').split(',');
+    const price=Number(cells[6]);const date=String(cells[1]||''),time=String(cells[2]||'').padStart(6,'0');
+    const t=timestampMs(`${date.slice(0,4)}-${date.slice(4,6)}-${date.slice(6,8)}T${time.slice(0,2)}:${time.slice(2,4)}:${time.slice(4,6)}Z`,now);
+    if(!r.ok||!Number.isFinite(price)||price<=0) throw new Error('invalid Stooq quote');
+    return {price,bid:price,ask:price,t,updatedAt:new Date(t).toISOString(),provider:'STOOQ_REFERENCE',degraded:true};
+  });
+  providers.push(async()=>{
+    const r=await fetch('https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1m&range=1d',{cache:'no-store',headers:{accept:'application/json','user-agent':'Mozilla/5.0 GoldAlphaPro/7.0'},signal:AbortSignal.timeout(9000)});
+    const d=await r.json().catch(()=>({}));const result=d.chart?.result?.[0],meta=result?.meta||{},timestamps=result?.timestamp||[];
+    const price=Number(meta.regularMarketPrice);const t=timestampMs(timestamps.at(-1),now);
+    if(!r.ok||!Number.isFinite(price)||price<=0) throw new Error('invalid Yahoo gold reference');
+    return {price,bid:price,ask:price,t,updatedAt:new Date(t).toISOString(),provider:'GOLD_FUTURES_REFERENCE',degraded:true};
   });
   let lastError;
   for (const provider of providers) {
@@ -330,6 +348,11 @@ function handleReport(body) {
     state.mt5.tradingEnabled=!!body.tradingEnabled;
     state.mt5.liveAccount=!!body.liveAccount;
     state.mt5.positionOpen=!!body.positionOpen;
+    const bid=Number(body.bid),ask=Number(body.ask),tickAt=timestampMs(body.tickAt,Date.now());
+    if(Number.isFinite(bid)&&bid>0&&Number.isFinite(ask)&&ask>=bid){
+      state.mt5.quote={price:(bid+ask)/2,bid,ask,t:tickAt,updatedAt:new Date(tickAt).toISOString()};
+      state.quote={...state.mt5.quote,provider:'MT5_BROKER',degraded:Date.now()-tickAt>30_000};state.quoteAt=Date.now();
+    }
     return {ok:true};
   }
   if (['OPEN','UPDATE','CLOSE'].includes(type)) {

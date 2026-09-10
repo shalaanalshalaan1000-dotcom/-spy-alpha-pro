@@ -162,9 +162,11 @@ void ReportHeartbeat()
    if(now-g_last_heartbeat<10) return;
    g_last_heartbeat=now;
    bool live=AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_REAL;
+   MqlTick tick; bool has_tick=SymbolInfoTick(g_symbol,tick);
    string body="{\"type\":\"HEARTBEAT\",\"symbol\":\""+g_symbol+"\",\"tradingEnabled\":"+BoolText(EnableTrading)+
                ",\"liveAccount\":"+BoolText(live)+",\"positionOpen\":"+BoolText(HasManagedPosition())+
-               ",\"equity\":"+DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY),2)+"}";
+               ",\"equity\":"+DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY),2)+
+               (has_tick?",\"bid\":"+DoubleToString(tick.bid,_Digits)+",\"ask\":"+DoubleToString(tick.ask,_Digits)+",\"tickAt\":"+IntegerToString(tick.time_msc):"")+"}";
    HttpPostJson(ReportUrl,body);
 }
 
