@@ -10,10 +10,12 @@ const SPX_PORT=3003;
 const ui=spawn(process.execPath,['gold-target-range-fix-start.js'],{env:{...process.env,PORT:String(UI_PORT)},stdio:['ignore','inherit','inherit']});
 const auto=spawn(process.execPath,['gold-app.js'],{env:{...process.env,PORT:String(AUTO_PORT)},stdio:['ignore','inherit','inherit']});
 const spx=spawn(process.execPath,['spx-live-start.js'],{env:{...process.env,PORT:String(SPX_PORT)},stdio:['ignore','inherit','inherit']});
+const telegramBot=spawn(process.execPath,['telegram-xau-bot.js'],{env:{...process.env,TELEGRAM_SIGNAL_URL:`http://127.0.0.1:${AUTO_PORT}/api/auto-trade/signal?observe=1`},stdio:['ignore','inherit','inherit']});
 ui.on('exit',c=>console.error('gold UI child exited',c));
 auto.on('exit',c=>console.error('gold AUTO child exited',c));
 spx.on('exit',c=>console.error('isolated SPX child exited',c));
-function shutdown(signal){for(const child of [ui,auto,spx]){if(!child.killed) child.kill(signal);}server.close(()=>process.exit(0));setTimeout(()=>process.exit(1),5000).unref();}
+telegramBot.on('exit',c=>console.error('telegram XAU bot child exited',c));
+function shutdown(signal){for(const child of [ui,auto,spx,telegramBot]){if(!child.killed) child.kill(signal);}server.close(()=>process.exit(0));setTimeout(()=>process.exit(1),5000).unref();}
 
 function requestBuffer(port,req){return new Promise((resolve,reject)=>{const opts={hostname:'127.0.0.1',port,path:req.url,method:req.method,headers:{...req.headers,host:`127.0.0.1:${port}`}};const p=http.request(opts,r=>{const chunks=[];r.on('data',c=>chunks.push(c));r.on('end',()=>resolve({status:r.statusCode||502,headers:r.headers,body:Buffer.concat(chunks)}));});p.on('error',reject);p.setTimeout(8000,()=>p.destroy(new Error('upstream timeout')));if(req.method==='GET'||req.method==='HEAD')p.end();else req.pipe(p);});}
 
@@ -75,6 +77,6 @@ const server=http.createServer(async(req,res)=>{
     res.writeHead(502,{'content-type':'text/plain; charset=utf-8','cache-control':'no-store','x-gold-alpha-build':BUILD_TAG});res.end('Gold Alpha temporarily unavailable');
   }
 });
-server.listen(PORT,'0.0.0.0',()=>console.log(`Unified Gold Alpha ${BUILD_TAG} listening on ${PORT}; UI=${UI_PORT}; AUTO=${AUTO_PORT}`));
+server.listen(PORT,'0.0.0.0',()=>console.log(`Unified Gold Alpha ${BUILD_TAG} listening on ${PORT}; UI=${UI_PORT}; AUTO=${AUTO_PORT}; Telegram=worker`));
 process.on('SIGTERM',()=>shutdown('SIGTERM'));
 process.on('SIGINT',()=>shutdown('SIGINT'));
