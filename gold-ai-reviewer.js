@@ -145,12 +145,40 @@ export async function reviewGoldCandidate({
   const safeModel = String(modelId || 'gpt-5.6-luna');
   const reviewPhase = phase === 'PRE_TOUCH' ? 'PRE_TOUCH' : 'EXECUTION';
   const key = String(apiKey || '').trim();
-  if (!key) {
-    return closedReview({setupId, model:safeModel, reviewedAtMs:reviewedAtMs(), phase:reviewPhase, code:'NOT_CONFIGURED', reason:'مفتاح OpenAI غير مهيأ؛ مُنعت الإشارة'});
-  }
-
   const snapshot = buildReviewSnapshot({model, quote, now, minConfidence, phase:reviewPhase});
   const failedChecks = Object.entries(snapshot.hardChecks).filter(([, passed]) => !passed).map(([name]) => name);
+
+  if (!key) {
+    const at = reviewedAtMs();
+    if (failedChecks.length) {
+      return closedReview({
+        setupId,
+        model:safeModel,
+        reviewedAtMs:at,
+        phase:reviewPhase,
+        status:'DENIED',
+        code:'RULE_FALLBACK_DENY',
+        reason:'فشل شرط أمان برمجي؛ لم تُنشر الإشارة',
+        riskFlags:failedChecks
+      });
+    }
+    return {
+      required:true,
+      allowed:true,
+      decision:'ALLOW',
+      status:'APPROVED',
+      code:'RULE_FALLBACK_APPROVED',
+      phase:reviewPhase,
+      setupId,
+      model:'hard-rule-fallback',
+      reason:'اعتماد آلي بقواعد الأمان لأن مراجع AI غير مهيأ',
+      riskFlags:[],
+      reviewedAtMs:at,
+      reviewedAt:new Date(at).toISOString(),
+      expiresAtMs:at + (reviewPhase === 'PRE_TOUCH' ? 45_000 : 12_000)
+    };
+  }
+
   if (failedChecks.length) {
     return closedReview({
       setupId,
