@@ -1,7 +1,7 @@
 import http from 'node:http';
 import {spawn} from 'node:child_process';
 
-const BUILD_TAG='gold-resilient-v2-auto-ui';
+const BUILD_TAG='gold-resilient-v3-live-auto-ui';
 const PORT=Number(process.env.PORT||3000);
 const UI_PORT=3001,AUTO_PORT=3002,SPX_PORT=3003;
 const children=new Map();
@@ -46,42 +46,72 @@ function waitPayload(detail='signal engine temporarily unavailable',upstreamStat
   reason:'ENGINE_RECOVERING: execution blocked until signal engine is healthy',
   upstreamStatus,upstreamDetail:String(detail),build:BUILD_TAG,updatedAt:new Date().toISOString()
 };}
+function statusFallback(detail='auto engine unavailable',upstreamStatus=503){return {
+  mt5:{connected:false,lastSeen:0,tradingEnabled:false,positionOpen:false},
+  engine:{healthy:false,build:BUILD_TAG,error:String(detail),upstreamStatus},
+  lastTerminal:null,trades:[]
+};}
 function sendJson(res,status,body){res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','access-control-allow-origin':'*','x-gold-alpha-build':BUILD_TAG});res.end(JSON.stringify(body));}
 
 function injectAuto(html){
-  const css=`<style>
+  const css=`<style id="goldAutoUiV3">
 #alphaAutoDock{margin:16px 0;padding:16px;border:1px solid #2f6a57;border-radius:16px;background:linear-gradient(145deg,#0e1a18,#0b111b);direction:rtl}
-#alphaAutoDock h3{margin:0 0 10px;color:#67e2b2}.alphaAutoGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.alphaAutoBox{padding:10px;border:1px solid #30445d;border-radius:11px;background:#0d1420}.alphaAutoBox span{display:block;color:#91a0b8;font-size:11px}.alphaAutoBox strong{display:block;margin-top:5px}.alphaAutoOk{color:#54e0a4}.alphaAutoBad{color:#ff718c}.alphaAutoWarn{color:#ffd166}@media(max-width:760px){.alphaAutoGrid{grid-template-columns:repeat(2,1fr)}}
+#alphaAutoDock h3{margin:0 0 10px;color:#67e2b2}.alphaAutoGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.alphaAutoBox{padding:10px;border:1px solid #30445d;border-radius:11px;background:#0d1420}.alphaAutoBox span{display:block;color:#91a0b8;font-size:11px}.alphaAutoBox strong{display:block;margin-top:5px}.alphaAutoOk{color:#54e0a4}.alphaAutoBad{color:#ff718c}.alphaAutoWarn{color:#ffd166}.alphaAutoInfo{color:#9fc4ff}@media(max-width:760px){.alphaAutoGrid{grid-template-columns:repeat(2,1fr)}}
 </style>`;
   const panel=`<section id="alphaAutoDock"><h3>التداول الآلي — Gold Alpha</h3><div class="alphaAutoGrid"><div class="alphaAutoBox"><span>حالة MT5</span><strong id="aaConn" class="alphaAutoWarn">جاري الفحص</strong></div><div class="alphaAutoBox"><span>موافقة النظام</span><strong id="aaAi" class="alphaAutoWarn">بانتظار فرصة</strong></div><div class="alphaAutoBox"><span>الإشارة</span><strong id="aaAction" class="alphaAutoWarn">WAIT</strong></div><div class="alphaAutoBox"><span>نطاق الدخول</span><strong id="aaRange">—</strong></div><div class="alphaAutoBox"><span>حالة الصفقة</span><strong id="aaLife">—</strong></div><div class="alphaAutoBox"><span>الأهداف المحققة</span><strong id="aaTargets">—</strong></div><div class="alphaAutoBox"><span>آخر نتيجة</span><strong id="aaTerminal">—</strong></div><div class="alphaAutoBox"><span>مصدر السعر</span><strong id="aaProvider">—</strong></div><div class="alphaAutoBox" style="grid-column:1/-1"><span>سبب القرار</span><strong id="aaReason">—</strong></div></div></section>`;
-  const js=`<script>
+  const js=`<script id="goldAutoRefreshV3">
 (function(){
  const money=v=>Number.isFinite(Number(v))?'$'+Number(v).toFixed(2):'—';
- async function refreshAuto(){try{
-  const [sr,st]=await Promise.all([fetch('/api/auto-trade/signal?observe=1',{cache:'no-store'}),fetch('/api/auto-trade/status',{cache:'no-store'})]);
-  if(!sr.ok||!st.ok)throw new Error('engine unavailable');
-  const s=await sr.json(),x=await st.json();
-  const c=document.getElementById('aaConn'); if(!c)return;
-  const connected=!!x.mt5?.connected;c.textContent=connected?'MT5 متصل':'MT5 غير متصل';c.className=connected?'alphaAutoOk':'alphaAutoBad';
-  const review=s.aiReview||{},approved=review.status==='APPROVED'&&review.decision==='ALLOW';
-  const ai=document.getElementById('aaAi');ai.textContent=approved?'موافق':(['DENIED','ERROR'].includes(review.status)?'مرفوض مؤقتًا':'بانتظار فرصة');ai.className=approved?'alphaAutoOk':(['DENIED','ERROR'].includes(review.status)?'alphaAutoBad':'alphaAutoWarn');
-  const act=['BUY','SELL'].includes(s.action)?s.action:'WAIT',a=document.getElementById('aaAction');a.textContent=act;a.className=act==='BUY'?'alphaAutoOk':act==='SELL'?'alphaAutoBad':'alphaAutoWarn';
-  document.getElementById('aaRange').textContent=['BUY','SELL'].includes(act)&&s.entryLow!=null?money(s.entryLow)+' — '+money(s.entryHigh):'—';
-  document.getElementById('aaLife').textContent=(s.status||'WAIT')+' • '+(s.entryConfirmation||'—');
-  document.getElementById('aaTargets').textContent=(s.targetHits||[]).map((v,i)=>v?'TP'+(i+1):'').filter(Boolean).join(' • ')||'لا شيء';
-  document.getElementById('aaTerminal').textContent=x.lastTerminal?.outcome||'—';
-  document.getElementById('aaProvider').textContent=(s.provider||'—')+(s.degraded?' • متأخر':'');
-  document.getElementById('aaReason').textContent=s.reason||'—';
- }catch(e){const c=document.getElementById('aaConn');if(c){c.textContent='تعذر تحديث المحرك';c.className='alphaAutoBad';}}}
- (async function loop(){await refreshAuto();setTimeout(loop,1500)})();
+ const set=(id,text,cls)=>{const el=document.getElementById(id);if(!el)return;if(text!==undefined)el.textContent=text;if(cls)el.className=cls;};
+ function ensurePredictionBoxes(){
+   const grid=document.querySelector('#alphaAutoDock .alphaAutoGrid');if(!grid||document.getElementById('aaPrediction'))return;
+   grid.insertAdjacentHTML('beforeend','<div class="alphaAutoBox"><span>توقع الحركة القادمة</span><strong id="aaPrediction" class="alphaAutoInfo">—</strong></div><div class="alphaAutoBox"><span>BUY / SELL score</span><strong id="aaScores" class="alphaAutoInfo">—</strong></div><div class="alphaAutoBox"><span>الشموع المقروءة</span><strong id="aaHistory" class="alphaAutoInfo">—</strong></div><div class="alphaAutoBox"><span>ثقة المحرك</span><strong id="aaConfidence" class="alphaAutoInfo">—</strong></div>');
+ }
+ async function refreshAuto(){
+  ensurePredictionBoxes();
+  try{
+   const [sr,st]=await Promise.all([fetch('/api/auto-trade/signal?observe=1&_='+Date.now(),{cache:'no-store'}),fetch('/api/auto-trade/status?_='+Date.now(),{cache:'no-store'})]);
+   const s=await sr.json().catch(()=>({})),x=await st.json().catch(()=>({}));
+   if(!sr.ok||!st.ok)throw new Error(x?.engine?.error||s?.upstreamDetail||'engine unavailable');
+   const connected=!!x.mt5?.connected;
+   set('aaConn',connected?'MT5 متصل':'MT5 غير متصل',connected?'alphaAutoOk':'alphaAutoBad');
+   const review=s.aiReview||{},approved=review.status==='APPROVED'&&review.decision==='ALLOW';
+   set('aaAi',approved?'موافق':(['DENIED','ERROR'].includes(review.status)?'مرفوض مؤقتًا':'بانتظار فرصة'),approved?'alphaAutoOk':(['DENIED','ERROR'].includes(review.status)?'alphaAutoBad':'alphaAutoWarn'));
+   const act=['BUY','SELL'].includes(s.action)?s.action:'WAIT';
+   set('aaAction',act,act==='BUY'?'alphaAutoOk':act==='SELL'?'alphaAutoBad':'alphaAutoWarn');
+   set('aaRange',['BUY','SELL'].includes(act)&&s.entryLow!=null?money(s.entryLow)+' — '+money(s.entryHigh):'—');
+   set('aaLife',(s.status||'WAIT')+' • '+(s.entryConfirmation||s.candidateAction||'—'));
+   set('aaTargets',(s.targetHits||[]).map((v,i)=>v?'TP'+(i+1):'').filter(Boolean).join(' • ')||'لا شيء');
+   set('aaTerminal',x.lastTerminal?.outcome||'—');
+   set('aaProvider',(s.provider||'—')+(s.degraded?' • متأخر':''));
+   set('aaReason',s.reason||'—');
+   const p=s.prediction||{};
+   set('aaPrediction',p.side||'NEUTRAL',p.side==='BUY'?'alphaAutoOk':p.side==='SELL'?'alphaAutoBad':'alphaAutoInfo');
+   set('aaScores','BUY '+String(p.buyScore??'—')+' / SELL '+String(p.sellScore??'—'));
+   const h=s.historyWindow||{};set('aaHistory',String(h.m1??0)+'×1m • '+String(h.m5??0)+'×5m • '+String(h.m15??0)+'×15m');
+   set('aaConfidence',String(s.signalConfidence??s.confidence??0)+'%');
+  }catch(e){
+   set('aaConn','تعذر تحديث المحرك','alphaAutoBad');
+   set('aaReason','ENGINE ERROR: '+String(e?.message||e),'alphaAutoBad');
+  }
+ }
+ refreshAuto();setInterval(refreshAuto,1500);
 })();
 </script>`;
-  if(html.includes('alphaAutoDock')) return html;
-  if(html.includes('</head>')) html=html.replace('</head>',css+'</head>'); else html=css+html;
-  if(html.includes('</main>')) html=html.replace('</main>',panel+'</main>');
-  else if(html.includes('</body>')) html=html.replace('</body>',panel+js+'</body>');
-  else html+=panel+js;
-  if(!html.includes('refreshAuto') && html.includes('</body>')) html=html.replace('</body>',js+'</body>');
+
+  if(!html.includes('goldAutoUiV3')){
+    if(html.includes('</head>'))html=html.replace('</head>',css+'</head>');else html=css+html;
+  }
+  if(!html.includes('id="alphaAutoDock"')){
+    if(html.includes('</main>'))html=html.replace('</main>',panel+'</main>');
+    else if(html.includes('</body>'))html=html.replace('</body>',panel+'</body>');
+    else html+=panel;
+  }
+  // Critical: an older page may already contain the panel but not its refresh script.
+  // Never return early just because alphaAutoDock exists.
+  if(!html.includes('goldAutoRefreshV3')){
+    if(html.includes('</body>'))html=html.replace('</body>',js+'</body>');else html+=js;
+  }
   return html;
 }
 
@@ -97,6 +127,10 @@ const server=http.createServer(async(req,res)=>{
       let detail='internal signal engine failure';try{const j=JSON.parse(out.body.toString('utf8'));detail=j.detail||j.error||detail}catch{}
       return sendJson(res,200,waitPayload(detail,out.status));
     }
+    if(req.method==='GET'&&u.pathname==='/api/auto-trade/status'&&out.status>=500){
+      let detail='auto status unavailable';try{const j=JSON.parse(out.body.toString('utf8'));detail=j.detail||j.error||detail}catch{}
+      return sendJson(res,200,statusFallback(detail,out.status));
+    }
     const headers={...out.headers};delete headers['content-length'];headers['cache-control']='no-store';headers['x-gold-alpha-build']=BUILD_TAG;
     if(req.method==='GET'&&u.pathname==='/'&&!autoPath){
       const html=injectAuto(out.body.toString('utf8'));
@@ -106,6 +140,7 @@ const server=http.createServer(async(req,res)=>{
     res.writeHead(out.status,headers);res.end(out.body);
   }catch(e){
     if(req.method==='GET'&&u.pathname==='/api/auto-trade/signal')return sendJson(res,200,waitPayload(e?.message||e,503));
+    if(req.method==='GET'&&u.pathname==='/api/auto-trade/status')return sendJson(res,200,statusFallback(e?.message||e,503));
     sendJson(res,503,{error:'Service unavailable',detail:String(e?.message||e),build:BUILD_TAG});
   }
 });
