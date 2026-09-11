@@ -61,25 +61,37 @@ function oneMinuteConfirmation(closed1, side, price) {
   return {aligned, score:aligned ? 3 : 0};
 }
 
+function normalizeSampleClock(samples = [], now = Date.now()) {
+  const valid = samples.filter(s => Number.isFinite(Number(s?.t)) && Number.isFinite(Number(s?.p ?? s?.price)));
+  if (!valid.length) return samples;
+  const latestT = Math.max(...valid.map(s => Number(s.t)));
+  const skew = latestT - now;
+  // MT5 broker timestamps can carry broker-server clock offset. Preserve spacing between ticks,
+  // but align the newest sample to server time when the skew is large enough to prevent candle closure.
+  if (Math.abs(skew) <= 60_000) return samples;
+  return samples.map(s => {
+    const t = Number(s?.t);
+    return Number.isFinite(t) ? {...s, t:t-skew} : s;
+  });
+}
+
 export function analyzeGoldSignal(samples, rawPrice, now = Date.now()) {
   const price = Number(rawPrice);
-  const all1 = bars1m(samples);
-  const all5 = bars5m(samples);
-  const all15 = bars15m(samples);
+  const alignedSamples = normalizeSampleClock(samples, now);
+  const all1 = bars1m(alignedSamples);
+  const all5 = bars5m(alignedSamples);
+  const all15 = bars15m(alignedSamples);
   const closed1 = closedBars(all1, 1, now);
   const closed5 = closedBars(all5, 5, now);
   const closed15 = closedBars(all15, 15, now);
 
-  // Fast-start readiness: accept one completed M5 bucket from retained MT5 tick history.
-  // If the newest M5 bucket has rolled over, the previous bucket is considered complete even
-  // when local wall-clock skew would otherwise delay closedBars by a few seconds.
   const current5Key = Math.floor(now / 300_000) * 300_000;
   const completed5 = all5.filter(bar => bar.t < current5Key);
   const usable5 = closed5.length ? closed5 : completed5;
   const ready5 = usable5.length >= 1;
   const ready1 = closed1.length >= 2;
   const ready = ready5 && ready1;
-  const completeness5 = Math.min(1, usable5.length / 1);
+  const completeness5 = Math.min(1, usable5.length);
   const completeness1 = Math.min(1, closed1.length / 2);
   const completeness = Math.round(Math.min(completeness5, completeness1) * 100);
 
@@ -89,7 +101,7 @@ export function analyzeGoldSignal(samples, rawPrice, now = Date.now()) {
     strategy:'READING', confidence:0, readingCompleteness:completeness,
     barCount:closed1.length, barCount5m:usable5.length, barCount15m:closed15.length,
     modelTimeframes:{context:'15m-optional', execution:'5m', confirmation:'1m'},
-    sampleCount:samples.length, price:round(price),
+    sampleCount:alignedSamples.length, price:round(price),
     entry:null, entryLow:null, entryHigh:null, stopLoss:null,
     target1:null,target2:null,target3:null,target4:null,riskReward:null,
     contextBias:'NEUTRAL',
