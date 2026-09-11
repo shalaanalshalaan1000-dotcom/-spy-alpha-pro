@@ -5,8 +5,7 @@ const sourcePath=new URL('./gold-app.js',import.meta.url);
 const runtimePath=new URL('./.runtime-gold-app.mjs',import.meta.url);
 let source=readFileSync(sourcePath,'utf8');
 
-// DEMO ACTIVE PROFILE: keep live accounts protected, but let demo accounts exercise the
-// real signal engine frequently enough to verify end-to-end execution.
+// RULE-ENGINE PROFILE: let the site's own XAUUSD logic decide BUY/SELL/WAIT.
 source=source.replace(
   "const MIN_CONFIDENCE = Number(process.env.MIN_CONFIDENCE || 65);",
   "const MIN_CONFIDENCE = 55;"
@@ -15,12 +14,12 @@ source=source.replace(
   "const PREAPPROVAL_TTL_MS = 45_000;",
   "const PREAPPROVAL_TTL_MS = 90_000;"
 );
-// On demo, do not let the external AI reviewer become a bottleneck. Hard-rule fallback
-// still validates side, price freshness, levels, confidence, RR and late-entry checks.
-// On a real account, the configured AI reviewer remains enabled.
+// Disable the external OpenAI reviewer on both demo and live accounts.
+// The existing hard-rule fallback still validates side, fresh price, ordered levels,
+// confidence, risk/reward and late-entry conditions before allowing a signal.
 source=source.replace(
   "apiKey:process.env.OPENAI_API_KEY,",
-  "apiKey:state.mt5.liveAccount?process.env.OPENAI_API_KEY:'',"
+  "apiKey:'',"
 );
 
 // Normalize all MT5 samples to server arrival time. Broker clocks can differ from Render
@@ -58,7 +57,7 @@ source=source.replace(
 // show that the engine is reading prior M1/M5/M15 candles even while action is WAIT.
 source=source.replace(
 "Object.assign(response,{readingCompleteness:raw.readingCompleteness,barCount:raw.barCount,sampleCount:raw.sampleCount,signalConfidence:state.signal?.confidence??shown.confidence,confirmationCount:state.candidateTrack.count,confirmationRequired:1,aiReview:state.signal?.aiReview?{...state.signal.aiReview,configured:AI_REVIEWER.configured}:currentReview,preApprovalTtlMs:PREAPPROVAL_TTL_MS});",
-"Object.assign(response,{readingCompleteness:raw.readingCompleteness,barCount:raw.barCount,sampleCount:raw.sampleCount,signalConfidence:state.signal?.confidence??shown.confidence,confirmationCount:state.candidateTrack.count,confirmationRequired:1,aiReview:state.signal?.aiReview?{...state.signal.aiReview,configured:AI_REVIEWER.configured}:currentReview,preApprovalTtlMs:PREAPPROVAL_TTL_MS,prediction:shown.prediction||raw.prediction||null,historyWindow:shown.historyWindow||raw.historyWindow||null});"
+"Object.assign(response,{readingCompleteness:raw.readingCompleteness,barCount:raw.barCount,sampleCount:raw.sampleCount,signalConfidence:state.signal?.confidence??shown.confidence,confirmationCount:state.candidateTrack.count,confirmationRequired:1,aiReview:state.signal?.aiReview?{...state.signal.aiReview,configured:false}:currentReview,preApprovalTtlMs:PREAPPROVAL_TTL_MS,prediction:shown.prediction||raw.prediction||null,historyWindow:shown.historyWindow||raw.historyWindow||null});"
 );
 source=source.replace(
 "if(q.degraded){response.action='WAIT';if(!state.signal) clearSignalPayload(response);response.reason='STALE QUOTE: أوقف إصدار الإشارة لأن بيانات السعر متأخرة أو احتياطية';}\n  return response;",
@@ -66,7 +65,7 @@ source=source.replace(
 );
 
 // Signal requests are fail-closed but always return HTTP 200 JSON to the EA. This avoids
-// disabling the execution loop because a quote provider or reviewer had a transient error.
+// disabling the execution loop because a quote provider had a transient error.
 source=source.replace(
 "if(req.method==='GET'&&url.pathname==='/api/auto-trade/signal') return json(res,200,await signal(url.searchParams.get('observe')!=='1'));",
 "if(req.method==='GET'&&url.pathname==='/api/auto-trade/signal'){try{return json(res,200,await signal(url.searchParams.get('observe')!=='1'));}catch(e){return json(res,200,{status:'WAIT',action:'WAIT',candidateAction:'WAIT',side:null,executable:false,degraded:true,entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,reason:'ENGINE_RECOVERING: '+String(e?.message||e),updatedAt:new Date().toISOString()});}}"
@@ -75,7 +74,7 @@ source=source.replace(
 // Add ingestion diagnostics to health without changing existing consumers.
 source=source.replace(
 "quoteAgeMs:state.quote?.t?Math.max(0,Date.now()-Number(state.quote.t)):null,aiReviewer:",
-"quoteAgeMs:state.quote?.t?Math.max(0,Date.now()-Number(state.quote.t)):null,sampleCount:state.samples.length,lastMt5SeenMs:state.mt5.lastSeen?Math.max(0,Date.now()-state.mt5.lastSeen):null,demoActiveProfile:!state.mt5.liveAccount,minConfidence:MIN_CONFIDENCE,aiReviewer:"
+"quoteAgeMs:state.quote?.t?Math.max(0,Date.now()-Number(state.quote.t)):null,sampleCount:state.samples.length,lastMt5SeenMs:state.mt5.lastSeen?Math.max(0,Date.now()-state.mt5.lastSeen):null,demoActiveProfile:!state.mt5.liveAccount,minConfidence:MIN_CONFIDENCE,externalAiReviewer:false,aiReviewer:"
 );
 
 writeFileSync(runtimePath,source,'utf8');
