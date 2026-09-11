@@ -44,6 +44,23 @@ const server=http.createServer(async(req,res)=>{
     const spxPath=u.pathname==='/spx'||u.pathname.startsWith('/api/spx-');
     const port=spxPath?SPX_PORT:(autoPath?AUTO_PORT:UI_PORT);
     const out=await requestBuffer(port,req);
+
+    // The MT5 EA must not disable itself just because all external quote providers
+    // are temporarily unavailable. Fail closed with an explicit WAIT response while
+    // keeping execution blocked until a fresh quote is restored.
+    if(req.method==='GET'&&u.pathname==='/api/auto-trade/signal'&&out.status>=500){
+      let detail='signal engine temporarily unavailable';
+      try{const parsed=JSON.parse(out.body.toString('utf8'));detail=String(parsed?.detail||parsed?.error||detail);}catch{}
+      return res.writeHead(200,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','access-control-allow-origin':'*'}).end(JSON.stringify({
+        status:'WAIT',action:'WAIT',candidateAction:'WAIT',side:null,
+        executable:false,degraded:true,provider:null,
+        entry:null,entryLow:null,entryHigh:null,stopLoss:null,
+        target1:null,target2:null,target3:null,target4:null,
+        reason:'QUOTE_UNAVAILABLE: no fresh XAUUSD quote; execution blocked until feed recovers',
+        upstreamStatus:out.status,upstreamDetail:detail,updatedAt:new Date().toISOString()
+      }));
+    }
+
     const headers={...out.headers};delete headers['content-length'];
     if(!autoPath && req.method==='GET' && u.pathname==='/'){
       const html=injectAuto(out.body.toString('utf8'));
