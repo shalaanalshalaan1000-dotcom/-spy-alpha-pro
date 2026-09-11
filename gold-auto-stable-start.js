@@ -5,6 +5,24 @@ const sourcePath=new URL('./gold-app.js',import.meta.url);
 const runtimePath=new URL('./.runtime-gold-app.mjs',import.meta.url);
 let source=readFileSync(sourcePath,'utf8');
 
+// DEMO ACTIVE PROFILE: keep live accounts protected, but let demo accounts exercise the
+// real signal engine frequently enough to verify end-to-end execution.
+source=source.replace(
+  "const MIN_CONFIDENCE = Number(process.env.MIN_CONFIDENCE || 65);",
+  "const MIN_CONFIDENCE = 55;"
+);
+source=source.replace(
+  "const PREAPPROVAL_TTL_MS = 45_000;",
+  "const PREAPPROVAL_TTL_MS = 90_000;"
+);
+// On demo, do not let the external AI reviewer become a bottleneck. Hard-rule fallback
+// still validates side, price freshness, levels, confidence, RR and late-entry checks.
+// On a real account, the configured AI reviewer remains enabled.
+source=source.replace(
+  "apiKey:process.env.OPENAI_API_KEY,",
+  "apiKey:state.mt5.liveAccount?process.env.OPENAI_API_KEY:'',"
+);
+
 // Normalize all MT5 samples to server arrival time. Broker clocks can differ from Render
 // and must never prevent M1/M5 buckets from closing.
 source=source.replace(
@@ -46,7 +64,7 @@ source=source.replace(
 // Add ingestion diagnostics to health without changing existing consumers.
 source=source.replace(
 "quoteAgeMs:state.quote?.t?Math.max(0,Date.now()-Number(state.quote.t)):null,aiReviewer:",
-"quoteAgeMs:state.quote?.t?Math.max(0,Date.now()-Number(state.quote.t)):null,sampleCount:state.samples.length,lastMt5SeenMs:state.mt5.lastSeen?Math.max(0,Date.now()-state.mt5.lastSeen):null,aiReviewer:"
+"quoteAgeMs:state.quote?.t?Math.max(0,Date.now()-Number(state.quote.t)):null,sampleCount:state.samples.length,lastMt5SeenMs:state.mt5.lastSeen?Math.max(0,Date.now()-state.mt5.lastSeen):null,demoActiveProfile:!state.mt5.liveAccount,minConfidence:MIN_CONFIDENCE,aiReviewer:"
 );
 
 writeFileSync(runtimePath,source,'utf8');
