@@ -67,28 +67,29 @@ export function analyzeGoldSignal(samples, rawPrice, now = Date.now()) {
   const closed5 = closedBars(bars5m(samples), 5, now);
   const closed15 = closedBars(bars15m(samples), 15, now);
 
-  // Hard readiness gate: M1 is confirmation only. Never substitute M1 bars for M5 execution.
-  const ready5 = closed5.length >= 3;
-  const ready15 = closed15.length >= 2;
-  const ready = ready5 && ready15;
-  const completeness5 = Math.min(1, closed5.length / 3);
-  const completeness15 = Math.min(1, closed15.length / 2);
-  const completeness = Math.round(Math.min(completeness5, completeness15) * 100);
+  // Fast warm-up for scalping: one completed M5 candle is enough to start.
+  // M1 provides the short-term confirmation. M15 is context only and must not block startup.
+  const ready1 = closed1.length >= 2;
+  const ready5 = closed5.length >= 1;
+  const ready = ready1 && ready5;
+  const completeness1 = Math.min(1, closed1.length / 2);
+  const completeness5 = Math.min(1, closed5.length);
+  const completeness = Math.round(Math.min(completeness1, completeness5) * 100);
 
   const base = {
     status: ready ? 'WAIT' : 'COLLECTING',
     action:'WAIT', candidateAction:'WAIT', side:null,
     strategy:'READING', confidence:0, readingCompleteness:completeness,
     barCount:closed1.length, barCount5m:closed5.length, barCount15m:closed15.length,
-    modelTimeframes:{context:'15m', execution:'5m', confirmation:'1m'},
+    modelTimeframes:{context:'15m-optional', execution:'5m', confirmation:'1m'},
     sampleCount:samples.length, price:round(price),
     entry:null, entryLow:null, entryHigh:null, stopLoss:null,
     target1:null, target2:null, target3:null, target4:null, riskReward:null,
     contextBias:'NEUTRAL',
     reason: !ready5
-      ? `جمع بنية M5 الحقيقية: ${closed5.length}/3`
-      : !ready15
-        ? `جمع سياق M15 الحقيقي: ${closed15.length}/2`
+      ? `جمع شمعة M5 الحقيقية: ${closed5.length}/1`
+      : !ready1
+        ? `جمع تأكيد M1: ${closed1.length}/2`
         : 'القراءة مكتملة — لا توجد إشارة مؤهلة الآن',
     updatedAt:new Date(now).toISOString()
   };
