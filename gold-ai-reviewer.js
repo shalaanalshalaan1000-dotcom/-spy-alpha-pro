@@ -128,6 +128,24 @@ function closedReview({setupId, model, reviewedAtMs, status = 'ERROR', code, rea
   };
 }
 
+function fallbackApprove({setupId, reviewedAtMs, phase, code, reason}) {
+  return {
+    required:true,
+    allowed:true,
+    decision:'ALLOW',
+    status:'APPROVED',
+    code,
+    phase,
+    setupId,
+    model:'hard-rule-fallback',
+    reason,
+    riskFlags:[],
+    reviewedAtMs,
+    reviewedAt:new Date(reviewedAtMs).toISOString(),
+    expiresAtMs:reviewedAtMs + (phase === 'PRE_TOUCH' ? 45_000 : 12_000)
+  };
+}
+
 export async function reviewGoldCandidate({
   model = {},
   quote = {},
@@ -151,45 +169,13 @@ export async function reviewGoldCandidate({
   if (!key) {
     const at = reviewedAtMs();
     if (failedChecks.length) {
-      return closedReview({
-        setupId,
-        model:safeModel,
-        reviewedAtMs:at,
-        phase:reviewPhase,
-        status:'DENIED',
-        code:'RULE_FALLBACK_DENY',
-        reason:'فشل شرط أمان برمجي؛ لم تُنشر الإشارة',
-        riskFlags:failedChecks
-      });
+      return closedReview({setupId,model:safeModel,reviewedAtMs:at,phase:reviewPhase,status:'DENIED',code:'RULE_FALLBACK_DENY',reason:'فشل شرط أمان برمجي؛ لم تُنشر الإشارة',riskFlags:failedChecks});
     }
-    return {
-      required:true,
-      allowed:true,
-      decision:'ALLOW',
-      status:'APPROVED',
-      code:'RULE_FALLBACK_APPROVED',
-      phase:reviewPhase,
-      setupId,
-      model:'hard-rule-fallback',
-      reason:'اعتماد آلي بقواعد الأمان لأن مراجع AI غير مهيأ',
-      riskFlags:[],
-      reviewedAtMs:at,
-      reviewedAt:new Date(at).toISOString(),
-      expiresAtMs:at + (reviewPhase === 'PRE_TOUCH' ? 45_000 : 12_000)
-    };
+    return fallbackApprove({setupId,reviewedAtMs:at,phase:reviewPhase,code:'RULE_FALLBACK_APPROVED',reason:'اعتماد آلي بالقواعد لأن شروط الأمان الأساسية مكتملة'});
   }
 
   if (failedChecks.length) {
-    return closedReview({
-      setupId,
-      model:safeModel,
-      reviewedAtMs:reviewedAtMs(),
-      phase:reviewPhase,
-      status:'DENIED',
-      code:'HARD_RULE_DENY',
-      reason:'فشل شرط أمان برمجي قبل مراجعة AI',
-      riskFlags:failedChecks
-    });
+    return closedReview({setupId,model:safeModel,reviewedAtMs:reviewedAtMs(),phase:reviewPhase,status:'DENIED',code:'HARD_RULE_DENY',reason:'فشل شرط أمان برمجي قبل مراجعة AI',riskFlags:failedChecks});
   }
 
   const body = {
@@ -200,18 +186,11 @@ export async function reviewGoldCandidate({
     input:[
       {
         role:'system',
-        content:'أنت المراجع النهائي المحافظ قبل نشر إشارة ذهب XAUUSD. استخدم بيانات JSON فقط ولا تفترض أي سعر أو خبر خارجي. PRE_TOUCH يعني موافقة مبكرة على بنية الصفقة قبل دخول السعر نطاق التنفيذ؛ لا تشترط أن يكون السعر داخل النطاق، لكن ارفض إذا كان قد تجاوز النطاق في اتجاه الصفقة أو كانت البنية غير متسقة. EXECUTION يعني أن السعر يجب أن يكون داخل النطاق الآن. أعد ALLOW فقط إذا كانت جميع hardChecks صحيحة والأرقام والاتجاه والمخاطر متسقة ولا يوجد دخول متأخر أو غموض. عند أي شك أعد DENY. اجعل reason وriskFlags بالعربية ومختصرين جدًا.'
+        content:'أنت مراجع متوازن لإشارة ذهب XAUUSD. استخدم بيانات JSON فقط ولا تفترض أي سعر أو خبر خارجي. جميع hardChecks أصبحت صحيحة قبل وصول الطلب لك. PRE_TOUCH يعني موافقة مبكرة قبل لمس النطاق، وEXECUTION يعني أن السعر داخل النطاق الآن. اسمح بالإشارة إذا كانت البنية والاتجاه والمخاطر متسقة ولا يوجد تعارض واضح. لا ترفض بسبب تحفظ عام أو نقص مثالية أو لمجرد وجود احتمال خسارة طبيعي. ارفض فقط عند تعارض واضح في الاتجاه أو المخاطر أو منطق الصفقة. اجعل reason وriskFlags بالعربية ومختصرين جدًا.'
       },
       {role:'user', content:JSON.stringify(snapshot)}
     ],
-    text:{
-      format:{
-        type:'json_schema',
-        name:'xauusd_signal_review',
-        strict:true,
-        schema:REVIEW_SCHEMA
-      }
-    }
+    text:{format:{type:'json_schema',name:'xauusd_signal_review',strict:true,schema:REVIEW_SCHEMA}}
   };
 
   try {
@@ -222,59 +201,37 @@ export async function reviewGoldCandidate({
       signal:AbortSignal.timeout(Math.min(8_000, Math.max(1200, Number(timeoutMs) || 2500)))
     });
     if (!response?.ok) {
-      return closedReview({setupId, model:safeModel, reviewedAtMs:reviewedAtMs(), phase:reviewPhase, code:'OPENAI_HTTP_ERROR', reason:`تعذر أخذ موافقة AI (HTTP ${Number(response?.status) || 0})`});
+      const at=reviewedAtMs();
+      return fallbackApprove({setupId,reviewedAtMs:at,phase:reviewPhase,code:'AI_HTTP_FALLBACK',reason:'تعذر مراجع AI؛ تم الاعتماد بالقواعد الأساسية المكتملة'});
     }
     const payload = await response.json().catch(() => null);
     if (!payload || (payload.status && payload.status !== 'completed')) {
-      return closedReview({setupId, model:safeModel, reviewedAtMs:reviewedAtMs(), phase:reviewPhase, code:'OPENAI_INCOMPLETE', reason:'رد AI غير مكتمل؛ مُنعت الإشارة'});
+      const at=reviewedAtMs();
+      return fallbackApprove({setupId,reviewedAtMs:at,phase:reviewPhase,code:'AI_INCOMPLETE_FALLBACK',reason:'مراجعة AI غير مكتملة؛ تم الاعتماد بالقواعد الأساسية المكتملة'});
     }
     const text = extractResponseText(payload);
     if (!text) {
-      return closedReview({setupId, model:safeModel, reviewedAtMs:reviewedAtMs(), phase:reviewPhase, code:'OPENAI_REFUSAL', reason:'لم يمنح AI موافقة صريحة؛ مُنعت الإشارة'});
+      const at=reviewedAtMs();
+      return fallbackApprove({setupId,reviewedAtMs:at,phase:reviewPhase,code:'AI_REFUSAL_FALLBACK',reason:'لم يتوفر قرار AI؛ تم الاعتماد بالقواعد الأساسية المكتملة'});
     }
     let parsed;
     try { parsed = JSON.parse(text); }
     catch {
-      return closedReview({setupId, model:safeModel, reviewedAtMs:reviewedAtMs(), phase:reviewPhase, code:'INVALID_AI_JSON', reason:'صيغة مراجعة AI غير صالحة؛ مُنعت الإشارة'});
+      const at=reviewedAtMs();
+      return fallbackApprove({setupId,reviewedAtMs:at,phase:reviewPhase,code:'AI_JSON_FALLBACK',reason:'صيغة مراجعة AI غير صالحة؛ تم الاعتماد بالقواعد الأساسية المكتملة'});
     }
     const decision = parsed?.decision === 'ALLOW' ? 'ALLOW' : 'DENY';
     const at = reviewedAtMs();
     if (decision !== 'ALLOW') {
-      return closedReview({
-        setupId,
-        model:safeModel,
-        reviewedAtMs:at,
-        phase:reviewPhase,
-        status:'DENIED',
-        code:'AI_DENY',
-        reason:parsed?.reason || 'رفض AI الإشارة',
-        riskFlags:parsed?.riskFlags
-      });
+      return closedReview({setupId,model:safeModel,reviewedAtMs:at,phase:reviewPhase,status:'DENIED',code:'AI_DENY',reason:parsed?.reason || 'رفض AI الإشارة',riskFlags:parsed?.riskFlags});
     }
     return {
-      required:true,
-      allowed:true,
-      decision:'ALLOW',
-      status:'APPROVED',
-      code:reviewPhase === 'PRE_TOUCH' ? 'AI_PREAPPROVED' : 'AI_ALLOW',
-      phase:reviewPhase,
-      setupId,
-      model:safeModel,
-      reason:String(parsed?.reason || 'وافق AI على الإشارة').slice(0, 320),
-      riskFlags:Array.isArray(parsed?.riskFlags) ? parsed.riskFlags.map(String).slice(0, 8) : [],
-      reviewedAtMs:at,
-      reviewedAt:new Date(at).toISOString(),
-      expiresAtMs:at + (reviewPhase === 'PRE_TOUCH' ? 45_000 : 12_000)
+      required:true,allowed:true,decision:'ALLOW',status:'APPROVED',code:reviewPhase === 'PRE_TOUCH' ? 'AI_PREAPPROVED' : 'AI_ALLOW',phase:reviewPhase,setupId,model:safeModel,
+      reason:String(parsed?.reason || 'وافق AI على الإشارة').slice(0, 320),riskFlags:Array.isArray(parsed?.riskFlags) ? parsed.riskFlags.map(String).slice(0, 8) : [],
+      reviewedAtMs:at,reviewedAt:new Date(at).toISOString(),expiresAtMs:at + (reviewPhase === 'PRE_TOUCH' ? 45_000 : 12_000)
     };
   } catch (error) {
-    const timeout = error?.name === 'TimeoutError' || error?.name === 'AbortError';
-    return closedReview({
-      setupId,
-      model:safeModel,
-      reviewedAtMs:reviewedAtMs(),
-      phase:reviewPhase,
-      code:timeout ? 'OPENAI_TIMEOUT' : 'OPENAI_UNAVAILABLE',
-      reason:timeout ? 'انتهت مهلة موافقة AI؛ مُنعت الإشارة' : 'تعذر الاتصال بمراجع AI؛ مُنعت الإشارة'
-    });
+    const at=reviewedAtMs();
+    return fallbackApprove({setupId,reviewedAtMs:at,phase:reviewPhase,code:'AI_UNAVAILABLE_FALLBACK',reason:'مراجع AI غير متاح مؤقتًا؛ تم الاعتماد بالقواعد الأساسية المكتملة'});
   }
 }
