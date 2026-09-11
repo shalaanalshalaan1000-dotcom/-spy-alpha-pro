@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 
+const BUILD_TAG='signal-failclosed-v2';
 const PORT=Number(process.env.PORT||3000);
 const UI_PORT=3001;
 const AUTO_PORT=3002;
@@ -22,7 +23,7 @@ function waitPayload(detail='signal engine temporarily unavailable',upstreamStat
   entry:null,entryLow:null,entryHigh:null,stopLoss:null,
   target1:null,target2:null,target3:null,target4:null,
   reason:'ENGINE_UNAVAILABLE: execution blocked until XAUUSD signal feed recovers',
-  upstreamStatus,upstreamDetail:String(detail),updatedAt:new Date().toISOString()
+  upstreamStatus,upstreamDetail:String(detail),build:BUILD_TAG,updatedAt:new Date().toISOString()
 };}
 function sendWait(res,detail,status=503){return res.writeHead(200,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','access-control-allow-origin':'*'}).end(JSON.stringify(waitPayload(detail,status)));}
 
@@ -49,6 +50,7 @@ function injectAuto(html){
 
 const server=http.createServer(async(req,res)=>{
   const u=new URL(req.url||'/',`http://${req.headers.host||'localhost'}`);
+  if(req.method==='GET'&&u.pathname==='/api/build') return res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'}).end(JSON.stringify({ok:true,build:BUILD_TAG}));
   try{
     const autoPath=u.pathname.startsWith('/api/auto-trade/')||u.pathname==='/api/health'||u.pathname==='/api/gold'||u.pathname==='/api/gold-live'||u.pathname==='/api/performance/journal';
     const spxPath=u.pathname==='/spx'||u.pathname.startsWith('/api/spx-');
@@ -73,6 +75,6 @@ const server=http.createServer(async(req,res)=>{
     res.writeHead(502,{'content-type':'text/plain; charset=utf-8','cache-control':'no-store'});res.end('Gold Alpha temporarily unavailable');
   }
 });
-server.listen(PORT,'0.0.0.0',()=>console.log(`Unified Gold Alpha listening on ${PORT}; UI=${UI_PORT}; AUTO=${AUTO_PORT}`));
+server.listen(PORT,'0.0.0.0',()=>console.log(`Unified Gold Alpha ${BUILD_TAG} listening on ${PORT}; UI=${UI_PORT}; AUTO=${AUTO_PORT}`));
 process.on('SIGTERM',()=>shutdown('SIGTERM'));
 process.on('SIGINT',()=>shutdown('SIGINT'));
