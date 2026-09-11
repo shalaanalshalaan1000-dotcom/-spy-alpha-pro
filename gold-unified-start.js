@@ -16,6 +16,16 @@ function shutdown(signal){for(const child of [ui,auto,spx]){if(!child.killed) ch
 
 function requestBuffer(port,req){return new Promise((resolve,reject)=>{const opts={hostname:'127.0.0.1',port,path:req.url,method:req.method,headers:{...req.headers,host:`127.0.0.1:${port}`}};const p=http.request(opts,r=>{const chunks=[];r.on('data',c=>chunks.push(c));r.on('end',()=>resolve({status:r.statusCode||502,headers:r.headers,body:Buffer.concat(chunks)}));});p.on('error',reject);if(req.method==='GET'||req.method==='HEAD')p.end();else req.pipe(p);});}
 
+function waitPayload(detail='signal engine temporarily unavailable',upstreamStatus=503){return {
+  status:'WAIT',action:'WAIT',candidateAction:'WAIT',side:null,
+  executable:false,degraded:true,provider:null,
+  entry:null,entryLow:null,entryHigh:null,stopLoss:null,
+  target1:null,target2:null,target3:null,target4:null,
+  reason:'ENGINE_UNAVAILABLE: execution blocked until XAUUSD signal feed recovers',
+  upstreamStatus,upstreamDetail:String(detail),updatedAt:new Date().toISOString()
+};}
+function sendWait(res,detail,status=503){return res.writeHead(200,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','access-control-allow-origin':'*'}).end(JSON.stringify(waitPayload(detail,status)));}
+
 function injectAuto(html){
   const css=`<style>
 #alphaAutoDock{margin:14px 0;padding:14px;border:1px solid #2f6a57;border-radius:16px;background:linear-gradient(145deg,#0e1a18,#0b111b);direction:rtl}
@@ -38,27 +48,17 @@ function injectAuto(html){
 }
 
 const server=http.createServer(async(req,res)=>{
+  const u=new URL(req.url||'/',`http://${req.headers.host||'localhost'}`);
   try{
-    const u=new URL(req.url||'/',`http://${req.headers.host||'localhost'}`);
     const autoPath=u.pathname.startsWith('/api/auto-trade/')||u.pathname==='/api/health'||u.pathname==='/api/gold'||u.pathname==='/api/gold-live'||u.pathname==='/api/performance/journal';
     const spxPath=u.pathname==='/spx'||u.pathname.startsWith('/api/spx-');
     const port=spxPath?SPX_PORT:(autoPath?AUTO_PORT:UI_PORT);
     const out=await requestBuffer(port,req);
 
-    // The MT5 EA must not disable itself just because all external quote providers
-    // are temporarily unavailable. Fail closed with an explicit WAIT response while
-    // keeping execution blocked until a fresh quote is restored.
     if(req.method==='GET'&&u.pathname==='/api/auto-trade/signal'&&out.status>=500){
       let detail='signal engine temporarily unavailable';
       try{const parsed=JSON.parse(out.body.toString('utf8'));detail=String(parsed?.detail||parsed?.error||detail);}catch{}
-      return res.writeHead(200,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','access-control-allow-origin':'*'}).end(JSON.stringify({
-        status:'WAIT',action:'WAIT',candidateAction:'WAIT',side:null,
-        executable:false,degraded:true,provider:null,
-        entry:null,entryLow:null,entryHigh:null,stopLoss:null,
-        target1:null,target2:null,target3:null,target4:null,
-        reason:'QUOTE_UNAVAILABLE: no fresh XAUUSD quote; execution blocked until feed recovers',
-        upstreamStatus:out.status,upstreamDetail:detail,updatedAt:new Date().toISOString()
-      }));
+      return sendWait(res,detail,out.status);
     }
 
     const headers={...out.headers};delete headers['content-length'];
@@ -68,7 +68,10 @@ const server=http.createServer(async(req,res)=>{
       res.writeHead(out.status,headers);return res.end(html);
     }
     res.writeHead(out.status,headers);res.end(out.body);
-  }catch(e){res.writeHead(502,{'content-type':'text/plain; charset=utf-8'});res.end('Gold Alpha temporarily unavailable');}
+  }catch(e){
+    if(req.method==='GET'&&u.pathname==='/api/auto-trade/signal') return sendWait(res,e?.message||e,503);
+    res.writeHead(502,{'content-type':'text/plain; charset=utf-8','cache-control':'no-store'});res.end('Gold Alpha temporarily unavailable');
+  }
 });
 server.listen(PORT,'0.0.0.0',()=>console.log(`Unified Gold Alpha listening on ${PORT}; UI=${UI_PORT}; AUTO=${AUTO_PORT}`));
 process.on('SIGTERM',()=>shutdown('SIGTERM'));
