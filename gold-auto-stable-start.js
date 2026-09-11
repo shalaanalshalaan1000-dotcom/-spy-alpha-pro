@@ -54,6 +54,17 @@ source=source.replace(
     scheduleMt5Scan();return {ok:true,sampleCount:state.samples.length,serverAt:arrival};`
 );
 
+// Expose predictive candle read to the public auto-trading response, so the current UI can
+// show that the engine is reading prior M1/M5/M15 candles even while action is WAIT.
+source=source.replace(
+"Object.assign(response,{readingCompleteness:raw.readingCompleteness,barCount:raw.barCount,sampleCount:raw.sampleCount,signalConfidence:state.signal?.confidence??shown.confidence,confirmationCount:state.candidateTrack.count,confirmationRequired:1,aiReview:state.signal?.aiReview?{...state.signal.aiReview,configured:AI_REVIEWER.configured}:currentReview,preApprovalTtlMs:PREAPPROVAL_TTL_MS});",
+"Object.assign(response,{readingCompleteness:raw.readingCompleteness,barCount:raw.barCount,sampleCount:raw.sampleCount,signalConfidence:state.signal?.confidence??shown.confidence,confirmationCount:state.candidateTrack.count,confirmationRequired:1,aiReview:state.signal?.aiReview?{...state.signal.aiReview,configured:AI_REVIEWER.configured}:currentReview,preApprovalTtlMs:PREAPPROVAL_TTL_MS,prediction:shown.prediction||raw.prediction||null,historyWindow:shown.historyWindow||raw.historyWindow||null});"
+);
+source=source.replace(
+"if(q.degraded){response.action='WAIT';if(!state.signal) clearSignalPayload(response);response.reason='STALE QUOTE: أوقف إصدار الإشارة لأن بيانات السعر متأخرة أو احتياطية';}\n  return response;",
+"if(q.degraded){response.action='WAIT';if(!state.signal) clearSignalPayload(response);response.reason='STALE QUOTE: أوقف إصدار الإشارة لأن بيانات السعر متأخرة أو احتياطية';}\n  const pred=response.prediction;if(pred){const pside=pred.side||'NEUTRAL';response.reason=(response.reason||'')+' | توقع: '+pside+' | BUY '+String(pred.buyScore??'—')+' / SELL '+String(pred.sellScore??'—')+' | شموع '+String(response.historyWindow?.m1??0)+'×1m '+String(response.historyWindow?.m5??0)+'×5m '+String(response.historyWindow?.m15??0)+'×15m';}\n  return response;"
+);
+
 // Signal requests are fail-closed but always return HTTP 200 JSON to the EA. This avoids
 // disabling the execution loop because a quote provider or reviewer had a transient error.
 source=source.replace(
