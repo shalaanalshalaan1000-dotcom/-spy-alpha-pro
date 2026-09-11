@@ -8,7 +8,7 @@ services:
       - key: MASSIVE_API_KEY
         sync: false
       - key: MIN_CONFIDENCE
-        value: "60"
+        value: "55"
       - key: OPTIONS_MAX_DTE
         value: "14"
       - key: OPTIONS_STRIKE_WINDOW_PCT
