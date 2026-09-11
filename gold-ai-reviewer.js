@@ -54,7 +54,7 @@ export function buildReviewSnapshot({model = {}, quote = {}, now = Date.now(), m
       : false;
   const checks = {
     validSide:['BUY','SELL'].includes(side),
-    supportedStrategy:['TREND_CONTINUATION','ICT_REVERSAL'].includes(model.strategy),
+    supportedStrategy:['MTF_TREND_CONTINUATION','MTF_ICT_REVERSAL','TREND_CONTINUATION','ICT_REVERSAL'].includes(model.strategy),
     quoteFresh:quote.degraded !== true && quoteAt != null && quoteAt <= now + 5000 && quoteAgeMs <= 30_000,
     entryTimingValid:reviewPhase === 'PRE_TOUCH' ? entryNotMissed : priceInsideEntry,
     confidenceMeetsMinimum:number(model.confidence) != null && number(model.confidence) >= Number(minConfidence),
