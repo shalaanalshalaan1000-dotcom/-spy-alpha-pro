@@ -1,7 +1,8 @@
 const AUTO_URL = process.env.TELEGRAM_SIGNAL_URL || 'http://127.0.0.1:3002/api/auto-trade/signal?observe=1';
 const BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
-const CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || '').trim();
+let CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || '').trim();
 const POLL_MS = Math.max(1500, Number(process.env.TELEGRAM_POLL_MS || 3000));
+let updateOffset = 0;
 
 const sent = {
   signalId: null,
@@ -14,8 +15,36 @@ function n(v, digits = 3) {
   return Number.isFinite(x) ? x.toFixed(digits) : '—';
 }
 
+async function resolveChatId() {
+  if (CHAT_ID || !BOT_TOKEN) return CHAT_ID;
+  try {
+    const u = new URL(`https://api.telegram.org/bot${BOT_TOKEN}/getUpdates`);
+    u.searchParams.set('timeout', '0');
+    if (updateOffset) u.searchParams.set('offset', String(updateOffset));
+    const r = await fetch(u, {cache: 'no-store', signal: AbortSignal.timeout(8000)});
+    if (!r.ok) throw new Error(`getUpdates ${r.status}`);
+    const d = await r.json();
+    const rows = Array.isArray(d.result) ? d.result : [];
+    for (const row of rows) {
+      updateOffset = Math.max(updateOffset, Number(row.update_id || 0) + 1);
+      const msg = row.message || row.edited_message || null;
+      const chat = msg?.chat;
+      const text = String(msg?.text || '').trim();
+      if (chat?.type === 'private' && (text === '/start' || !CHAT_ID)) {
+        CHAT_ID = String(chat.id);
+      }
+    }
+    if (CHAT_ID) console.log(`[telegram-xau-bot] private chat bound: ${CHAT_ID}`);
+  } catch (e) {
+    console.error('[telegram-xau-bot] chat bind failed', e?.message || e);
+  }
+  return CHAT_ID;
+}
+
 async function telegram(text) {
-  if (!BOT_TOKEN || !CHAT_ID) return false;
+  if (!BOT_TOKEN) return false;
+  if (!CHAT_ID) await resolveChatId();
+  if (!CHAT_ID) return false;
   const r = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
     method: 'POST',
     headers: {'content-type': 'application/json'},
@@ -50,7 +79,10 @@ function terminalKey(t) {
 
 async function tick() {
   try {
-    if (!BOT_TOKEN || !CHAT_ID) return;
+    if (!BOT_TOKEN) return;
+    if (!CHAT_ID) await resolveChatId();
+    if (!CHAT_ID) return;
+
     const r = await fetch(AUTO_URL, {cache: 'no-store', signal: AbortSignal.timeout(7000)});
     if (!r.ok) throw new Error(`signal ${r.status}`);
     const s = await r.json();
@@ -77,7 +109,6 @@ async function tick() {
       if (t.outcome === 'SL') {
         await telegram(`🛑 XAUUSD — STOP LOSS HIT\nSL: ${n(t.stopLoss)}\nExit: ${n(t.exitPrice)}`);
       } else if (t.outcome === 'TP4') {
-        // TP4 may have been closed into terminal state before the active payload is observed.
         for (let i = 0; i < 4; i += 1) {
           const targets = [t.target1, t.target2, t.target3, t.target4];
           if (Array.isArray(t.targetHits) && t.targetHits[i] && !sent.targets[i]) {
@@ -94,7 +125,7 @@ async function tick() {
   }
 }
 
-console.log(`[telegram-xau-bot] ${BOT_TOKEN && CHAT_ID ? 'enabled' : 'disabled: TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID missing'}`);
+console.log(`[telegram-xau-bot] ${BOT_TOKEN ? (CHAT_ID ? 'enabled with configured chat' : 'enabled; waiting for /start') : 'disabled: TELEGRAM_BOT_TOKEN missing'}`);
 (async function loop() {
   while (true) {
     await tick();
