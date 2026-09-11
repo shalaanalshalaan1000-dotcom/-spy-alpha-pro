@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 
-const BUILD_TAG='signal-failclosed-v2';
+const BUILD_TAG='signal-failclosed-v3';
 const PORT=Number(process.env.PORT||3000);
 const UI_PORT=3001;
 const AUTO_PORT=3002;
@@ -15,7 +15,7 @@ auto.on('exit',c=>console.error('gold AUTO child exited',c));
 spx.on('exit',c=>console.error('isolated SPX child exited',c));
 function shutdown(signal){for(const child of [ui,auto,spx]){if(!child.killed) child.kill(signal);}server.close(()=>process.exit(0));setTimeout(()=>process.exit(1),5000).unref();}
 
-function requestBuffer(port,req){return new Promise((resolve,reject)=>{const opts={hostname:'127.0.0.1',port,path:req.url,method:req.method,headers:{...req.headers,host:`127.0.0.1:${port}`}};const p=http.request(opts,r=>{const chunks=[];r.on('data',c=>chunks.push(c));r.on('end',()=>resolve({status:r.statusCode||502,headers:r.headers,body:Buffer.concat(chunks)}));});p.on('error',reject);if(req.method==='GET'||req.method==='HEAD')p.end();else req.pipe(p);});}
+function requestBuffer(port,req){return new Promise((resolve,reject)=>{const opts={hostname:'127.0.0.1',port,path:req.url,method:req.method,headers:{...req.headers,host:`127.0.0.1:${port}`}};const p=http.request(opts,r=>{const chunks=[];r.on('data',c=>chunks.push(c));r.on('end',()=>resolve({status:r.statusCode||502,headers:r.headers,body:Buffer.concat(chunks)}));});p.on('error',reject);p.setTimeout(8000,()=>p.destroy(new Error('upstream timeout')));if(req.method==='GET'||req.method==='HEAD')p.end();else req.pipe(p);});}
 
 function waitPayload(detail='signal engine temporarily unavailable',upstreamStatus=503){return {
   status:'WAIT',action:'WAIT',candidateAction:'WAIT',side:null,
@@ -25,7 +25,7 @@ function waitPayload(detail='signal engine temporarily unavailable',upstreamStat
   reason:'ENGINE_UNAVAILABLE: execution blocked until XAUUSD signal feed recovers',
   upstreamStatus,upstreamDetail:String(detail),build:BUILD_TAG,updatedAt:new Date().toISOString()
 };}
-function sendWait(res,detail,status=503){return res.writeHead(200,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','access-control-allow-origin':'*'}).end(JSON.stringify(waitPayload(detail,status)));}
+function sendWait(res,detail,status=503){return res.writeHead(200,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','access-control-allow-origin':'*','x-gold-alpha-build':BUILD_TAG}).end(JSON.stringify(waitPayload(detail,status)));}
 
 function injectAuto(html){
   const css=`<style>
@@ -50,7 +50,7 @@ function injectAuto(html){
 
 const server=http.createServer(async(req,res)=>{
   const u=new URL(req.url||'/',`http://${req.headers.host||'localhost'}`);
-  if(req.method==='GET'&&u.pathname==='/api/build') return res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'}).end(JSON.stringify({ok:true,build:BUILD_TAG}));
+  if(req.method==='GET'&&u.pathname==='/api/build') return res.writeHead(200,{'content-type':'application/json','cache-control':'no-store','x-gold-alpha-build':BUILD_TAG}).end(JSON.stringify({ok:true,build:BUILD_TAG}));
   try{
     const autoPath=u.pathname.startsWith('/api/auto-trade/')||u.pathname==='/api/health'||u.pathname==='/api/gold'||u.pathname==='/api/gold-live'||u.pathname==='/api/performance/journal';
     const spxPath=u.pathname==='/spx'||u.pathname.startsWith('/api/spx-');
@@ -63,7 +63,7 @@ const server=http.createServer(async(req,res)=>{
       return sendWait(res,detail,out.status);
     }
 
-    const headers={...out.headers};delete headers['content-length'];
+    const headers={...out.headers};delete headers['content-length'];headers['x-gold-alpha-build']=BUILD_TAG;
     if(!autoPath && req.method==='GET' && u.pathname==='/'){
       const html=injectAuto(out.body.toString('utf8'));
       headers['content-type']='text/html; charset=utf-8';headers['cache-control']='no-store';
@@ -72,7 +72,7 @@ const server=http.createServer(async(req,res)=>{
     res.writeHead(out.status,headers);res.end(out.body);
   }catch(e){
     if(req.method==='GET'&&u.pathname==='/api/auto-trade/signal') return sendWait(res,e?.message||e,503);
-    res.writeHead(502,{'content-type':'text/plain; charset=utf-8','cache-control':'no-store'});res.end('Gold Alpha temporarily unavailable');
+    res.writeHead(502,{'content-type':'text/plain; charset=utf-8','cache-control':'no-store','x-gold-alpha-build':BUILD_TAG});res.end('Gold Alpha temporarily unavailable');
   }
 });
 server.listen(PORT,'0.0.0.0',()=>console.log(`Unified Gold Alpha ${BUILD_TAG} listening on ${PORT}; UI=${UI_PORT}; AUTO=${AUTO_PORT}`));
