@@ -3,6 +3,7 @@ const BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
 let CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || '').trim();
 const POLL_MS = Math.max(1500, Number(process.env.TELEGRAM_POLL_MS || 3000));
 let updateOffset = 0;
+let boundAnnounced = false;
 
 const sent = {
   signalId: null,
@@ -13,6 +14,18 @@ const sent = {
 function n(v, digits = 3) {
   const x = Number(v);
   return Number.isFinite(x) ? x.toFixed(digits) : '—';
+}
+
+async function sendDirect(chatId, text) {
+  if (!BOT_TOKEN || !chatId) return false;
+  const r = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+    method: 'POST',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify({chat_id: chatId, text, disable_web_page_preview: true}),
+    signal: AbortSignal.timeout(8000)
+  });
+  if (!r.ok) throw new Error(`telegram ${r.status}`);
+  return true;
 }
 
 async function resolveChatId() {
@@ -30,8 +43,13 @@ async function resolveChatId() {
       const msg = row.message || row.edited_message || null;
       const chat = msg?.chat;
       const text = String(msg?.text || '').trim();
-      if (chat?.type === 'private' && (text === '/start' || !CHAT_ID)) {
+      if (chat?.type === 'private' && text === '/start') {
         CHAT_ID = String(chat.id);
+        if (!boundAnnounced) {
+          await sendDirect(CHAT_ID, '✅ تم ربط Majedinobot بمنصة Gold Alpha Pro.\nسأرسل إشارات XAUUSD الجديدة وتحديثات TP1–TP4 ووقف الخسارة تلقائيًا.');
+          boundAnnounced = true;
+        }
+        break;
       }
     }
     if (CHAT_ID) console.log(`[telegram-xau-bot] private chat bound: ${CHAT_ID}`);
@@ -45,18 +63,7 @@ async function telegram(text) {
   if (!BOT_TOKEN) return false;
   if (!CHAT_ID) await resolveChatId();
   if (!CHAT_ID) return false;
-  const r = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-    method: 'POST',
-    headers: {'content-type': 'application/json'},
-    body: JSON.stringify({
-      chat_id: CHAT_ID,
-      text,
-      disable_web_page_preview: true
-    }),
-    signal: AbortSignal.timeout(8000)
-  });
-  if (!r.ok) throw new Error(`telegram ${r.status}`);
-  return true;
+  return sendDirect(CHAT_ID, text);
 }
 
 function activeSignal(s) {
