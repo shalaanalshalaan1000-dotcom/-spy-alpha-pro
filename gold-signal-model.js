@@ -63,33 +63,40 @@ function oneMinuteConfirmation(closed1, side, price) {
 
 export function analyzeGoldSignal(samples, rawPrice, now = Date.now()) {
   const price = Number(rawPrice);
-  const closed1 = closedBars(bars1m(samples), 1, now);
-  const closed5 = closedBars(bars5m(samples), 5, now);
-  const closed15 = closedBars(bars15m(samples), 15, now);
+  const all1 = bars1m(samples);
+  const all5 = bars5m(samples);
+  const all15 = bars15m(samples);
+  const closed1 = closedBars(all1, 1, now);
+  const closed5 = closedBars(all5, 5, now);
+  const closed15 = closedBars(all15, 15, now);
 
-  // Fast warm-up for scalping: one completed M5 candle is enough to start.
-  // M1 provides the short-term confirmation. M15 is context only and must not block startup.
+  // Fast-start readiness: accept one completed M5 bucket from retained MT5 tick history.
+  // If the newest M5 bucket has rolled over, the previous bucket is considered complete even
+  // when local wall-clock skew would otherwise delay closedBars by a few seconds.
+  const current5Key = Math.floor(now / 300_000) * 300_000;
+  const completed5 = all5.filter(bar => bar.t < current5Key);
+  const usable5 = closed5.length ? closed5 : completed5;
+  const ready5 = usable5.length >= 1;
   const ready1 = closed1.length >= 2;
-  const ready5 = closed5.length >= 1;
-  const ready = ready1 && ready5;
+  const ready = ready5 && ready1;
+  const completeness5 = Math.min(1, usable5.length / 1);
   const completeness1 = Math.min(1, closed1.length / 2);
-  const completeness5 = Math.min(1, closed5.length);
-  const completeness = Math.round(Math.min(completeness1, completeness5) * 100);
+  const completeness = Math.round(Math.min(completeness5, completeness1) * 100);
 
   const base = {
     status: ready ? 'WAIT' : 'COLLECTING',
     action:'WAIT', candidateAction:'WAIT', side:null,
     strategy:'READING', confidence:0, readingCompleteness:completeness,
-    barCount:closed1.length, barCount5m:closed5.length, barCount15m:closed15.length,
+    barCount:closed1.length, barCount5m:usable5.length, barCount15m:closed15.length,
     modelTimeframes:{context:'15m-optional', execution:'5m', confirmation:'1m'},
     sampleCount:samples.length, price:round(price),
     entry:null, entryLow:null, entryHigh:null, stopLoss:null,
-    target1:null, target2:null, target3:null, target4:null, riskReward:null,
+    target1:null,target2:null,target3:null,target4:null,riskReward:null,
     contextBias:'NEUTRAL',
     reason: !ready5
-      ? `جمع شمعة M5 الحقيقية: ${closed5.length}/1`
+      ? `جمع شمعة M5 الحقيقية: ${usable5.length}/1`
       : !ready1
-        ? `جمع تأكيد M1: ${closed1.length}/2`
+        ? `جمع تأكيد M1 السريع: ${closed1.length}/2`
         : 'القراءة مكتملة — لا توجد إشارة مؤهلة الآن',
     updatedAt:new Date(now).toISOString()
   };
@@ -99,9 +106,9 @@ export function analyzeGoldSignal(samples, rawPrice, now = Date.now()) {
   const ctx = context15m(closed15, price);
   const contextBias = ctx.bias;
   const contextStrength = ctx.strength;
-  const recent5 = closed5.slice(-6);
+  const recent5 = usable5.slice(-6);
   const atr5 = Math.max(.01, averageRange(recent5, Math.max(.75, price * .00018)));
-  const reference = recent5.slice(-3);
+  const reference = recent5.slice(-Math.min(3,recent5.length));
   const hi3 = Math.max(...reference.map(bar => bar.high));
   const lo3 = Math.min(...reference.map(bar => bar.low));
   const execCloses = recent5.map(bar => bar.close);
@@ -118,19 +125,11 @@ export function analyzeGoldSignal(samples, rawPrice, now = Date.now()) {
   const breakoutUp = price >= hi3 && liveFromExec > atr5 * .55 && execBias >= -atr5 * .20;
   const breakoutDown = price <= lo3 && liveFromExec < -atr5 * .55 && execBias <= atr5 * .20;
   if (breakoutUp && contextBias !== 'SELL') {
-    side = 'BUY';
-    strategy = 'MTF_TREND_CONTINUATION';
-    confidence = 65 + contextStrength + Math.min(10, Math.round(Math.abs(liveFromExec) / Math.max(atr5, .01) * 4));
-    stop = Math.min(...reference.map(bar => bar.low)) - .25;
-    entryBase = hi3;
-    structureAt = reference.at(-1)?.t ?? Math.floor(now / 300_000) * 300_000;
+    side = 'BUY'; strategy = 'MTF_TREND_CONTINUATION'; confidence = 65 + contextStrength + Math.min(10, Math.round(Math.abs(liveFromExec) / Math.max(atr5, .01) * 4));
+    stop = Math.min(...reference.map(bar => bar.low)) - .25; entryBase = hi3; structureAt = reference.at(-1)?.t ?? current5Key;
   } else if (breakoutDown && contextBias !== 'BUY') {
-    side = 'SELL';
-    strategy = 'MTF_TREND_CONTINUATION';
-    confidence = 65 + contextStrength + Math.min(10, Math.round(Math.abs(liveFromExec) / Math.max(atr5, .01) * 4));
-    stop = Math.max(...reference.map(bar => bar.high)) + .25;
-    entryBase = lo3;
-    structureAt = reference.at(-1)?.t ?? Math.floor(now / 300_000) * 300_000;
+    side = 'SELL'; strategy = 'MTF_TREND_CONTINUATION'; confidence = 65 + contextStrength + Math.min(10, Math.round(Math.abs(liveFromExec) / Math.max(atr5, .01) * 4));
+    stop = Math.max(...reference.map(bar => bar.high)) + .25; entryBase = lo3; structureAt = reference.at(-1)?.t ?? current5Key;
   }
 
   if (!side && recent5.length >= 5) {
@@ -146,64 +145,33 @@ export function analyzeGoldSignal(samples, rawPrice, now = Date.now()) {
       const bearSweep = sweep.high > priorHigh && sweep.close < priorHigh;
       const bullMss = bullSweep && price >= bullBreak;
       const bearMss = bearSweep && price <= bearBreak;
-      if (bullMss && contextBias !== 'SELL') {
-        side = 'BUY'; strategy = 'MTF_ICT_REVERSAL'; confidence = 70 + contextStrength;
-        stop = sweep.low - .25; entryBase = bullBreak; structureAt = sweep.t;
-        break;
-      }
-      if (bearMss && contextBias !== 'BUY') {
-        side = 'SELL'; strategy = 'MTF_ICT_REVERSAL'; confidence = 70 + contextStrength;
-        stop = sweep.high + .25; entryBase = bearBreak; structureAt = sweep.t;
-        break;
-      }
+      if (bullMss && contextBias !== 'SELL') { side='BUY'; strategy='MTF_ICT_REVERSAL'; confidence=70+contextStrength; stop=sweep.low-.25; entryBase=bullBreak; structureAt=sweep.t; break; }
+      if (bearMss && contextBias !== 'BUY') { side='SELL'; strategy='MTF_ICT_REVERSAL'; confidence=70+contextStrength; stop=sweep.high+.25; entryBase=bearBreak; structureAt=sweep.t; break; }
     }
   }
 
   if (!side) {
     const impulse = Math.min(60, Math.round(Math.abs(liveFromExec) / Math.max(atr5, .01) * 20));
-    return {...base, status:'WAIT', confidence:impulse, contextBias,
-      reason:contextBias === 'NEUTRAL'
-        ? 'سياق 15m محايد — ننتظر نموذج 5m أوضح'
-        : `اتجاه 15m ${contextBias === 'BUY' ? 'صاعد' : 'هابط'} — لا يوجد تفعيل 5m صالح الآن`};
+    return {...base,status:'WAIT',confidence:impulse,contextBias,
+      reason:contextBias==='NEUTRAL'?'لا يوجد تفعيل 5m صالح الآن':`اتجاه 15m ${contextBias==='BUY'?'صاعد':'هابط'} — لا يوجد تفعيل 5m صالح الآن`};
   }
 
   const confirm1 = oneMinuteConfirmation(closed1, side, price);
   confidence = Math.min(92, confidence + confirm1.score);
-
   const chaseDistance = Math.abs(price - entryBase);
   const maxChase = Math.max(1.25, atr5 * .65);
-  if (chaseDistance > maxChase) {
-    return {...base, status:'WAIT', candidateAction:'WAIT', confidence, strategy, contextBias,
-      reason:'NO CHASE: تجاوز السعر نطاق دخول 5m؛ أُلغيت المطاردة وننتظر بنية جديدة'};
-  }
+  if (chaseDistance > maxChase) return {...base,status:'WAIT',candidateAction:'WAIT',confidence,strategy,contextBias,reason:'NO CHASE: تجاوز السعر نطاق دخول 5m؛ أُلغيت المطاردة وننتظر بنية جديدة'};
 
-  const risk = Math.abs(entryBase - stop);
-  const maxStopUsd = 3;
-  if (risk < .6 || risk > maxStopUsd) {
-    return {...base, status:'WAIT', candidateAction:side, confidence, strategy, contextBias,
-      reason:risk < .6 ? 'إشارة 5m موجودة لكن وقف الخسارة قريب جدًا' : `إشارة 5m موجودة لكن وقف الخسارة أوسع من ${maxStopUsd}$`};
-  }
+  const risk = Math.abs(entryBase - stop), maxStopUsd = 3;
+  if (risk < .6 || risk > maxStopUsd) return {...base,status:'WAIT',candidateAction:side,confidence,strategy,contextBias,reason:risk<.6?'إشارة 5m موجودة لكن وقف الخسارة قريب جدًا':`إشارة 5m موجودة لكن وقف الخسارة أوسع من ${maxStopUsd}$`};
 
   const direction = side === 'BUY' ? 1 : -1;
   const halfBase = confirm1.aligned ? atr5 * .14 : atr5 * .18;
   const half = Math.min(.8, Math.max(.20, halfBase));
-  const distance1 = Math.max(1.8, risk * 1.4);
-  const distance2 = Math.max(3, risk * 2);
-  const distance3 = Math.max(4, risk * 2.5);
-  const distance4 = Math.max(5, risk * 3);
-  const setupId = [side, strategy, structureAt, contextBias, round(entryBase), round(stop)].join('|');
-
-  return {
-    ...base,
-    status:'CANDIDATE', candidateAction:side, side, strategy, confidence,
-    contextBias, oneMinuteConfirmed:confirm1.aligned,
-    setupId, structureAt,
-    entry:round(entryBase), entryLow:round(entryBase - half), entryHigh:round(entryBase + half), stopLoss:round(stop),
-    target1:round(entryBase + direction * distance1), target2:round(entryBase + direction * distance2),
-    target3:round(entryBase + direction * distance3), target4:round(entryBase + direction * distance4),
-    riskReward:round(distance4 / risk, 2),
-    reason:strategy === 'MTF_ICT_REVERSAL'
-      ? `ICT 5m متوافق مع سياق 15m${confirm1.aligned ? ' + تأكيد 1m' : ''} — التفعيل عند أول لمس`
-      : `استمرار 5m متوافق مع سياق 15m${confirm1.aligned ? ' + تأكيد 1m' : ''} — التفعيل عند أول لمس`
-  };
+  const distance1 = Math.max(1.8, risk * 1.4), distance2=Math.max(3,risk*2), distance3=Math.max(4,risk*2.5), distance4=Math.max(5,risk*3);
+  const setupId = [side,strategy,structureAt,contextBias,round(entryBase),round(stop)].join('|');
+  return {...base,status:'CANDIDATE',candidateAction:side,side,strategy,confidence,contextBias,oneMinuteConfirmed:confirm1.aligned,setupId,structureAt,
+    entry:round(entryBase),entryLow:round(entryBase-half),entryHigh:round(entryBase+half),stopLoss:round(stop),
+    target1:round(entryBase+direction*distance1),target2:round(entryBase+direction*distance2),target3:round(entryBase+direction*distance3),target4:round(entryBase+direction*distance4),riskReward:round(distance4/risk,2),
+    reason:strategy==='MTF_ICT_REVERSAL'?`ICT 5m متوافق${confirm1.aligned?' + تأكيد 1m':''} — التفعيل عند أول لمس`:`استمرار 5m متوافق${confirm1.aligned?' + تأكيد 1m':''} — التفعيل عند أول لمس`};
 }
