@@ -44,10 +44,10 @@ function context15m(closed15, price) {
   const delta = closes.at(-1) - closes[0];
   const atr15 = Math.max(.01, averageRange(recent, Math.max(.75, price * .00025)));
   const position = high > low ? (price - low) / (high - low) : .5;
-  const up = delta > atr15 * .12 || (delta >= -atr15 * .08 && position >= .58);
-  const down = delta < -atr15 * .12 || (delta <= atr15 * .08 && position <= .42);
-  if (up && !down) return {bias:'BUY', strength:Math.min(15, 5 + Math.round(Math.abs(delta) / atr15 * 8)), high, low, atr15};
-  if (down && !up) return {bias:'SELL', strength:Math.min(15, 5 + Math.round(Math.abs(delta) / atr15 * 8)), high, low, atr15};
+  const up = delta > atr15 * .08 || (delta >= -atr15 * .12 && position >= .55);
+  const down = delta < -atr15 * .08 || (delta <= atr15 * .12 && position <= .45);
+  if (up && !down) return {bias:'BUY', strength:Math.min(12, 4 + Math.round(Math.abs(delta) / atr15 * 7)), high, low, atr15};
+  if (down && !up) return {bias:'SELL', strength:Math.min(12, 4 + Math.round(Math.abs(delta) / atr15 * 7)), high, low, atr15};
   return {bias:'NEUTRAL', strength:0, high, low, atr15};
 }
 
@@ -58,7 +58,7 @@ function oneMinuteConfirmation(closed1, side, price) {
   const last = recent.at(-1).close;
   const move = price - first;
   const aligned = side === 'BUY' ? (move >= 0 && last >= first) : (move <= 0 && last <= first);
-  return {aligned, score:aligned ? 3 : 0};
+  return {aligned, score:aligned ? 4 : 0};
 }
 
 function normalizeSampleClock(samples = [], now = Date.now()) {
@@ -66,8 +66,6 @@ function normalizeSampleClock(samples = [], now = Date.now()) {
   if (!valid.length) return samples;
   const latestT = Math.max(...valid.map(s => Number(s.t)));
   const skew = latestT - now;
-  // MT5 broker timestamps can carry broker-server clock offset. Preserve spacing between ticks,
-  // but align the newest sample to server time when the skew is large enough to prevent candle closure.
   if (Math.abs(skew) <= 60_000) return samples;
   return samples.map(s => {
     const t = Number(s?.t);
@@ -134,17 +132,18 @@ export function analyzeGoldSignal(samples, rawPrice, now = Date.now()) {
   let entryBase = null;
   let structureAt = null;
 
-  const breakoutUp = price >= hi3 && liveFromExec > atr5 * .55 && execBias >= -atr5 * .20;
-  const breakoutDown = price <= lo3 && liveFromExec < -atr5 * .55 && execBias <= atr5 * .20;
+  // RELAXED DEMO PROFILE: react earlier to directional movement instead of waiting for a large breakout.
+  const breakoutUp = price >= hi3 - atr5 * .12 && liveFromExec > atr5 * .30 && execBias >= -atr5 * .35;
+  const breakoutDown = price <= lo3 + atr5 * .12 && liveFromExec < -atr5 * .30 && execBias <= atr5 * .35;
   if (breakoutUp && contextBias !== 'SELL') {
-    side = 'BUY'; strategy = 'MTF_TREND_CONTINUATION'; confidence = 65 + contextStrength + Math.min(10, Math.round(Math.abs(liveFromExec) / Math.max(atr5, .01) * 4));
-    stop = Math.min(...reference.map(bar => bar.low)) - .25; entryBase = hi3; structureAt = reference.at(-1)?.t ?? current5Key;
+    side = 'BUY'; strategy = 'MTF_TREND_CONTINUATION'; confidence = 60 + contextStrength + Math.min(12, Math.round(Math.abs(liveFromExec) / Math.max(atr5, .01) * 5));
+    stop = Math.min(...reference.map(bar => bar.low)) - .25; entryBase = Math.min(price,hi3); structureAt = reference.at(-1)?.t ?? current5Key;
   } else if (breakoutDown && contextBias !== 'BUY') {
-    side = 'SELL'; strategy = 'MTF_TREND_CONTINUATION'; confidence = 65 + contextStrength + Math.min(10, Math.round(Math.abs(liveFromExec) / Math.max(atr5, .01) * 4));
-    stop = Math.max(...reference.map(bar => bar.high)) + .25; entryBase = lo3; structureAt = reference.at(-1)?.t ?? current5Key;
+    side = 'SELL'; strategy = 'MTF_TREND_CONTINUATION'; confidence = 60 + contextStrength + Math.min(12, Math.round(Math.abs(liveFromExec) / Math.max(atr5, .01) * 5));
+    stop = Math.max(...reference.map(bar => bar.high)) + .25; entryBase = Math.max(price,lo3); structureAt = reference.at(-1)?.t ?? current5Key;
   }
 
-  if (!side && recent5.length >= 5) {
+  if (!side && recent5.length >= 4) {
     for (let index = Math.max(3, recent5.length - 3); index < recent5.length; index += 1) {
       const prior = recent5.slice(Math.max(0, index - 3), index);
       const sweep = recent5[index];
@@ -153,37 +152,49 @@ export function analyzeGoldSignal(samples, rawPrice, now = Date.now()) {
       const priorLow = Math.min(...prior.map(bar => bar.low));
       const bullBreak = Math.max(...prior.slice(-2).map(bar => bar.high));
       const bearBreak = Math.min(...prior.slice(-2).map(bar => bar.low));
-      const bullSweep = sweep.low < priorLow && sweep.close > priorLow;
-      const bearSweep = sweep.high > priorHigh && sweep.close < priorHigh;
-      const bullMss = bullSweep && price >= bullBreak;
-      const bearMss = bearSweep && price <= bearBreak;
-      if (bullMss && contextBias !== 'SELL') { side='BUY'; strategy='MTF_ICT_REVERSAL'; confidence=70+contextStrength; stop=sweep.low-.25; entryBase=bullBreak; structureAt=sweep.t; break; }
-      if (bearMss && contextBias !== 'BUY') { side='SELL'; strategy='MTF_ICT_REVERSAL'; confidence=70+contextStrength; stop=sweep.high+.25; entryBase=bearBreak; structureAt=sweep.t; break; }
+      const bullSweep = sweep.low < priorLow && sweep.close >= priorLow - atr5 * .08;
+      const bearSweep = sweep.high > priorHigh && sweep.close <= priorHigh + atr5 * .08;
+      const bullMss = bullSweep && price >= bullBreak - atr5 * .12;
+      const bearMss = bearSweep && price <= bearBreak + atr5 * .12;
+      if (bullMss && contextBias !== 'SELL') { side='BUY'; strategy='MTF_ICT_REVERSAL'; confidence=64+contextStrength; stop=sweep.low-.25; entryBase=Math.min(price,bullBreak); structureAt=sweep.t; break; }
+      if (bearMss && contextBias !== 'BUY') { side='SELL'; strategy='MTF_ICT_REVERSAL'; confidence=64+contextStrength; stop=sweep.high+.25; entryBase=Math.max(price,bearBreak); structureAt=sweep.t; break; }
     }
+  }
+
+  // Fallback momentum entry: when the 5m move is clear but no textbook breakout/sweep exists.
+  if (!side && Math.abs(liveFromExec) >= atr5 * .24) {
+    side = liveFromExec > 0 ? 'BUY' : 'SELL';
+    if ((side === 'BUY' && contextBias !== 'SELL') || (side === 'SELL' && contextBias !== 'BUY') || contextBias === 'NEUTRAL') {
+      strategy='TREND_CONTINUATION';
+      confidence=58 + contextStrength + Math.min(8,Math.round(Math.abs(liveFromExec)/Math.max(atr5,.01)*4));
+      entryBase=price;
+      stop=side==='BUY' ? Math.min(...reference.map(bar=>bar.low))-.25 : Math.max(...reference.map(bar=>bar.high))+.25;
+      structureAt=reference.at(-1)?.t ?? current5Key;
+    } else side=null;
   }
 
   if (!side) {
     const impulse = Math.min(60, Math.round(Math.abs(liveFromExec) / Math.max(atr5, .01) * 20));
     return {...base,status:'WAIT',confidence:impulse,contextBias,
-      reason:contextBias==='NEUTRAL'?'لا يوجد تفعيل 5m صالح الآن':`اتجاه 15m ${contextBias==='BUY'?'صاعد':'هابط'} — لا يوجد تفعيل 5m صالح الآن`};
+      reason:contextBias==='NEUTRAL'?'لا يوجد اتجاه كافٍ الآن':`اتجاه 15m ${contextBias==='BUY'?'صاعد':'هابط'} — الحركة الحالية غير كافية`};
   }
 
   const confirm1 = oneMinuteConfirmation(closed1, side, price);
   confidence = Math.min(92, confidence + confirm1.score);
   const chaseDistance = Math.abs(price - entryBase);
-  const maxChase = Math.max(1.25, atr5 * .65);
-  if (chaseDistance > maxChase) return {...base,status:'WAIT',candidateAction:'WAIT',confidence,strategy,contextBias,reason:'NO CHASE: تجاوز السعر نطاق دخول 5m؛ أُلغيت المطاردة وننتظر بنية جديدة'};
+  const maxChase = Math.max(2.0, atr5 * .90);
+  if (chaseDistance > maxChase) return {...base,status:'WAIT',candidateAction:'WAIT',confidence,strategy,contextBias,reason:'NO CHASE: السعر ابتعد كثيرًا عن منطقة الدخول'};
 
-  const risk = Math.abs(entryBase - stop), maxStopUsd = 3;
-  if (risk < .6 || risk > maxStopUsd) return {...base,status:'WAIT',candidateAction:side,confidence,strategy,contextBias,reason:risk<.6?'إشارة 5m موجودة لكن وقف الخسارة قريب جدًا':`إشارة 5m موجودة لكن وقف الخسارة أوسع من ${maxStopUsd}$`};
+  const risk = Math.abs(entryBase - stop), maxStopUsd = 5;
+  if (risk < .35 || risk > maxStopUsd) return {...base,status:'WAIT',candidateAction:side,confidence,strategy,contextBias,reason:risk<.35?'وقف الخسارة قريب جدًا':`وقف الخسارة أوسع من ${maxStopUsd}$`};
 
   const direction = side === 'BUY' ? 1 : -1;
-  const halfBase = confirm1.aligned ? atr5 * .14 : atr5 * .18;
-  const half = Math.min(.8, Math.max(.20, halfBase));
-  const distance1 = Math.max(1.8, risk * 1.4), distance2=Math.max(3,risk*2), distance3=Math.max(4,risk*2.5), distance4=Math.max(5,risk*3);
+  const halfBase = confirm1.aligned ? atr5 * .22 : atr5 * .28;
+  const half = Math.min(1.25, Math.max(.35, halfBase));
+  const distance1 = Math.max(1.2, risk * 1.2), distance2=Math.max(2.2,risk*1.7), distance3=Math.max(3.2,risk*2.2), distance4=Math.max(4.2,risk*2.7);
   const setupId = [side,strategy,structureAt,contextBias,round(entryBase),round(stop)].join('|');
   return {...base,status:'CANDIDATE',candidateAction:side,side,strategy,confidence,contextBias,oneMinuteConfirmed:confirm1.aligned,setupId,structureAt,
     entry:round(entryBase),entryLow:round(entryBase-half),entryHigh:round(entryBase+half),stopLoss:round(stop),
     target1:round(entryBase+direction*distance1),target2:round(entryBase+direction*distance2),target3:round(entryBase+direction*distance3),target4:round(entryBase+direction*distance4),riskReward:round(distance4/risk,2),
-    reason:strategy==='MTF_ICT_REVERSAL'?`ICT 5m متوافق${confirm1.aligned?' + تأكيد 1m':''} — التفعيل عند أول لمس`:`استمرار 5m متوافق${confirm1.aligned?' + تأكيد 1m':''} — التفعيل عند أول لمس`};
+    reason:strategy==='MTF_ICT_REVERSAL'?`ICT 5m مرن${confirm1.aligned?' + تأكيد 1m':''}`:`استمرار/زخم 5m مرن${confirm1.aligned?' + تأكيد 1m':''}`};
 }
