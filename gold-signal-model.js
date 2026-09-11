@@ -21,17 +21,9 @@ function barsFromSamples(samples = [], timeframeMinutes = 1) {
   return [...buckets.values()].sort((a, b) => a.t - b.t);
 }
 
-export function bars1m(samples = []) {
-  return barsFromSamples(samples, 1);
-}
-
-export function bars5m(samples = []) {
-  return barsFromSamples(samples, 5);
-}
-
-export function bars15m(samples = []) {
-  return barsFromSamples(samples, 15);
-}
+export function bars1m(samples = []) { return barsFromSamples(samples, 1); }
+export function bars5m(samples = []) { return barsFromSamples(samples, 5); }
+export function bars15m(samples = []) { return barsFromSamples(samples, 15); }
 
 function closedBars(bars, timeframeMinutes, now) {
   const span = timeframeMinutes * 60_000;
@@ -71,18 +63,20 @@ function oneMinuteConfirmation(closed1, side, price) {
 
 export function analyzeGoldSignal(samples, rawPrice, now = Date.now()) {
   const price = Number(rawPrice);
-  const all1 = bars1m(samples);
-  const all5 = bars5m(samples);
-  const all15 = bars15m(samples);
-  const closed1 = closedBars(all1, 1, now);
-  const closed5 = closedBars(all5, 5, now);
-  const closed15 = closedBars(all15, 15, now);
+  const closed1 = closedBars(bars1m(samples), 1, now);
+  const closed5 = closedBars(bars5m(samples), 5, now);
+  const closed15 = closedBars(bars15m(samples), 15, now);
 
-  // Five completed M1 bars are enough to start the fast engine. 15m context becomes
-  // authoritative as soon as two completed 15m bars exist, avoiding a long restart lockout.
-  const completeness = Math.min(100, Math.round((Math.min(closed1.length, 5) / 5) * 100));
+  // Hard readiness gate: M1 is confirmation only. Never substitute M1 bars for M5 execution.
+  const ready5 = closed5.length >= 3;
+  const ready15 = closed15.length >= 2;
+  const ready = ready5 && ready15;
+  const completeness5 = Math.min(1, closed5.length / 3);
+  const completeness15 = Math.min(1, closed15.length / 2);
+  const completeness = Math.round(Math.min(completeness5, completeness15) * 100);
+
   const base = {
-    status: closed1.length < 5 ? 'COLLECTING' : 'WAIT',
+    status: ready ? 'WAIT' : 'COLLECTING',
     action:'WAIT', candidateAction:'WAIT', side:null,
     strategy:'READING', confidence:0, readingCompleteness:completeness,
     barCount:closed1.length, barCount5m:closed5.length, barCount15m:closed15.length,
@@ -91,28 +85,20 @@ export function analyzeGoldSignal(samples, rawPrice, now = Date.now()) {
     entry:null, entryLow:null, entryHigh:null, stopLoss:null,
     target1:null, target2:null, target3:null, target4:null, riskReward:null,
     contextBias:'NEUTRAL',
-    reason:closed1.length < 5 ? `جمع بيانات M1: ${closed1.length}/5` : 'القراءة مكتملة — لا توجد إشارة مؤهلة الآن',
+    reason: !ready5
+      ? `جمع بنية M5 الحقيقية: ${closed5.length}/3`
+      : !ready15
+        ? `جمع سياق M15 الحقيقي: ${closed15.length}/2`
+        : 'القراءة مكتملة — لا توجد إشارة مؤهلة الآن',
     updatedAt:new Date(now).toISOString()
   };
-  if (!Number.isFinite(price) || price <= 0 || closed1.length < 5) return base;
+
+  if (!Number.isFinite(price) || price <= 0 || !ready) return base;
 
   const ctx = context15m(closed15, price);
-  const execution = closed5.slice(-6);
-
-  // During the first ~30 minutes after a cold deploy there may not yet be two closed
-  // 15m bars. In that temporary phase use the latest 15-minute rolling M1 structure as
-  // context, but never use M1 as the primary entry generator.
-  let contextBias = ctx.bias;
-  let contextStrength = ctx.strength;
-  if (contextBias === 'NEUTRAL' && closed15.length < 2 && closed1.length >= 8) {
-    const rolling = closed1.slice(-15);
-    const delta = rolling.at(-1).close - rolling[0].close;
-    const atr1 = Math.max(.01, averageRange(rolling, Math.max(.5, price * .00015)));
-    if (delta > atr1 * 1.2) { contextBias = 'BUY'; contextStrength = 5; }
-    else if (delta < -atr1 * 1.2) { contextBias = 'SELL'; contextStrength = 5; }
-  }
-
-  const recent5 = execution.length >= 3 ? execution : closed1.slice(-5);
+  const contextBias = ctx.bias;
+  const contextStrength = ctx.strength;
+  const recent5 = closed5.slice(-6);
   const atr5 = Math.max(.01, averageRange(recent5, Math.max(.75, price * .00018)));
   const reference = recent5.slice(-3);
   const hi3 = Math.max(...reference.map(bar => bar.high));
@@ -128,8 +114,6 @@ export function analyzeGoldSignal(samples, rawPrice, now = Date.now()) {
   let entryBase = null;
   let structureAt = null;
 
-  // 5m execution: completed structure defines the level; the live quote triggers it.
-  // We do not wait for a 15m close after context is known, which keeps entries timely.
   const breakoutUp = price >= hi3 && liveFromExec > atr5 * .55 && execBias >= -atr5 * .20;
   const breakoutDown = price <= lo3 && liveFromExec < -atr5 * .55 && execBias <= atr5 * .20;
   if (breakoutUp && contextBias !== 'SELL') {
@@ -148,8 +132,6 @@ export function analyzeGoldSignal(samples, rawPrice, now = Date.now()) {
     structureAt = reference.at(-1)?.t ?? Math.floor(now / 300_000) * 300_000;
   }
 
-  // ICT reversal on the 5m execution structure. The higher-timeframe context may be
-  // neutral or aligned, but a reversal is blocked when it directly fights a clear 15m bias.
   if (!side && recent5.length >= 5) {
     for (let index = Math.max(3, recent5.length - 3); index < recent5.length; index += 1) {
       const prior = recent5.slice(Math.max(0, index - 3), index);
@@ -195,13 +177,13 @@ export function analyzeGoldSignal(samples, rawPrice, now = Date.now()) {
   }
 
   const risk = Math.abs(entryBase - stop);
-  if (risk < .6 || risk > 6) {
+  const maxStopUsd = 3;
+  if (risk < .6 || risk > maxStopUsd) {
     return {...base, status:'WAIT', candidateAction:side, confidence, strategy, contextBias,
-      reason:risk < .6 ? 'إشارة 5m موجودة لكن وقف الخسارة قريب جدًا' : 'إشارة 5m موجودة لكن وقف الخسارة أوسع من 6$'};
+      reason:risk < .6 ? 'إشارة 5m موجودة لكن وقف الخسارة قريب جدًا' : `إشارة 5m موجودة لكن وقف الخسارة أوسع من ${maxStopUsd}$`};
   }
 
   const direction = side === 'BUY' ? 1 : -1;
-  // 1m confirmation only tightens the entry zone; it never creates or reverses a trade.
   const halfBase = confirm1.aligned ? atr5 * .14 : atr5 * .18;
   const half = Math.min(.8, Math.max(.20, halfBase));
   const distance1 = Math.max(1.8, risk * 1.4);
