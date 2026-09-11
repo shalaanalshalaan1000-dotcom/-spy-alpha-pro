@@ -1,7 +1,7 @@
 import http from 'node:http';
 import {spawn} from 'node:child_process';
 
-const BUILD_TAG='gold-resilient-v3-live-auto-ui';
+const BUILD_TAG='gold-resilient-v4-mt5-http-recovery';
 const PORT=Number(process.env.PORT||3000);
 const UI_PORT=3001,AUTO_PORT=3002,SPX_PORT=3003;
 const children=new Map();
@@ -123,11 +123,11 @@ const server=http.createServer(async(req,res)=>{
     const spxPath=u.pathname==='/spx'||u.pathname.startsWith('/api/spx-');
     const port=spxPath?SPX_PORT:(autoPath?AUTO_PORT:UI_PORT);
     const out=await requestBuffer(port,req);
-    if(req.method==='GET'&&u.pathname==='/api/auto-trade/signal'&&out.status>=500){
+    if(req.method==='GET'&&u.pathname==='/api/auto-trade/signal'&&(out.status<200||out.status>=300)){
       let detail='internal signal engine failure';try{const j=JSON.parse(out.body.toString('utf8'));detail=j.detail||j.error||detail}catch{}
       return sendJson(res,200,waitPayload(detail,out.status));
     }
-    if(req.method==='GET'&&u.pathname==='/api/auto-trade/status'&&out.status>=500){
+    if(req.method==='GET'&&u.pathname==='/api/auto-trade/status'&&(out.status<200||out.status>=300)){
       let detail='auto status unavailable';try{const j=JSON.parse(out.body.toString('utf8'));detail=j.detail||j.error||detail}catch{}
       return sendJson(res,200,statusFallback(detail,out.status));
     }
