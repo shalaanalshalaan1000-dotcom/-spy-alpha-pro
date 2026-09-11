@@ -4,6 +4,7 @@ let CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || '').trim();
 const POLL_MS = Math.max(1500, Number(process.env.TELEGRAM_POLL_MS || 3000));
 let updateOffset = 0;
 let boundAnnounced = false;
+let bootReady = false;
 
 const sent = {
   signalId: null,
@@ -16,43 +17,70 @@ function n(v, digits = 3) {
   return Number.isFinite(x) ? x.toFixed(digits) : '—';
 }
 
-async function sendDirect(chatId, text) {
-  if (!BOT_TOKEN || !chatId) return false;
-  const r = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-    method: 'POST',
-    headers: {'content-type': 'application/json'},
-    body: JSON.stringify({chat_id: chatId, text, disable_web_page_preview: true}),
+async function tg(method, body = null) {
+  if (!BOT_TOKEN) throw new Error('TELEGRAM_BOT_TOKEN missing');
+  const r = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
+    method: body ? 'POST' : 'GET',
+    headers: body ? {'content-type': 'application/json'} : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+    cache: 'no-store',
     signal: AbortSignal.timeout(8000)
   });
-  if (!r.ok) throw new Error(`telegram ${r.status}`);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || d?.ok === false) throw new Error(`${method} ${r.status} ${d?.description || ''}`.trim());
+  return d;
+}
+
+async function startup() {
+  if (bootReady) return true;
+  if (!BOT_TOKEN) {
+    console.error('[telegram-xau-bot] TELEGRAM_BOT_TOKEN missing');
+    return false;
+  }
+  try {
+    const me = await tg('getMe');
+    console.log(`[telegram-xau-bot] authenticated as @${me?.result?.username || 'unknown'}`);
+    await tg('deleteWebhook', {drop_pending_updates:false});
+    console.log('[telegram-xau-bot] webhook cleared; polling enabled');
+    bootReady = true;
+    return true;
+  } catch (e) {
+    console.error('[telegram-xau-bot] startup failed', e?.message || e);
+    return false;
+  }
+}
+
+async function sendDirect(chatId, text) {
+  if (!chatId) return false;
+  await tg('sendMessage', {chat_id: chatId, text, disable_web_page_preview: true});
   return true;
 }
 
 async function resolveChatId() {
-  if (CHAT_ID || !BOT_TOKEN) return CHAT_ID;
+  if (CHAT_ID) return CHAT_ID;
+  if (!(await startup())) return '';
   try {
     const u = new URL(`https://api.telegram.org/bot${BOT_TOKEN}/getUpdates`);
     u.searchParams.set('timeout', '0');
     if (updateOffset) u.searchParams.set('offset', String(updateOffset));
-    const r = await fetch(u, {cache: 'no-store', signal: AbortSignal.timeout(8000)});
-    if (!r.ok) throw new Error(`getUpdates ${r.status}`);
-    const d = await r.json();
+    const r = await fetch(u, {cache:'no-store', signal:AbortSignal.timeout(8000)});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d?.ok === false) throw new Error(`getUpdates ${r.status} ${d?.description || ''}`.trim());
     const rows = Array.isArray(d.result) ? d.result : [];
     for (const row of rows) {
       updateOffset = Math.max(updateOffset, Number(row.update_id || 0) + 1);
       const msg = row.message || row.edited_message || null;
       const chat = msg?.chat;
-      const text = String(msg?.text || '').trim();
-      if (chat?.type === 'private' && text === '/start') {
+      if (chat?.type === 'private') {
         CHAT_ID = String(chat.id);
         if (!boundAnnounced) {
           await sendDirect(CHAT_ID, '✅ تم ربط Majedinobot بمنصة Gold Alpha Pro.\nسأرسل إشارات XAUUSD الجديدة وتحديثات TP1–TP4 ووقف الخسارة تلقائيًا.');
           boundAnnounced = true;
         }
+        console.log(`[telegram-xau-bot] private chat bound: ${CHAT_ID}`);
         break;
       }
     }
-    if (CHAT_ID) console.log(`[telegram-xau-bot] private chat bound: ${CHAT_ID}`);
   } catch (e) {
     console.error('[telegram-xau-bot] chat bind failed', e?.message || e);
   }
@@ -60,7 +88,6 @@ async function resolveChatId() {
 }
 
 async function telegram(text) {
-  if (!BOT_TOKEN) return false;
   if (!CHAT_ID) await resolveChatId();
   if (!CHAT_ID) return false;
   return sendDirect(CHAT_ID, text);
@@ -86,11 +113,11 @@ function terminalKey(t) {
 
 async function tick() {
   try {
-    if (!BOT_TOKEN) return;
+    if (!(await startup())) return;
     if (!CHAT_ID) await resolveChatId();
     if (!CHAT_ID) return;
 
-    const r = await fetch(AUTO_URL, {cache: 'no-store', signal: AbortSignal.timeout(7000)});
+    const r = await fetch(AUTO_URL, {cache:'no-store', signal:AbortSignal.timeout(7000)});
     if (!r.ok) throw new Error(`signal ${r.status}`);
     const s = await r.json();
 
@@ -132,7 +159,7 @@ async function tick() {
   }
 }
 
-console.log(`[telegram-xau-bot] ${BOT_TOKEN ? (CHAT_ID ? 'enabled with configured chat' : 'enabled; waiting for /start') : 'disabled: TELEGRAM_BOT_TOKEN missing'}`);
+console.log(`[telegram-xau-bot] ${BOT_TOKEN ? (CHAT_ID ? 'enabled with configured chat' : 'enabled; waiting for first private message') : 'disabled: TELEGRAM_BOT_TOKEN missing'}`);
 (async function loop() {
   while (true) {
     await tick();
