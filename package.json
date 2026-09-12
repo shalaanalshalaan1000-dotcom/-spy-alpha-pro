@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node gold-unified-start.js",
+    "start": "node site-indicator-start.js",
     "test": "node --test"
   }
 }
