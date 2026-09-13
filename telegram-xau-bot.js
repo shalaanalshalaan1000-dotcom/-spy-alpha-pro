@@ -1,4 +1,5 @@
 const AUTO_URL = process.env.TELEGRAM_SIGNAL_URL || 'http://127.0.0.1:3002/api/auto-trade/signal?observe=1';
+const BITCOIN_URL = process.env.TELEGRAM_BITCOIN_URL || 'http://127.0.0.1:3004/api/capital/bitcoin';
 const BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
 let CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || '').trim();
 const POLL_MS = Math.max(1500, Number(process.env.TELEGRAM_POLL_MS || 3000));
@@ -20,6 +21,11 @@ function n(v, digits = 3) {
   return Number.isFinite(x) ? x.toFixed(digits) : '—';
 }
 
+function money(v, digits = 2) {
+  const x = Number(v);
+  return Number.isFinite(x) ? '$' + x.toLocaleString(undefined,{minimumFractionDigits:digits,maximumFractionDigits:digits}) : '—';
+}
+
 async function tg(method, body = null) {
   if (!BOT_TOKEN) throw new Error('TELEGRAM_BOT_TOKEN missing');
   const r = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
@@ -32,6 +38,17 @@ async function tg(method, body = null) {
   const d = await r.json().catch(() => ({}));
   if (!r.ok || d?.ok === false) throw new Error(`${method} ${r.status} ${d?.description || ''}`.trim());
   return d;
+}
+
+async function fetchBitcoin() {
+  const r = await fetch(BITCOIN_URL + (BITCOIN_URL.includes('?') ? '&' : '?') + 'force=1', {cache:'no-store', signal:AbortSignal.timeout(7000)});
+  const d = await r.json().catch(()=>({}));
+  if(!r.ok || !Number.isFinite(Number(d?.price))) throw new Error(d?.error || `bitcoin ${r.status}`);
+  return d;
+}
+
+function bitcoinMessage(b){
+  return `₿ BTCUSD — Capital.com LIVE\n\n💵 السعر: ${money(b.price)}\nBid: ${money(b.bid)}\nAsk: ${money(b.ask)}\n📈 السوق: ${b.marketStatus || '—'}\n🔎 Epic: ${b.epic || '—'}\n🕒 التحديث: ${b.updatedAt ? new Date(b.updatedAt).toLocaleString() : '—'}\n\nBitcoin الآن قراءة مباشرة من Capital.com. لا توجد إشارة BUY/SELL للبيتكوين إلا إذا كان محرك Bitcoin مستقلًا ومفعّلًا.`;
 }
 
 async function startup() {
@@ -63,7 +80,7 @@ async function sendDirect(chatId, text, replyMarkup = null) {
 
 async function announceBound(chatId){
   if(!chatId||boundAnnounced) return;
-  await sendDirect(chatId, '✅ تم ربط Majedinobot بمنصة Gold Alpha Pro.\nسأرسل إشارات XAUUSD الجديدة مع زر تأكيد أو رفض.\n⚠️ التأكيد في تيليجرام يثبت موافقتك على الإشارة فقط ولا يرسل أمرًا ماليًا تلقائيًا إلى الوسيط.');
+  await sendDirect(chatId, '✅ تم ربط Majedinobot بمنصة Gold Alpha Pro.\n\n🥇 XAUUSD: إشارات جديدة مع زر تأكيد أو رفض.\n₿ BTCUSD: قراءة LIVE من Capital.com ويمكنك طلبها بالأمر /bitcoin.\n\n⚠️ التأكيد في تيليجرام يثبت موافقتك على الإشارة فقط ولا يرسل أمرًا ماليًا تلقائيًا إلى الوسيط.');
   boundAnnounced=true;
 }
 
@@ -83,6 +100,14 @@ async function processUpdates(){
       const chat=msg?.chat;
       if(chat?.type==='private'&&!CHAT_ID){ CHAT_ID=String(chat.id); await announceBound(CHAT_ID); console.log(`[telegram-xau-bot] private chat bound: ${CHAT_ID}`); }
 
+      if(msg?.text && chat?.type==='private'){
+        const text=String(msg.text).trim().toLowerCase();
+        if(text==='/bitcoin' || text==='/btc'){
+          try{ const b=await fetchBitcoin(); await sendDirect(String(chat.id), bitcoinMessage(b)); }
+          catch(e){ await sendDirect(String(chat.id), `⚠️ تعذر جلب Bitcoin الآن: ${String(e?.message||e)}`); }
+        }
+      }
+
       const cb=row.callback_query;
       if(cb){
         const cbChat=String(cb.message?.chat?.id||'');
@@ -93,7 +118,7 @@ async function processUpdates(){
           if(!currentSignal?.signalId){ await tg('answerCallbackQuery',{callback_query_id:cb.id,text:'لا توجد إشارة فعالة الآن',show_alert:true}); continue; }
           confirmedSignalId=String(currentSignal.signalId); rejectedSignalId=null;
           await tg('answerCallbackQuery',{callback_query_id:cb.id,text:'تم تأكيد الإشارة'});
-          await sendDirect(cbChat,`✅ تم تأكيد الإشارة يدويًا\n${currentSignal.action} XAUUSD\nEntry: ${n(currentSignal.entryLow)} — ${n(currentSignal.entryHigh)}\nSL: ${n(currentSignal.stopLoss)}\nTP1: ${n(currentSignal.target1)}\nTP2: ${n(currentSignal.target2)}\n\nرقم الإشارة: ${currentSignal.signalId}\n\nالتنفيذ المالي لا يتم تلقائيًا من هذا الزر.`);
+          await sendDirect(cbChat,`✅ تم تأكيد الإشارة يدويًا\n${currentSignal.action} XAUUSD\nEntry: ${n(currentSignal.entryLow)} — ${n(currentSignal.entryHigh)}\nSL: ${n(currentSignal.stopLoss)}\nTP1: ${n(currentSignal.target1)}\nTP2: ${n(currentSignal.target2)}\nTP3: ${n(currentSignal.target3)}\nTP4: ${n(currentSignal.target4)}\n\nرقم الإشارة: ${currentSignal.signalId}\n\nالتنفيذ المالي لا يتم تلقائيًا من هذا الزر.`);
         } else if(cb.data==='reject_signal'){
           if(currentSignal?.signalId) rejectedSignalId=String(currentSignal.signalId);
           confirmedSignalId=null;
@@ -121,9 +146,11 @@ function activeSignal(s) {
   return s && ['BUY', 'SELL'].includes(s.action) && s.status === 'ACTIVE' && s.signalId;
 }
 
-function signalMessage(s) {
+async function signalMessage(s) {
   const icon = s.action === 'BUY' ? '🟢' : '🔴';
-  return `${icon} XAUUSD — ${s.action}\n\n📍 الدخول:\nمن: ${n(s.entryHigh)}\nإلى: ${n(s.entryLow)}\n\n🎯 الأهداف:\nTP1: ${n(s.target1)}\nTP2: ${n(s.target2)}\nTP3: ${n(s.target3)}\nTP4: ${n(s.target4)}\n\n🛑 STOP LOSS:\n${n(s.stopLoss)}\n\nالثقة: ${Math.round(Number(s.confidence || s.signalConfidence || 0))}%\n\nاختر تأكيد أو رفض الإشارة:`;
+  let btc='';
+  try{ const b=await fetchBitcoin(); btc=`\n\n₿ Bitcoin الآن: ${money(b.price)} • ${b.marketStatus||'—'}`; }catch{}
+  return `${icon} XAUUSD — ${s.action}\n\n💵 السعر الحالي: ${money(s.price)}\n📍 الدخول:\nمن: ${n(s.entryHigh)}\nإلى: ${n(s.entryLow)}\n\n🎯 الأهداف:\nTP1: ${n(s.target1)}\nTP2: ${n(s.target2)}\nTP3: ${n(s.target3)}\nTP4: ${n(s.target4)}\n\n🛑 STOP LOSS:\n${n(s.stopLoss)}\n\n📊 الثقة: ${Math.round(Number(s.confidence || s.signalConfidence || 0))}%\n🕒 وقت الإشارة: ${new Date().toLocaleString()}\n📡 المصدر: ${s.provider || 'Capital.com'}${btc}\n\nاختر تأكيد أو رفض الإشارة:`;
 }
 
 function confirmKeyboard(){
@@ -157,7 +184,7 @@ async function tick() {
       currentSignal=s;
       if (sent.signalId !== s.signalId) {
         confirmedSignalId=null; rejectedSignalId=null;
-        await telegram(signalMessage(s),confirmKeyboard());
+        await telegram(await signalMessage(s),confirmKeyboard());
         sent.signalId = s.signalId;
         sent.targets = [false, false, false, false];
       }
