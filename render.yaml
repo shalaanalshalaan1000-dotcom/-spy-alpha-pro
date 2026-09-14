@@ -34,9 +34,13 @@ services:
       - key: TELEGRAM_CHAT_ID
         sync: false
       - key: TELEGRAM_MIN_CONFIDENCE
-        value: "70"
+        value: "75"
       - key: GOLD_TELEGRAM_MIN_CONFIDENCE
-        value: "70"
+        value: "75"
+      - key: TELEGRAM_EARLY_MIN_CONFIDENCE
+        value: "75"
+      - key: TELEGRAM_CANDIDATE_MIN_CONFIDENCE
+        value: "75"
       - key: TELEGRAM_MIN_RR
         value: "2"
       - key: MAX_TELEGRAM_SIGNALS_PER_DAY
