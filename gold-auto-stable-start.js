@@ -1,4 +1,7 @@
 import {readFileSync,writeFileSync} from 'node:fs';
+import dns from 'node:dns';
+
+dns.setDefaultResultOrder('ipv4first');
 import {pathToFileURL} from 'node:url';
 
 const sourcePath=new URL('./gold-app.js',import.meta.url);
