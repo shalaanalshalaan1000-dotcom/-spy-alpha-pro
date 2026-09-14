@@ -27,6 +27,14 @@ services:
         sync: false
       - key: APP_BASE_URL
         value: "https://spy-alpha-pro-1.onrender.com"
+      - key: CAPITAL_API_KEY
+        sync: false
+      - key: CAPITAL_IDENTIFIER
+        sync: false
+      - key: CAPITAL_API_PASSWORD
+        sync: false
+      - key: CAPITAL_DEMO
+        value: "false"
       - key: TELEGRAM_ENABLED
         value: "true"
       - key: TELEGRAM_BOT_TOKEN
