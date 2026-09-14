@@ -1,24 +1,26 @@
 import http from 'node:http';
 import {spawn} from 'node:child_process';
 
-const BUILD_TAG='gold-resilient-v4-mt5-http-recovery';
+const BUILD_TAG='gold-resilient-v5-capital-always-on';
 const PORT=Number(process.env.PORT||3000);
-const UI_PORT=3001,AUTO_PORT=3002,SPX_PORT=3003;
+const UI_PORT=3001,AUTO_PORT=3002,SPX_PORT=3003,CAPITAL_PORT=3004;
 const children=new Map();
 let shuttingDown=false;
 
-function spawnChild(name,file,port){
-  const child=spawn(process.execPath,[file],{env:{...process.env,PORT:String(port)},stdio:['ignore','inherit','inherit']});
+function spawnChild(name,file,port,extraEnv={}){
+  const child=spawn(process.execPath,[file],{env:{...process.env,...extraEnv,PORT:String(port)},stdio:['ignore','inherit','inherit']});
   children.set(name,child);
   child.on('exit',code=>{
     console.error(name,'child exited',code);
     if(shuttingDown)return;
-    setTimeout(()=>spawnChild(name,file,port),1000).unref();
+    setTimeout(()=>spawnChild(name,file,port,extraEnv),1000).unref();
   });
   return child;
 }
 spawnChild('ui','gold-target-range-fix-start.js',UI_PORT);
-spawnChild('auto','gold-auto-stable-start.js',AUTO_PORT);
+spawnChild('capital','capital-market.js',CAPITAL_PORT,{CAPITAL_DEMO:process.env.CAPITAL_DEMO||'false'});
+const capitalConfigured=Boolean(process.env.CAPITAL_API_KEY&&process.env.CAPITAL_IDENTIFIER&&process.env.CAPITAL_API_PASSWORD);
+spawnChild('auto','gold-auto-stable-start.js',AUTO_PORT,capitalConfigured?{GOLD_ALPHA_QUOTE_URL:`http://127.0.0.1:${CAPITAL_PORT}/api/capital/gold`}:{});
 spawnChild('spx','spx-live-start.js',SPX_PORT);
 
 function shutdown(signal){
@@ -119,9 +121,10 @@ const server=http.createServer(async(req,res)=>{
   const u=new URL(req.url||'/',`http://${req.headers.host||'localhost'}`);
   if(req.method==='GET'&&u.pathname==='/api/build')return sendJson(res,200,{ok:true,build:BUILD_TAG});
   try{
+    const capitalPath=u.pathname.startsWith('/api/capital/');
     const autoPath=u.pathname.startsWith('/api/auto-trade/')||u.pathname==='/api/health'||u.pathname==='/api/gold'||u.pathname==='/api/gold-live'||u.pathname==='/api/performance/journal';
     const spxPath=u.pathname==='/spx'||u.pathname.startsWith('/api/spx-');
-    const port=spxPath?SPX_PORT:(autoPath?AUTO_PORT:UI_PORT);
+    const port=capitalPath?CAPITAL_PORT:(spxPath?SPX_PORT:(autoPath?AUTO_PORT:UI_PORT));
     const out=await requestBuffer(port,req);
     if(req.method==='GET'&&u.pathname==='/api/auto-trade/signal'&&(out.status<200||out.status>=300)){
       let detail='internal signal engine failure';try{const j=JSON.parse(out.body.toString('utf8'));detail=j.detail||j.error||detail}catch{}
@@ -132,7 +135,7 @@ const server=http.createServer(async(req,res)=>{
       return sendJson(res,200,statusFallback(detail,out.status));
     }
     const headers={...out.headers};delete headers['content-length'];headers['cache-control']='no-store';headers['x-gold-alpha-build']=BUILD_TAG;
-    if(req.method==='GET'&&u.pathname==='/'&&!autoPath){
+    if(req.method==='GET'&&u.pathname==='/'&&!autoPath&&!capitalPath){
       const html=injectAuto(out.body.toString('utf8'));
       headers['content-type']='text/html; charset=utf-8';
       res.writeHead(out.status,headers);return res.end(html);
