@@ -1,7 +1,7 @@
 import http from 'node:http';
 import {spawn} from 'node:child_process';
 
-const BUILD_TAG='gold-resilient-v5-capital-always-on';
+const BUILD_TAG='gold-resilient-v5.1-capital-ipv4';
 const PORT=Number(process.env.PORT||3000);
 const UI_PORT=3001,AUTO_PORT=3002,SPX_PORT=3003,CAPITAL_PORT=3004;
 const children=new Map();
