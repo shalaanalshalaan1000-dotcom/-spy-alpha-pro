@@ -2,7 +2,7 @@ services:
   - type: web
     name: spy-alpha-pro-v4
     runtime: docker
-    plan: free
+    plan: 0.5c-512mb
     healthCheckPath: /api/health
     envVars:
       - key: MASSIVE_API_KEY
