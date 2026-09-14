@@ -3,12 +3,16 @@ const BITCOIN_URL = process.env.TELEGRAM_BITCOIN_URL || 'http://127.0.0.1:3004/a
 const BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
 let CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || '').trim();
 const POLL_MS = Math.max(1500, Number(process.env.TELEGRAM_POLL_MS || 3000));
+const CANDIDATE_MIN_CONFIDENCE = Math.max(1, Number(process.env.TELEGRAM_CANDIDATE_MIN_CONFIDENCE || process.env.MIN_CONFIDENCE || 55));
+const CANDIDATE_REPEAT_MS = Math.max(30_000, Number(process.env.TELEGRAM_CANDIDATE_REPEAT_MS || 180_000));
 let updateOffset = 0;
 let boundAnnounced = false;
 let bootReady = false;
 let currentSignal = null;
 let confirmedSignalId = null;
 let rejectedSignalId = null;
+let lastCandidateKey = null;
+let lastCandidateAt = 0;
 
 const sent = {
   signalId: null,
@@ -80,7 +84,7 @@ async function sendDirect(chatId, text, replyMarkup = null) {
 
 async function announceBound(chatId){
   if(!chatId||boundAnnounced) return;
-  await sendDirect(chatId, '✅ تم ربط Majedinobot بمنصة Gold Alpha Pro.\n\n🥇 XAUUSD: إشارات جديدة مع زر تأكيد أو رفض.\n₿ BTCUSD: قراءة LIVE من Capital.com ويمكنك طلبها بالأمر /bitcoin.\n\n⚠️ التأكيد في تيليجرام يثبت موافقتك على الإشارة فقط ولا يرسل أمرًا ماليًا تلقائيًا إلى الوسيط.');
+  await sendDirect(chatId, '✅ تم ربط Majedinobot بمنصة Gold Alpha Pro.\n\n🥇 XAUUSD: تنبيه مبكر عند اكتمال المرشح، ثم إشارة تنفيذية عند دخول السعر للنطاق مع زر تأكيد أو رفض.\n₿ BTCUSD: قراءة LIVE من Capital.com ويمكنك طلبها بالأمر /bitcoin.\n\n⚠️ التأكيد في تيليجرام يثبت موافقتك على الإشارة فقط ولا يرسل أمرًا ماليًا تلقائيًا إلى الوسيط.');
   boundAnnounced=true;
 }
 
@@ -146,6 +150,28 @@ function activeSignal(s) {
   return s && ['BUY', 'SELL'].includes(s.action) && s.status === 'ACTIVE' && s.signalId;
 }
 
+function candidateSide(s){
+  return ['BUY','SELL'].includes(s?.candidateAction) ? s.candidateAction : null;
+}
+
+function candidateReady(s){
+  const side=candidateSide(s);
+  const confidence=Number(s?.confidence ?? s?.signalConfidence ?? 0);
+  const levels=[s?.entryLow,s?.entryHigh,s?.stopLoss,s?.target1,s?.target2].every(v=>Number.isFinite(Number(v)));
+  return Boolean(side && levels && confidence>=CANDIDATE_MIN_CONFIDENCE && s?.degraded!==true);
+}
+
+function candidateKey(s){
+  const side=candidateSide(s)||'WAIT';
+  return [side,s?.strategy||'',n(s?.entryLow,2),n(s?.entryHigh,2),n(s?.stopLoss,2),n(s?.target1,2)].join('|');
+}
+
+function candidateMessage(s){
+  const side=candidateSide(s);
+  const icon=side==='BUY'?'🟢':'🔴';
+  return `🟡 XAUUSD — SETUP ARMED\n${icon} الاتجاه: ${side}\n\n📍 نطاق الدخول المتوقع:\n${n(s.entryLow)} — ${n(s.entryHigh)}\n🛑 SL: ${n(s.stopLoss)}\n🎯 TP1: ${n(s.target1)}\n🎯 TP2: ${n(s.target2)}\n\n📊 الثقة: ${Math.round(Number(s.confidence ?? s.signalConfidence ?? 0))}%\n🧠 الاستراتيجية: ${s.strategy || '—'}\n💵 السعر الحالي: ${money(s.price)}\n\nهذه تهيئة مبكرة وليست أمر دخول بعد. سيصلك تنبيه تنفيذي منفصل عند تفعيل النطاق.`;
+}
+
 async function signalMessage(s) {
   const icon = s.action === 'BUY' ? '🟢' : '🔴';
   let btc='';
@@ -179,6 +205,15 @@ async function tick() {
     const r = await fetch(AUTO_URL, {cache:'no-store', signal:AbortSignal.timeout(7000)});
     if (!r.ok) throw new Error(`signal ${r.status}`);
     const s = await r.json();
+
+    if(candidateReady(s) && !activeSignal(s)){
+      const key=candidateKey(s),now=Date.now();
+      if(key!==lastCandidateKey || now-lastCandidateAt>=CANDIDATE_REPEAT_MS){
+        await telegram(candidateMessage(s));
+        lastCandidateKey=key;
+        lastCandidateAt=now;
+      }
+    }
 
     if (activeSignal(s)) {
       currentSignal=s;
