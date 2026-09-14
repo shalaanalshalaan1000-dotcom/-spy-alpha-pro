@@ -1,4 +1,5 @@
 import http from 'node:http';
+import https from 'node:https';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -70,6 +71,27 @@ function timestampMs(value,fallback=Date.now()){
   const parsed=Date.parse(value);return Number.isFinite(parsed)?parsed:fallback;
 }
 
+function getJsonIpv4(url,timeoutMs=6000){
+  return new Promise((resolve,reject)=>{
+    const request=https.get(url,{family:4,headers:{accept:'application/json','user-agent':'GoldAlphaPro/8.1'}},response=>{
+      const chunks=[];
+      let size=0;
+      response.on('data',chunk=>{
+        size+=chunk.length;
+        if(size>1_000_000){request.destroy(new Error('quote response too large'));return;}
+        chunks.push(chunk);
+      });
+      response.on('end',()=>{
+        let data={};
+        try{data=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{return reject(new Error('invalid quote JSON'));}
+        resolve({status:response.statusCode||0,data});
+      });
+    });
+    request.setTimeout(timeoutMs,()=>request.destroy(new Error('quote timeout')));
+    request.on('error',reject);
+  });
+}
+
 async function getQuote(force=false){
   const now=Date.now();
   if(state.mt5.quote&&now-state.mt5.lastSeen<20_000){
@@ -96,11 +118,10 @@ async function getQuote(force=false){
     return {price,bid:Number.isFinite(bid)?bid:price,ask:Number.isFinite(ask)?ask:price,t,updatedAt:new Date(t).toISOString(),provider:'MASSIVE',degraded:now-t>30_000};
   });
   providers.push(async()=>{
-    const r=await fetch('https://api.gold-api.com/price/XAU',{cache:'no-store',headers:{accept:'application/json','user-agent':'GoldAlphaPro/8.0'},signal:AbortSignal.timeout(6000)});
-    const d=await r.json().catch(()=>({})); const price=Number(d.price);
-    if(!r.ok||!Number.isFinite(price)||price<=0) throw new Error('invalid Gold API quote');
+    const {status,data:d}=await getJsonIpv4('https://api.gold-api.com/price/XAU',6000); const price=Number(d.price);
+    if(status<200||status>=300||!Number.isFinite(price)||price<=0) throw new Error('invalid Gold API quote '+status);
     const t=timestampMs(d.updatedAt??d.timestamp,now);
-    return {price,bid:price,ask:price,t,updatedAt:d.updatedAt||new Date(t).toISOString(),provider:'GOLD_API',degraded:now-t>30_000};
+    return {price,bid:price,ask:price,t,updatedAt:d.updatedAt||new Date(t).toISOString(),provider:'GOLD_API_IPV4',degraded:now-t>30_000};
   });
   let lastError;
   for(const provider of providers){try{state.quote=await provider();state.quoteAt=now;return state.quote;}catch(e){lastError=e;}}
