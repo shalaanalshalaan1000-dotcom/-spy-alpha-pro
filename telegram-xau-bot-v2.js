@@ -3,15 +3,18 @@ const BOT_TOKEN=String(process.env.TELEGRAM_BOT_TOKEN||'').trim();
 const CHAT_ID=String(process.env.TELEGRAM_CHAT_ID||'').trim();
 const POLL_MS=Math.max(1200,Number(process.env.TELEGRAM_POLL_MS||1500));
 const MAX_NEW_SIGNAL_AGE_MS=Math.max(2000,Number(process.env.TELEGRAM_MAX_NEW_SIGNAL_AGE_MS||6000));
+const SIGNAL_THRESHOLD=Math.max(1,Math.min(100,Number(process.env.TELEGRAM_DIRECTIONAL_MIN_CONFIDENCE||75)));
 
 let ready=false,bootAnnounced=false,terminalPrimed=false;
-const sent={signalId:null,announced:false,announcedAtMs:0,targets:[false,false,false,false],managementEventId:0,terminalKey:null};
+const sent={signalId:null,announced:false,announcedAtMs:0,targets:[false,false,false,false],managementEventId:0,terminalKey:null,directionalSide:null,directionalAbove:false,directionalAtMs:0};
 
 function num(v){const x=Number(v);return Number.isFinite(x)?x:null;}
 function valid(v){const x=num(v);return x!=null&&x>0;}
 function n(v,d=3){return valid(v)?Number(v).toFixed(d):'—';}
 function money(v,d=2){return valid(v)?'$'+Number(v).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d}):'—';}
 function sideOf(s){return ['BUY','SELL'].find(x=>[s?.side,s?.candidateAction,s?.action].includes(x))||null;}
+function directionalSide(s){return sideOf(s)||(['BUY','SELL'].includes(s?.entryGuard?.side)?s.entryGuard.side:null)||(['BUY','SELL'].includes(s?.prediction?.side)?s.prediction.side:null);}
+function directionalConfidence(s){return Math.max(Number(s?.signalConfidence)||0,Number(s?.confidence)||0,Number(s?.prediction?.confidence)||0);}
 function issuedMs(s){const direct=num(s?.issuedAtMs);if(direct&&direct>0)return direct;const p=Date.parse(String(s?.issuedAt||''));return Number.isFinite(p)?p:Date.now();}
 async function tg(method,body=null){
  if(!BOT_TOKEN)throw new Error('TELEGRAM_BOT_TOKEN missing');
@@ -24,7 +27,7 @@ async function startup(){
  if(!BOT_TOKEN||!CHAT_ID){console.error('[telegram-xau-v2] token/chat missing');return false;}
  try{
   const me=await tg('getMe');ready=true;console.log(`[telegram-xau-v2] authenticated @${me?.result?.username||'unknown'} chat=${CHAT_ID}`);
-  if(!bootAnnounced){await send('✅ Gold Alpha Telegram ACTIVE\n\n🥇 XAUUSD confirmed entries only.\n🛡️ Managed trade mode ACTIVE:\n• TP1 → structure protection\n• TP2 → profit lock\n• TP3 → M1 trailing stop\n📐 Risk/TP filters adapt to current 1-minute volatility.\n🚫 Late/unconfirmed entries remain blocked.');bootAnnounced=true;}
+  if(!bootAnnounced){await send(`✅ Gold Alpha Telegram ACTIVE\n\n🥇 XAUUSD directional signal starts at ${SIGNAL_THRESHOLD}% confidence.\n📍 Confirmed entry alerts remain separate when executable levels pass.\n🛡️ Managed trade mode ACTIVE for confirmed entries.`);bootAnnounced=true;}
   return true;
  }catch(e){console.error('[telegram-xau-v2] startup',e?.message||e);return false;}
 }
@@ -46,6 +49,11 @@ function viability(s,now=Date.now()){
  if(reward<minTp1)return{ok:false,reason:'TP1_TOO_CLOSE',risk,reward,rr};
  if(rr<minR)return{ok:false,reason:'RR_TOO_LOW',risk,reward,rr};
  return{ok:true,age,risk,reward,rr};
+}
+function directionMessage(s){
+ const side=directionalSide(s),confidence=Math.round(directionalConfidence(s)),icon=side==='BUY'?'🟢':'🔴',g=s?.entryGuard||{},room=num(g.rewardToTp1),rr=num(g.liveTp1R),price=num(s?.price);
+ const details=[];if(room!=null)details.push(`الحركة المقدرة إلى TP1: ${room.toFixed(2)}$`);if(rr!=null)details.push(`RR الحالي: ${rr.toFixed(2)}R`);
+ return `${icon} XAUUSD — ${side} SIGNAL\n📊 الثقة: ${confidence}%\n💵 السعر: ${money(price)}\n⚡ حد الإشارة: ${SIGNAL_THRESHOLD}%${details.length?'\n'+details.join('\n'):''}\nℹ️ هذه إشارة اتجاهية؛ رسالة CONFIRMED ENTRY تصل منفصلة إذا اعتمد محرك التنفيذ مستويات الدخول.`;
 }
 function entryMessage(s){
  const side=sideOf(s),icon=side==='BUY'?'🟢':'🔴',v=viability(s),at=issuedMs(s);
@@ -72,6 +80,10 @@ async function tick(){
  try{
   if(!(await startup()))return;
   const r=await fetch(AUTO_URL,{cache:'no-store',signal:AbortSignal.timeout(7000)});if(!r.ok)throw new Error(`signal ${r.status}`);const s=await r.json();const now=Date.now();
+  const dSide=directionalSide(s),dConfidence=directionalConfidence(s),directionalOk=!s?.degraded&&Boolean(dSide)&&dConfidence>=SIGNAL_THRESHOLD&&String(s?.status||'').toUpperCase()!=='COLLECTING';
+  if(directionalOk&&(!sent.directionalAbove||sent.directionalSide!==dSide)){
+    await send(directionMessage(s));sent.directionalAbove=true;sent.directionalSide=dSide;sent.directionalAtMs=now;
+  }else if(!directionalOk&&dConfidence<=SIGNAL_THRESHOLD-3){sent.directionalAbove=false;sent.directionalSide=null;}
   if(active(s)&&levelsReady(s)){
    if(sent.signalId!==s.signalId){
     sent.signalId=s.signalId;sent.announced=false;sent.announcedAtMs=0;sent.targets=[false,false,false,false];sent.managementEventId=0;
@@ -93,7 +105,7 @@ async function tick(){
   }
  }catch(e){console.error('[telegram-xau-v2]',e?.message||e);}
 }
-console.log(`[telegram-xau-v2] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'}`);
+console.log(`[telegram-xau-v2] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} directional>=${SIGNAL_THRESHOLD}`);
 if(process.env.NODE_ENV!=='test')(async function loop(){while(true){await tick();await new Promise(r=>setTimeout(r,POLL_MS));}})();
 
-export {active,levelsReady,viability,entryMessage,terminalMessage};
+export {active,levelsReady,viability,directionMessage,entryMessage,terminalMessage};
