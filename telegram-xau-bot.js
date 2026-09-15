@@ -145,11 +145,17 @@ async function tick(){
       sent.terminalKey=key;
       terminalPrimed=true;
     }else if(key&&key!==sent.terminalKey){
-      if(t.outcome==='SL'&&validNumber(t.stopLoss)&&validNumber(t.exitPrice)) await send(`🛑 XAUUSD — STOP LOSS HIT\nSL: ${n(t.stopLoss)}\nExit: ${n(t.exitPrice)}`);
-      else if(t.outcome==='TP4'&&validNumber(t.target4)) await send(`🏁 XAUUSD — ALL TARGETS COMPLETED\nTP4: ${n(t.target4)}`);
-      else if(t.outcome==='PREENTRY_INVALIDATED') await send('⚪ XAUUSD — SETUP CANCELLED BEFORE ENTRY\nالسيناريو فقد صلاحيته قبل تنفيذ الدخول.');
-      else if(t.outcome==='EXPIRED') await send('⌛ XAUUSD — SETUP EXPIRED\nانتهت صلاحية السيناريو بدون دخول.');
-      sent.terminalKey=key;
+      const belongsToAnnouncedSignal = Boolean(sent.signalId && t?.signalId === sent.signalId);
+      if(!belongsToAnnouncedSignal){
+        // Never announce SL/TP completion for a scenario that was not first announced as ACTIVE.
+        sent.terminalKey=key;
+      }else{
+        if(t.outcome==='SL'&&validNumber(t.stopLoss)&&validNumber(t.exitPrice)) await send(`🛑 XAUUSD — STOP LOSS HIT\nSL: ${n(t.stopLoss)}\nExit: ${n(t.exitPrice)}`);
+        else if(t.outcome==='TP4'&&validNumber(t.target4)) await send(`🏁 XAUUSD — ALL TARGETS COMPLETED\nTP4: ${n(t.target4)}`);
+        else if(t.outcome==='PREENTRY_INVALIDATED') await send('⚪ XAUUSD — SETUP CANCELLED BEFORE ENTRY\nالسيناريو فقد صلاحيته قبل تنفيذ الدخول.');
+        else if(t.outcome==='EXPIRED') await send('⌛ XAUUSD — SETUP EXPIRED\nانتهت صلاحية السيناريو بدون دخول.');
+        sent.terminalKey=key;
+      }
     }
   }catch(e){
     console.error('[telegram-xau-bot]',e?.message||e);
