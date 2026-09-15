@@ -9,7 +9,7 @@ const SPX_PORT=3003;
 const CAPITAL_PORT=3004;
 
 const capital=spawn(process.execPath,['capital-market.js'],{env:{...process.env,PORT:String(CAPITAL_PORT),CAPITAL_DEMO:process.env.CAPITAL_DEMO||'false'},stdio:['ignore','inherit','inherit']});
-const ui=spawn(process.execPath,['gold-target-range-fix-start.js'],{env:{...process.env,PORT:String(UI_PORT)},stdio:['ignore','inherit','inherit']});
+const ui=spawn(process.execPath,['gold-site-ui-start.js'],{env:{...process.env,PORT:String(UI_PORT)},stdio:['ignore','inherit','inherit']});
 const autoEnv={...process.env,PORT:String(AUTO_PORT)};
 if(process.env.CAPITAL_API_KEY&&process.env.CAPITAL_IDENTIFIER&&process.env.CAPITAL_API_PASSWORD){
   autoEnv.GOLD_ALPHA_QUOTE_URL=`http://127.0.0.1:${CAPITAL_PORT}/api/capital/gold`;
