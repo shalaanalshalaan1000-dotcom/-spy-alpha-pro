@@ -9,7 +9,7 @@ const QUOTE_URL = String(process.env.GOLD_ALPHA_QUOTE_URL || '').trim();
 const CANDLES_URL = String(process.env.GOLD_ALPHA_CANDLES_URL || '').trim();
 const DATA_DIR = process.env.GOLD_ALPHA_DATA_DIR || '/tmp/gold-alpha';
 const STORE_PATH = process.env.GOLD_ALPHA_SITE_STORE_PATH || join(DATA_DIR, 'site-signal-state.json');
-const BUILD = 'site-signal-noai-v1';
+const BUILD = 'site-signal-noai-v2';
 const MAX_SIGNAL_MS = 4 * 60 * 60_000;
 const QUOTE_CACHE_MS = 1200;
 const CANDLE_CACHE_MS = 10_000;
@@ -76,7 +76,7 @@ async function fetchJson(url, timeoutMs = 7000) {
   if (!url) throw new Error('DATA_URL_MISSING');
   const response = await fetch(url, {
     cache: 'no-store',
-    headers: { accept: 'application/json', 'user-agent': 'GoldAlphaSiteEngine/1.0' },
+    headers: { accept: 'application/json', 'user-agent': 'GoldAlphaSiteEngine/2.0' },
     signal: AbortSignal.timeout(timeoutMs)
   });
   const data = await response.json().catch(() => ({}));
@@ -92,7 +92,8 @@ async function getQuote(force = false) {
   const ask = num(data.ask);
   const price = num(data.price) ?? (bid != null && ask != null ? (bid + ask) / 2 : null);
   if (price == null || price <= 0) throw new Error('INVALID_XAUUSD_QUOTE');
-  const providerTime = num(data.t) ?? Date.parse(data.updatedAt || '') || now;
+  const parsedTime = Date.parse(data.updatedAt || '');
+  const providerTime = num(data.t) ?? (Number.isFinite(parsedTime) ? parsedTime : now);
   state.quote = {
     price,
     bid: bid ?? price,
