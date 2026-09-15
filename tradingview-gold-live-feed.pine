@@ -1,0 +1,19 @@
+//@version=6
+indicator("Gold Alpha — TradingView Live Feed", overlay=false)
+
+// Sends a lightweight XAUUSD heartbeat to Gold Alpha about every 15 seconds
+// while the market is ticking. Create ONE TradingView alert using
+// Condition: this indicator -> Any alert() function call
+// and paste the private Gold Alpha webhook URL in Notifications -> Webhook URL.
+
+[c0,c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11] = request.security(syminfo.tickerid, "1", [close,close[1],close[2],close[3],close[4],close[5],close[6],close[7],close[8],close[9],close[10],close[11]])
+
+varip int lastSent = na
+sendNow = barstate.isrealtime and (na(lastSent) or timenow - lastSent >= 15000)
+
+if sendNow
+    msg = '{"symbol":"' + syminfo.tickerid + '","price":' + str.tostring(close, format.mintick) + ',"time":' + str.tostring(timenow) + ',"c0":' + str.tostring(c0, format.mintick) + ',"c1":' + str.tostring(c1, format.mintick) + ',"c2":' + str.tostring(c2, format.mintick) + ',"c3":' + str.tostring(c3, format.mintick) + ',"c4":' + str.tostring(c4, format.mintick) + ',"c5":' + str.tostring(c5, format.mintick) + ',"c6":' + str.tostring(c6, format.mintick) + ',"c7":' + str.tostring(c7, format.mintick) + ',"c8":' + str.tostring(c8, format.mintick) + ',"c9":' + str.tostring(c9, format.mintick) + ',"c10":' + str.tostring(c10, format.mintick) + ',"c11":' + str.tostring(c11, format.mintick) + '}'
+    alert(msg, alert.freq_all)
+    lastSent := timenow
+
+plot(na)
