@@ -6,7 +6,9 @@ on:
     paths:
       - .github/workflows/telegram-signals.yml
       - gold-site-signal-engine.js
+      - gold-site-signal-engine-v3.js
       - gold-site-ui-start.js
+      - gold-data-bridge.js
       - gold-signal-model.js
       - gold-unified-start.js
       - site-indicator-start.js
@@ -28,6 +30,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
+      - name: Diagnose live XAUUSD feeds
+        run: |
+          set +e
+          echo '--- Capital status ---'
+          curl -sS --connect-timeout 10 --max-time 20 'https://spy-alpha-pro-1.onrender.com/api/capital/status' || true
+          echo
+          echo '--- Capital gold quote ---'
+          curl -sS --connect-timeout 10 --max-time 20 'https://spy-alpha-pro-1.onrender.com/api/capital/gold?force=1' || true
+          echo
+          echo '--- Data bridge quote ---'
+          curl -sS --connect-timeout 10 --max-time 20 'https://spy-alpha-pro-1.onrender.com/api/data/quote?force=1' || true
+          echo
+          echo '--- Signal health ---'
+          curl -sS --connect-timeout 10 --max-time 20 'https://spy-alpha-pro-1.onrender.com/api/health' || true
+          echo
       - name: Keep Render awake and advance XAUUSD server-side model
         env:
           SIGNAL_ENDPOINT: https://spy-alpha-pro-1.onrender.com/api/auto-trade/signal?observe=1
@@ -49,6 +66,9 @@ jobs:
               'candidateAction': d.get('candidateAction'),
               'sampleCount': d.get('sampleCount'),
               'readingCompleteness': d.get('readingCompleteness'),
+              'historySource': d.get('historySource'),
+              'provider': d.get('provider'),
+              'degraded': d.get('degraded'),
               'noAI': d.get('noAI'),
               'updatedAt': d.get('updatedAt')
           })
