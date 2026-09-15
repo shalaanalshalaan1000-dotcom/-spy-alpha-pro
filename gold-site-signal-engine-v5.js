@@ -4,7 +4,7 @@ import { analyzeGoldSignal } from './gold-signal-model.js';
 
 const PORT=Number(process.env.PORT||3002);
 const MIN_CONFIDENCE=Number(process.env.MIN_CONFIDENCE||65);
-const BUILD='site-signal-noai-v13-tradingview-direct';
+const BUILD='site-signal-noai-v14-tradingview-chartstream';
 const TV_SYMBOL=String(process.env.TV_PUBLIC_SYMBOL||'OANDA:XAUUSD').trim();
 const MAX_QUOTE_AGE_MS=20_000;
 const state={samples:[],signal:null,lastTerminal:null,trades:[],cooldownUntil:0,quote:null,lastError:null,ws:null,wsConnected:false,lastTvAt:0,loggedQuote:false};
@@ -23,14 +23,22 @@ const frame=obj=>{const s=JSON.stringify(obj);return `~m~${s.length}~m~${s}`};
 const send=(m,p)=>{if(state.ws?.readyState===WebSocket.OPEN)state.ws.send(frame({m,p}));};
 const rid=prefix=>`${prefix}_${Math.random().toString(36).slice(2,12)}`;
 function parseFrames(raw){const text=Buffer.isBuffer(raw)?raw.toString('utf8'):String(raw??'');const out=[];let i=0;while(i<text.length){if(!text.startsWith('~m~',i)){i+=1;continue}const j=text.indexOf('~m~',i+3);if(j<0)break;const len=Number(text.slice(i+3,j));if(!Number.isFinite(len))break;const start=j+3,end=start+len;out.push(text.slice(start,end));i=end;}return out;}
-function ingestHistory(msg){const payload=msg?.p?.[1];if(!payload||typeof payload!=='object')return;let added=0;for(const series of Object.values(payload)){const rows=Array.isArray(series?.s)?series.s:[];for(const row of rows){const v=row?.v;if(!Array.isArray(v)||v.length<5)continue;const t=n(v[0]);const close=n(v[4]);if(t==null||close==null||close<=0)continue;add(t*1000,close,close,close);added++;}}if(added){normalize();}}
-function ingestQuote(msg){const d=msg?.p?.[1];const v=d?.v;if(!v||typeof v!=='object')return;const price=n(v.lp??v.last_price??v.close);if(price==null||price<=0)return;const now=Date.now();const t=n(v.lp_time);const stamp=t!=null?(t>1e12?t:t*1000):now;state.quote={price,bid:price,ask:price,t:Math.abs(now-stamp)>MAX_QUOTE_AGE_MS?now:stamp,provider:'TRADINGVIEW_DIRECT',degraded:false,symbol:d?.n||TV_SYMBOL};state.lastTvAt=now;state.lastError=null;recordLive(price,now);if(!state.loggedQuote){state.loggedQuote=true;console.log(`[tv-direct] first quote ${TV_SYMBOL} ${price}`);}}
+function ingestTimescale(msg){
+ const payload=msg?.p?.[1];if(!payload||typeof payload!=='object')return;
+ let newestT=0,newestClose=null,added=0;
+ for(const series of Object.values(payload)){
+  const rows=Array.isArray(series?.s)?series.s:[];
+  for(const row of rows){const v=row?.v;if(!Array.isArray(v)||v.length<5)continue;const t=n(v[0]);const close=n(v[4]);if(t==null||close==null||close<=0)continue;const ms=t>1e12?t:t*1000;add(ms,close,close,close);added++;if(ms>=newestT){newestT=ms;newestClose=close;}}
+ }
+ if(added)normalize();
+ if(newestClose!=null){const now=Date.now();state.quote={price:newestClose,bid:newestClose,ask:newestClose,t:now,provider:'TRADINGVIEW_DIRECT',degraded:false,symbol:TV_SYMBOL};state.lastTvAt=now;state.lastError=null;recordLive(newestClose,now);if(!state.loggedQuote){state.loggedQuote=true;console.log(`[tv-direct] first chart quote ${TV_SYMBOL} ${newestClose}`);}}
+}
 function connectTradingView(){
- const qs=rid('qs'),cs=rid('cs');
+ const cs=rid('cs');
  try{
   const ws=new WebSocket(`wss://data.tradingview.com/socket.io/websocket?from=chart%2F&date=${Date.now()}`,{headers:{Origin:'https://www.tradingview.com','User-Agent':'Mozilla/5.0'}});state.ws=ws;
-  ws.on('open',()=>{state.wsConnected=true;state.lastError=null;send('set_auth_token',['unauthorized_user_token']);send('quote_create_session',[qs]);send('quote_set_fields',[qs,'lp','lp_time','ch','chp','current_session','description','exchange','original_name','pro_name','short_name','type','update_mode']);send('quote_add_symbols',[qs,TV_SYMBOL]);send('chart_create_session',[cs,'']);send('switch_timezone',[cs,'Etc/UTC']);send('resolve_symbol',[cs,'symbol_1',`={"symbol":"${TV_SYMBOL}","adjustment":"splits","session":"regular"}`]);send('create_series',[cs,'s1','s1','symbol_1','1',180]);console.log(`[tv-direct] connected ${TV_SYMBOL}`);});
-  ws.on('message',data=>{for(const part of parseFrames(data)){if(part.startsWith('~h~')){try{ws.send(frame(part))}catch{}continue}let msg;try{msg=JSON.parse(part)}catch{continue}if(msg.m==='qsd')ingestQuote(msg);if(msg.m==='timescale_update')ingestHistory(msg);if(msg.m==='protocol_error'||msg.m==='critical_error'){state.lastError=`TV_${msg.m}`;console.error('[tv-direct]',msg.m,JSON.stringify(msg.p||[]).slice(0,300));}}});
+  ws.on('open',()=>{state.wsConnected=true;state.lastError=null;send('set_auth_token',['unauthorized_user_token']);send('chart_create_session',[cs,'']);send('switch_timezone',[cs,'Etc/UTC']);send('resolve_symbol',[cs,'symbol_1',`={"symbol":"${TV_SYMBOL}","adjustment":"splits","session":"regular"}`]);send('create_series',[cs,'s1','s1','symbol_1','1',180]);console.log(`[tv-direct] connected chart stream ${TV_SYMBOL}`);});
+  ws.on('message',data=>{for(const part of parseFrames(data)){if(part.startsWith('~h~')){try{ws.send(frame(part))}catch{}continue}let msg;try{msg=JSON.parse(part)}catch{continue}if(msg.m==='timescale_update')ingestTimescale(msg);if(msg.m==='protocol_error'||msg.m==='critical_error'){state.lastError=`TV_${msg.m}`;console.error('[tv-direct]',msg.m,JSON.stringify(msg.p||[]).slice(0,300));}}});
   ws.on('error',e=>{state.lastError=`TV_WEBSOCKET_ERROR:${e?.message||e}`;console.error('[tv-direct] error',e?.message||e);});
   ws.on('close',(code,reason)=>{state.wsConnected=false;state.ws=null;console.error('[tv-direct] closed',code,String(reason||''));setTimeout(connectTradingView,2500).unref();});
  }catch(e){state.lastError=String(e?.message||e);console.error('[tv-direct] connect error',state.lastError);setTimeout(connectTradingView,5000).unref();}
@@ -54,4 +62,4 @@ const server=http.createServer(async(req,res)=>{const u=new URL(req.url||'/','ht
  if(req.method==='GET'&&u.pathname==='/api/performance/journal'){const closed=state.trades.filter(x=>x.status==='CLOSED'),wins=closed.filter(x=>x.outcome==='TP4').length,losses=closed.filter(x=>x.outcome==='SL').length;return json(res,200,{trades:state.trades,closed:closed.length,wins,losses,winRate:closed.length?round(wins/closed.length*100,1):null});}
  return json(res,404,{error:'Not found'});
 }catch(e){state.lastError=String(e?.message||e);return json(res,503,{error:'Signal engine unavailable',detail:state.lastError,build:BUILD,noAI:true});}});
-server.listen(PORT,'0.0.0.0',()=>{console.log(`[gold-site-signal-engine] ${BUILD} listening on ${PORT}; direct TradingView feed ${TV_SYMBOL}; no subscription; AI=off; execution=off; telegram-only`);connectTradingView();});
+server.listen(PORT,'0.0.0.0',()=>{console.log(`[gold-site-signal-engine] ${BUILD} listening on ${PORT}; TradingView chart stream ${TV_SYMBOL}; no subscription; AI=off; execution=off; telegram-only`);connectTradingView();});
