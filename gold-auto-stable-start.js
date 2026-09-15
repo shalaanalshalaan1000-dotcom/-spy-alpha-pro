@@ -11,7 +11,7 @@ let source=readFileSync(sourcePath,'utf8');
 // RULE-ENGINE PROFILE: let the site's own XAUUSD logic decide BUY/SELL/WAIT.
 source=source.replace(
   "const MIN_CONFIDENCE = Number(process.env.MIN_CONFIDENCE || 65);",
-  "const MIN_CONFIDENCE = 55;"
+  "const MIN_CONFIDENCE = 75;"
 );
 source=source.replace(
   "const PREAPPROVAL_TTL_MS = 45_000;",
