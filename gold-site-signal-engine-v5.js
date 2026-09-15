@@ -4,7 +4,7 @@ import { analyzeGoldSignal } from './gold-signal-model.js';
 
 const PORT=Number(process.env.PORT||3002);
 const MIN_CONFIDENCE=Number(process.env.MIN_CONFIDENCE||65);
-const BUILD='site-signal-noai-v12-tradingview-direct';
+const BUILD='site-signal-noai-v13-tradingview-direct';
 const TV_SYMBOL=String(process.env.TV_PUBLIC_SYMBOL||'OANDA:XAUUSD').trim();
 const MAX_QUOTE_AGE_MS=20_000;
 const state={samples:[],signal:null,lastTerminal:null,trades:[],cooldownUntil:0,quote:null,lastError:null,ws:null,wsConnected:false,lastTvAt:0,loggedQuote:false};
@@ -29,7 +29,7 @@ function connectTradingView(){
  const qs=rid('qs'),cs=rid('cs');
  try{
   const ws=new WebSocket(`wss://data.tradingview.com/socket.io/websocket?from=chart%2F&date=${Date.now()}`,{headers:{Origin:'https://www.tradingview.com','User-Agent':'Mozilla/5.0'}});state.ws=ws;
-  ws.on('open',()=>{state.wsConnected=true;state.lastError=null;send('set_auth_token',['unauthorized_user_token']);send('quote_create_session',[qs]);send('quote_set_fields',[qs,'lp','lp_time','ch','chp','current_session','description','exchange','original_name','pro_name','short_name','type','update_mode']);send('quote_add_symbols',[qs,TV_SYMBOL,{flags:['force_permission']}]);send('chart_create_session',[cs,'']);send('switch_timezone',[cs,'Etc/UTC']);send('resolve_symbol',[cs,'symbol_1',`={"symbol":"${TV_SYMBOL}","adjustment":"splits","session":"regular"}`]);send('create_series',[cs,'s1','s1','symbol_1','1',180]);console.log(`[tv-direct] connected ${TV_SYMBOL}`);});
+  ws.on('open',()=>{state.wsConnected=true;state.lastError=null;send('set_auth_token',['unauthorized_user_token']);send('quote_create_session',[qs]);send('quote_set_fields',[qs,'lp','lp_time','ch','chp','current_session','description','exchange','original_name','pro_name','short_name','type','update_mode']);send('quote_add_symbols',[qs,TV_SYMBOL]);send('chart_create_session',[cs,'']);send('switch_timezone',[cs,'Etc/UTC']);send('resolve_symbol',[cs,'symbol_1',`={"symbol":"${TV_SYMBOL}","adjustment":"splits","session":"regular"}`]);send('create_series',[cs,'s1','s1','symbol_1','1',180]);console.log(`[tv-direct] connected ${TV_SYMBOL}`);});
   ws.on('message',data=>{for(const part of parseFrames(data)){if(part.startsWith('~h~')){try{ws.send(frame(part))}catch{}continue}let msg;try{msg=JSON.parse(part)}catch{continue}if(msg.m==='qsd')ingestQuote(msg);if(msg.m==='timescale_update')ingestHistory(msg);if(msg.m==='protocol_error'||msg.m==='critical_error'){state.lastError=`TV_${msg.m}`;console.error('[tv-direct]',msg.m,JSON.stringify(msg.p||[]).slice(0,300));}}});
   ws.on('error',e=>{state.lastError=`TV_WEBSOCKET_ERROR:${e?.message||e}`;console.error('[tv-direct] error',e?.message||e);});
   ws.on('close',(code,reason)=>{state.wsConnected=false;state.ws=null;console.error('[tv-direct] closed',code,String(reason||''));setTimeout(connectTradingView,2500).unref();});
