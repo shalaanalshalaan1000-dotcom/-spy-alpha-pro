@@ -6,5 +6,8 @@
   "scripts": {
     "start": "node site-indicator-start.js",
     "test": "node --test"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
   }
 }
