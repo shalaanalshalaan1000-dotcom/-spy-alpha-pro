@@ -1,39 +1,49 @@
-name: Telegram signal scanner
+name: Gold Alpha always-on scanner
 
 on:
   push:
     branches: [main]
     paths:
       - .github/workflows/telegram-signals.yml
-      - gold-telegram-start.js
-      - gold-server-start.js
+      - gold-app.js
+      - gold-unified-start.js
+      - telegram-xau-bot.js
       - package.json
   schedule:
-    - cron: "*/10 * * * 0-5"
+    - cron: "*/5 * * * 0-5"
   workflow_dispatch:
 
 permissions:
-  id-token: write
   contents: read
 
 concurrency:
-  group: spy-alpha-pro-telegram-scanner
+  group: gold-alpha-always-on-scanner
   cancel-in-progress: true
 
 jobs:
-  scan:
+  wake-and-scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 4
     steps:
-      - name: Wake Render and scan
+      - name: Keep Render awake and advance XAUUSD server-side model
         env:
-          SIGNAL_ENDPOINT: https://spy-alpha-pro-1.onrender.com/api/telegram/run
+          SIGNAL_ENDPOINT: https://spy-alpha-pro-1.onrender.com/api/auto-trade/signal?observe=1
         run: |
           set -euo pipefail
-          token_json="$(curl --fail --silent --show-error \
-            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=spy-alpha-pro-v4-render")"
-          id_token="$(printf '%s' "$token_json" | jq -er '.value')"
           curl --fail-with-body --silent --show-error \
-            --retry 5 --retry-delay 8 --connect-timeout 20 --max-time 180 \
-            -X POST -H "Authorization: Bearer ${id_token}" "$SIGNAL_ENDPOINT"
+            --retry 5 --retry-all-errors --retry-delay 8 \
+            --connect-timeout 20 --max-time 180 \
+            "$SIGNAL_ENDPOINT" > /tmp/gold-alpha-signal.json
+          python - <<'PY'
+          import json
+          p='/tmp/gold-alpha-signal.json'
+          with open(p, encoding='utf-8') as f:
+              d=json.load(f)
+          print('Gold Alpha wake OK:', {
+              'status': d.get('status'),
+              'action': d.get('action'),
+              'candidateAction': d.get('candidateAction'),
+              'sampleCount': d.get('sampleCount'),
+              'updatedAt': d.get('updatedAt')
+          })
+          PY
