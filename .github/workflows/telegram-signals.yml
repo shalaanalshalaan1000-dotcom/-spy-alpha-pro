@@ -5,8 +5,11 @@ on:
     branches: [main]
     paths:
       - .github/workflows/telegram-signals.yml
-      - gold-app.js
+      - gold-site-signal-engine.js
+      - gold-site-ui-start.js
+      - gold-signal-model.js
       - gold-unified-start.js
+      - site-indicator-start.js
       - telegram-xau-bot.js
       - package.json
   schedule:
@@ -40,10 +43,13 @@ jobs:
           with open(p, encoding='utf-8') as f:
               d=json.load(f)
           print('Gold Alpha wake OK:', {
+              'build': d.get('build'),
               'status': d.get('status'),
               'action': d.get('action'),
               'candidateAction': d.get('candidateAction'),
               'sampleCount': d.get('sampleCount'),
+              'readingCompleteness': d.get('readingCompleteness'),
+              'noAI': d.get('noAI'),
               'updatedAt': d.get('updatedAt')
           })
           PY
