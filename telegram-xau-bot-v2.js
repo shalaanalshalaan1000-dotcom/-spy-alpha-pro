@@ -4,9 +4,10 @@ const CHAT_ID=String(process.env.TELEGRAM_CHAT_ID||'').trim();
 const POLL_MS=Math.max(1200,Number(process.env.TELEGRAM_POLL_MS||1500));
 const SIGNAL_THRESHOLD=Math.max(1,Math.min(100,Number(process.env.TELEGRAM_DIRECTIONAL_MIN_CONFIDENCE||75)));
 const RESET_HOLD_MS=Math.max(5000,Number(process.env.TELEGRAM_SIGNAL_RESET_HOLD_MS||20000));
+const EDIT_MIN_MS=Math.max(5000,Number(process.env.TELEGRAM_EDIT_MIN_MS||10000));
 
 let ready=false;
-const sent={side:null,above:false,sentAtMs:0,belowSinceMs:0};
+const sent={side:null,above:false,messageId:null,lastText:null,lastEditMs:0,belowSinceMs:0};
 
 function num(v){const x=Number(v);return Number.isFinite(x)?x:null;}
 function valid(v){const x=num(v);return x!=null&&x>0;}
@@ -36,7 +37,19 @@ async function tg(method,body=null){
 }
 async function send(text){
   if(!CHAT_ID)throw new Error('TELEGRAM_CHAT_ID missing');
-  await tg('sendMessage',{chat_id:CHAT_ID,text,disable_web_page_preview:true});
+  const d=await tg('sendMessage',{chat_id:CHAT_ID,text,disable_web_page_preview:true});
+  return Number(d?.result?.message_id)||null;
+}
+async function edit(messageId,text){
+  if(!CHAT_ID||!messageId)return false;
+  try{
+    await tg('editMessageText',{chat_id:CHAT_ID,message_id:messageId,text,disable_web_page_preview:true});
+    return true;
+  }catch(e){
+    const m=String(e?.message||e);
+    if(m.includes('message is not modified'))return true;
+    throw e;
+  }
 }
 async function startup(){
   if(ready)return true;
@@ -66,12 +79,20 @@ async function tick(){
 
     if(ok){
       sent.belowSinceMs=0;
-      if(!sent.above||sent.side!==side){
-        await send(targetMessage(s));
+      const text=targetMessage(s);
+      if(!sent.above||sent.side!==side||!sent.messageId){
+        const messageId=await send(text);
         sent.above=true;
         sent.side=side;
-        sent.sentAtMs=now;
-        console.log(`[telegram-xau-targets] sent ${side} ${Math.round(confidence)}%`);
+        sent.messageId=messageId;
+        sent.lastText=text;
+        sent.lastEditMs=now;
+        console.log(`[telegram-xau-targets] sent ${side} ${Math.round(confidence)}% msg=${messageId||'na'}`);
+      }else if(text!==sent.lastText&&now-sent.lastEditMs>=EDIT_MIN_MS){
+        await edit(sent.messageId,text);
+        sent.lastText=text;
+        sent.lastEditMs=now;
+        console.log(`[telegram-xau-targets] edited ${side} ${Math.round(confidence)}% msg=${sent.messageId}`);
       }
       return;
     }
@@ -82,7 +103,11 @@ async function tick(){
       if(now-sent.belowSinceMs>=RESET_HOLD_MS){
         sent.above=false;
         sent.side=null;
+        sent.messageId=null;
+        sent.lastText=null;
+        sent.lastEditMs=0;
         sent.belowSinceMs=0;
+        console.log('[telegram-xau-targets] cycle reset');
       }
     }else{
       sent.belowSinceMs=0;
@@ -90,7 +115,7 @@ async function tick(){
   }catch(e){console.error('[telegram-xau-targets]',e?.message||e);}
 }
 
-console.log(`[telegram-xau-targets] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} targets>=${SIGNAL_THRESHOLD}; dedupe=side-cycle`);
+console.log(`[telegram-xau-targets] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} targets>=${SIGNAL_THRESHOLD}; mode=single-live-message`);
 if(process.env.NODE_ENV!=='test')(async function loop(){while(true){await tick();await new Promise(r=>setTimeout(r,POLL_MS));}})();
 
 export {targetMessage};
