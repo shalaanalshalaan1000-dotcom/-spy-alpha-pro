@@ -296,7 +296,7 @@ export function analyzeGoldSignal(samples, rawPrice, now = Date.now()) {
   const direction = side === 'BUY' ? 1 : -1;
   const halfBase = confirm1.aligned ? atr5 * .22 : atr5 * .30;
   const half = Math.min(1.35, Math.max(.40, halfBase));
-  const distance1 = Math.max(1.2, risk * 1.2), distance2=Math.max(2.2,risk*1.7), distance3=Math.max(3.2,risk*2.2), distance4=Math.max(4.2,risk*2.7);
+  // Fast-scalp ladder: secure the first objectives sooner while preserving a positive final R multiple.\n  const distance1 = Math.max(.75, risk * .65), distance2=Math.max(1.25,risk*1.0), distance3=Math.max(1.9,risk*1.4), distance4=Math.max(2.7,risk*1.9);
   const setupId = [side,strategy,structureAt,contextBias,round(entryBase),round(stop)].join('|');
   const predictive = strategy==='TREND_CONTINUATION' && prediction.side===side && prediction.confidence>=60;
   return {...base,status:'CANDIDATE',candidateAction:side,side,strategy,confidence,contextBias,oneMinuteConfirmed:confirm1.aligned,setupId,structureAt,prediction,
