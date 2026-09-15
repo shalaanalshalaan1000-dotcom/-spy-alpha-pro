@@ -21,6 +21,8 @@ function sideOf(s){
 function confidenceOf(s){return Math.max(Number(s?.signalConfidence)||0,Number(s?.confidence)||0,Number(s?.prediction?.confidence)||0);}
 function targetOf(s,i){return num(s?.[`target${i}`])??num(s?.entryGuard?.[`target${i}`])??num(s?.prediction?.[`target${i}`]);}
 function targetsOf(s){return [1,2,3,4].map(i=>targetOf(s,i));}
+function stopOf(s){return num(s?.stopLoss)??num(s?.originalStopLoss)??num(s?.managedStopLoss)??num(s?.prediction?.stopLoss)??num(s?.entryGuard?.stopLoss);}
+function stopValid(side,price,sl){return valid(sl)&&valid(price)&&(side==='BUY'?sl<price:sl>price);}
 
 async function tg(method,body=null){
   if(!BOT_TOKEN)throw new Error('TELEGRAM_BOT_TOKEN missing');
@@ -65,8 +67,8 @@ async function startup(){
   }
 }
 function targetMessage(s){
-  const side=sideOf(s),confidence=Math.round(confidenceOf(s)),icon=side==='BUY'?'🟢':'🔴',price=num(s?.price),t=targetsOf(s);
-  return `${icon} XAUUSD — ${side}\n📊 الثقة: ${confidence}%\n💵 السعر: ${money(price)}\n🎯 TP1: ${n(t[0])}\n🎯 TP2: ${n(t[1])}\n🎯 TP3: ${n(t[2])}\n🎯 TP4: ${n(t[3])}`;
+  const side=sideOf(s),confidence=Math.round(confidenceOf(s)),icon=side==='BUY'?'🟢':'🔴',price=num(s?.price),sl=stopOf(s),t=targetsOf(s);
+  return `${icon} XAUUSD — ${side}\n📊 الثقة: ${confidence}%\n💵 السعر: ${money(price)}\n🛑 SL: ${n(sl)}\n🎯 TP1: ${n(t[0])}\n🎯 TP2: ${n(t[1])}\n🎯 TP3: ${n(t[2])}\n🎯 TP4: ${n(t[3])}`;
 }
 async function tick(){
   try{
@@ -74,8 +76,8 @@ async function tick(){
     const r=await fetch(AUTO_URL,{cache:'no-store',signal:AbortSignal.timeout(7000)});
     if(!r.ok)throw new Error(`signal ${r.status}`);
     const s=await r.json();
-    const now=Date.now(),side=sideOf(s),confidence=confidenceOf(s),targets=targetsOf(s),targetsReady=targets.every(valid);
-    const ok=!s?.degraded&&Boolean(side)&&confidence>=SIGNAL_THRESHOLD&&targetsReady&&String(s?.status||'').toUpperCase()!=='COLLECTING';
+    const now=Date.now(),side=sideOf(s),confidence=confidenceOf(s),price=num(s?.price),sl=stopOf(s),targets=targetsOf(s),targetsReady=targets.every(valid),slReady=stopValid(side,price,sl);
+    const ok=!s?.degraded&&Boolean(side)&&confidence>=SIGNAL_THRESHOLD&&targetsReady&&slReady&&String(s?.status||'').toUpperCase()!=='COLLECTING';
 
     if(ok){
       sent.belowSinceMs=0;
@@ -87,12 +89,12 @@ async function tick(){
         sent.messageId=messageId;
         sent.lastText=text;
         sent.lastEditMs=now;
-        console.log(`[telegram-xau-targets] sent ${side} ${Math.round(confidence)}% msg=${messageId||'na'}`);
+        console.log(`[telegram-xau-targets] sent ${side} ${Math.round(confidence)}% SL=${n(sl)} msg=${messageId||'na'}`);
       }else if(text!==sent.lastText&&now-sent.lastEditMs>=EDIT_MIN_MS){
         await edit(sent.messageId,text);
         sent.lastText=text;
         sent.lastEditMs=now;
-        console.log(`[telegram-xau-targets] edited ${side} ${Math.round(confidence)}% msg=${sent.messageId}`);
+        console.log(`[telegram-xau-targets] edited ${side} ${Math.round(confidence)}% SL=${n(sl)} msg=${sent.messageId}`);
       }
       return;
     }
@@ -115,7 +117,7 @@ async function tick(){
   }catch(e){console.error('[telegram-xau-targets]',e?.message||e);}
 }
 
-console.log(`[telegram-xau-targets] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} targets>=${SIGNAL_THRESHOLD}; mode=single-live-message`);
+console.log(`[telegram-xau-targets] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} targets>=${SIGNAL_THRESHOLD}; mode=single-live-message-with-sl`);
 if(process.env.NODE_ENV!=='test')(async function loop(){while(true){await tick();await new Promise(r=>setTimeout(r,POLL_MS));}})();
 
 export {targetMessage};
