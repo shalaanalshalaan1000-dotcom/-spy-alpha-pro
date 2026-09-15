@@ -3,6 +3,9 @@ const BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
 const CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || '').trim();
 const POLL_MS = Math.max(1500, Number(process.env.TELEGRAM_POLL_MS || 1500));
 const STALE_LOOKBACK_MS = Math.max(60_000, Math.min(15 * 60_000, Number(process.env.TELEGRAM_STALE_TARGET_LOOKBACK_MS || 5 * 60_000)));
+const MIN_LIVE_TP1_R = Math.max(.5, Number(process.env.TELEGRAM_MIN_LIVE_TP1_R || process.env.GOLD_MIN_LIVE_TP1_R || .90));
+const MIN_LIVE_TP1_USD = Math.max(.25, Number(process.env.TELEGRAM_MIN_LIVE_TP1_USD || process.env.GOLD_MIN_LIVE_TP1_USD || .75));
+const MAX_NEW_SIGNAL_AGE_MS = Math.max(2000, Number(process.env.TELEGRAM_MAX_NEW_SIGNAL_AGE_MS || 6000));
 
 let bootReady = false;
 let bootAnnounced = false;
@@ -67,7 +70,7 @@ async function startup(){
     console.log(`[telegram-xau-bot] send-only mode authenticated as @${me?.result?.username||'unknown'} chat=${CHAT_ID}`);
     bootReady=true;
     if(!bootAnnounced){
-      await send('✅ Gold Alpha Telegram worker ACTIVE\n\n🥇 XAUUSD alerts are server-side and always-on.\n✅ CONFIRMED ENTRY alerts only.\n🛡️ Late-entry guard ACTIVE: no entry is sent after TP1 was already touched.\n🚫 EARLY and SETUP ARMED alerts are disabled.');
+      await send(`✅ Gold Alpha Telegram worker ACTIVE\n\n🥇 XAUUSD alerts are server-side and always-on.\n✅ CONFIRMED ENTRY alerts only.\n🛡️ Entryability guard ACTIVE: signal must still be inside the entry zone, younger than ${Math.round(MAX_NEW_SIGNAL_AGE_MS/1000)}s, and keep at least ${MIN_LIVE_TP1_R.toFixed(2)}R room to TP1.\n🚫 EARLY and SETUP ARMED alerts are disabled.`);
       bootAnnounced=true;
     }
     return true;
@@ -101,13 +104,31 @@ function levelsReady(s){
   if(side === 'SELL') return stop > entryHigh && tp1 < entryLow && tp2 < tp1;
   return false;
 }
+function entryStillViable(s, now=Date.now()){
+  const side=readSide(s);
+  const price=side==='BUY' ? Number(s?.ask ?? s?.price) : Number(s?.bid ?? s?.price);
+  const stop=Number(s?.stopLoss), tp1=Number(s?.target1), lo=Number(s?.entryLow), hi=Number(s?.entryHigh);
+  const ageMs=Math.max(0,now-readIssuedAtMs(s));
+  if(!['BUY','SELL'].includes(side) || ![price,stop,tp1,lo,hi].every(Number.isFinite)) return {ok:false,reason:'INVALID_LEVELS'};
+  if(ageMs>MAX_NEW_SIGNAL_AGE_MS) return {ok:false,reason:`STALE_${Math.round(ageMs)}MS`,ageMs};
+  if(price<Math.min(lo,hi) || price>Math.max(lo,hi)) return {ok:false,reason:'LEFT_ENTRY_ZONE',ageMs,price};
+  const risk=side==='BUY'?price-stop:stop-price;
+  const reward=side==='BUY'?tp1-price:price-tp1;
+  const rr=risk>0?reward/risk:0;
+  if(risk<=0 || reward<=0) return {ok:false,reason:'TP1_OR_SL_ALREADY_PASSED',ageMs,risk,reward,rr};
+  if(reward<MIN_LIVE_TP1_USD) return {ok:false,reason:'TP1_TOO_CLOSE_USD',ageMs,risk,reward,rr};
+  if(rr<MIN_LIVE_TP1_R) return {ok:false,reason:'TP1_TOO_CLOSE_R',ageMs,risk,reward,rr};
+  return {ok:true,ageMs,risk,reward,rr};
+}
 function terminalKey(t){ return t?.signalId&&t?.outcome?`${t.signalId}:${t.outcome}:${t.closedAtMs||t.closedAt||''}`:null; }
 
 function signalMessage(s){
   const side=s.side||s.candidateAction||s.action,icon=side==='BUY'?'🟢':'🔴';
   const issuedAtMs=readIssuedAtMs(s), latencySec=Math.max(0,(Date.now()-issuedAtMs)/1000);
   const issuedText=new Intl.DateTimeFormat('ar-SA',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true}).format(new Date(issuedAtMs));
-  return `${icon} XAUUSD — CONFIRMED ${side} ENTRY\n🆔 ${s.signalId}\n💵 السعر الحالي: ${money(s.price)}\n📍 الدخول: ${n(s.entryLow)} — ${n(s.entryHigh)}\n🛑 SL: ${n(s.stopLoss)}\n🎯 TP1: ${n(s.target1)}\n🎯 TP2: ${n(s.target2)}\n🎯 TP3: ${n(s.target3)}\n🎯 TP4: ${n(s.target4)}\n📊 الثقة: ${Math.round(readConfidence(s))}%\n🕒 تأكيد المحرك: ${issuedText} بتوقيت السعودية\n⏱️ تأخير الإرسال: ${latencySec.toFixed(1)} ثانية`;
+  const viability=entryStillViable(s);
+  const room=Number.isFinite(viability?.rr)?`\n🛡️ TP1 room at alert: ${viability.rr.toFixed(2)}R / ${Number(viability.reward).toFixed(2)}$`:'';
+  return `${icon} XAUUSD — CONFIRMED ${side} ENTRY\n🆔 ${s.signalId}\n💵 السعر الحالي: ${money(s.price)}\n📍 الدخول: ${n(s.entryLow)} — ${n(s.entryHigh)}\n🛑 SL: ${n(s.stopLoss)}\n🎯 TP1: ${n(s.target1)}\n🎯 TP2: ${n(s.target2)}\n🎯 TP3: ${n(s.target3)}\n🎯 TP4: ${n(s.target4)}\n📊 الثقة: ${Math.round(readConfidence(s))}%${room}\n🕒 تأكيد المحرك: ${issuedText} بتوقيت السعودية\n⏱️ تأخير الإرسال: ${latencySec.toFixed(1)} ثانية`;
 }
 function tpMessage(i,price){ return `✅ XAUUSD — TP${i+1} HIT\n🎯 TP${i+1}: ${n(price)}`; }
 
@@ -127,9 +148,11 @@ async function tick(){
         sent.announcedAtMs=0;
         sent.targets=[false,false,false,false];
 
-        const late = alreadyHasTargetHit(s) || wasTp1TouchedBeforeAlert(s,now);
+        const viability=entryStillViable(s,now);
+        const late = alreadyHasTargetHit(s) || wasTp1TouchedBeforeAlert(s,now) || !viability.ok;
         if(late){
-          console.warn(`[telegram-xau-bot] skipped late signal ${s.signalId}: TP1 was already touched before Telegram entry alert`);
+          const reason=alreadyHasTargetHit(s)?'TARGET_ALREADY_HIT':(wasTp1TouchedBeforeAlert(s,now)?'TP1_TOUCHED_IN_LOOKBACK':viability.reason);
+          console.warn(`[telegram-xau-bot] skipped unenterable signal ${s.signalId}: ${reason}; rr=${Number.isFinite(viability?.rr)?viability.rr.toFixed(2):'na'} reward=${Number.isFinite(viability?.reward)?viability.reward.toFixed(2):'na'}`);
         }else{
           await send(signalMessage(s));
           sent.announced=true;
@@ -183,4 +206,4 @@ if(process.env.NODE_ENV!=='test'){
   (async function loop(){ while(true){ await tick(); await new Promise(r=>setTimeout(r,POLL_MS)); } })();
 }
 
-export { activeSignal, levelsReady, signalMessage, wasTp1TouchedBeforeAlert, alreadyHasTargetHit };
+export { activeSignal, levelsReady, signalMessage, wasTp1TouchedBeforeAlert, alreadyHasTargetHit, entryStillViable };
