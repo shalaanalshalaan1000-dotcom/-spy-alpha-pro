@@ -2,24 +2,12 @@ const number = value => value !== null && value !== undefined && value !== '' &&
 const inRange = (value, low, high) => value != null && low != null && high != null
   && value >= Math.min(low, high) && value <= Math.max(low, high);
 
-const REVIEW_SCHEMA = {
-  type:'object',
-  properties:{
-    decision:{type:'string',enum:['ALLOW','DENY']},
-    reason:{type:'string'},
-    riskFlags:{type:'array',items:{type:'string'}}
-  },
-  required:['decision','reason','riskFlags'],
-  additionalProperties:false
-};
-
-export function aiReviewerConfig(env = process.env) {
-  const parsedTimeout = Number(env.OPENAI_REVIEW_TIMEOUT_MS || 2500);
+export function aiReviewerConfig() {
   return {
-    required:true,
-    configured:Boolean(String(env.OPENAI_API_KEY || '').trim()),
-    model:String(env.OPENAI_REVIEW_MODEL || 'gpt-5.6-luna').trim(),
-    timeoutMs:Math.min(8_000, Math.max(1200, Number.isFinite(parsedTimeout) ? parsedTimeout : 2500))
+    required:false,
+    configured:true,
+    model:'GOLD_ALPHA_SITE_RULES',
+    timeoutMs:0
   };
 }
 
@@ -62,88 +50,7 @@ export function buildReviewSnapshot({model = {}, quote = {}, now = Date.now(), m
     riskRewardValid:number(model.riskReward) != null && number(model.riskReward) > 0,
     noLateEntry:!String(model.reason || '').toUpperCase().includes('NO CHASE')
   };
-  return {
-    instrument:'XAUUSD',
-    reviewPhase,
-    setupId:String(model.setupId || ''),
-    candidate:{
-      side,
-      strategy:model.strategy || null,
-      confidence:number(model.confidence),
-      minimumConfidence:Number(minConfidence),
-      entry:number(model.entry),
-      entryLow,
-      entryHigh,
-      stopLoss,
-      target1:targets[0],
-      target2:targets[1],
-      target3:targets[2],
-      target4:targets[3],
-      riskReward:number(model.riskReward),
-      structureAt:number(model.structureAt),
-      ruleReason:String(model.reason || '').slice(0, 240)
-    },
-    market:{
-      price:number(quote.price),
-      bid:number(quote.bid),
-      ask:number(quote.ask),
-      executablePrice,
-      priceInsideEntry,
-      entryNotMissed,
-      provider:String(quote.provider || ''),
-      quoteAt,
-      quoteAgeMs,
-      degraded:Boolean(quote.degraded)
-    },
-    hardChecks:checks
-  };
-}
-
-function extractResponseText(response = {}) {
-  if (typeof response.output_text === 'string' && response.output_text.trim()) return response.output_text;
-  for (const item of Array.isArray(response.output) ? response.output : []) {
-    for (const content of Array.isArray(item?.content) ? item.content : []) {
-      if (content?.type === 'refusal') return null;
-      if (content?.type === 'output_text' && typeof content.text === 'string') return content.text;
-    }
-  }
-  return null;
-}
-
-function closedReview({setupId, model, reviewedAtMs, status = 'ERROR', code, reason, riskFlags = [], phase = 'EXECUTION'}) {
-  return {
-    required:true,
-    allowed:false,
-    decision:'DENY',
-    status,
-    code,
-    phase,
-    setupId,
-    model,
-    reason:String(reason || 'لم تصدر موافقة AI').slice(0, 320),
-    riskFlags:Array.isArray(riskFlags) ? riskFlags.map(String).slice(0, 8) : [],
-    reviewedAtMs,
-    reviewedAt:new Date(reviewedAtMs).toISOString(),
-    expiresAtMs:reviewedAtMs
-  };
-}
-
-function fallbackApprove({setupId, reviewedAtMs, phase, code, reason}) {
-  return {
-    required:true,
-    allowed:true,
-    decision:'ALLOW',
-    status:'APPROVED',
-    code,
-    phase,
-    setupId,
-    model:'hard-rule-fallback',
-    reason,
-    riskFlags:[],
-    reviewedAtMs,
-    reviewedAt:new Date(reviewedAtMs).toISOString(),
-    expiresAtMs:reviewedAtMs + (phase === 'PRE_TOUCH' ? 45_000 : 12_000)
-  };
+  return {instrument:'XAUUSD',reviewPhase,setupId:String(model.setupId || ''),hardChecks:checks};
 }
 
 export async function reviewGoldCandidate({
@@ -152,92 +59,45 @@ export async function reviewGoldCandidate({
   now = Date.now(),
   minConfidence = 65,
   phase = 'EXECUTION',
-  apiKey = process.env.OPENAI_API_KEY,
-  modelId = aiReviewerConfig().model,
-  timeoutMs = aiReviewerConfig().timeoutMs,
-  fetchImpl = globalThis.fetch,
   clock = Date.now
 } = {}) {
-  const reviewedAtMs = () => Number(clock());
+  const at = Number(clock());
   const setupId = String(model.setupId || '');
-  const safeModel = String(modelId || 'gpt-5.6-luna');
   const reviewPhase = phase === 'PRE_TOUCH' ? 'PRE_TOUCH' : 'EXECUTION';
-  const key = String(apiKey || '').trim();
   const snapshot = buildReviewSnapshot({model, quote, now, minConfidence, phase:reviewPhase});
   const failedChecks = Object.entries(snapshot.hardChecks).filter(([, passed]) => !passed).map(([name]) => name);
 
-  if (!key) {
-    const at = reviewedAtMs();
-    if (failedChecks.length) {
-      return closedReview({setupId,model:safeModel,reviewedAtMs:at,phase:reviewPhase,status:'DENIED',code:'RULE_FALLBACK_DENY',reason:'فشل شرط أمان برمجي؛ لم تُنشر الإشارة',riskFlags:failedChecks});
-    }
-    return fallbackApprove({setupId,reviewedAtMs:at,phase:reviewPhase,code:'RULE_FALLBACK_APPROVED',reason:'اعتماد آلي بالقواعد لأن شروط الأمان الأساسية مكتملة'});
-  }
-
   if (failedChecks.length) {
-    return closedReview({setupId,model:safeModel,reviewedAtMs:reviewedAtMs(),phase:reviewPhase,status:'DENIED',code:'HARD_RULE_DENY',reason:'فشل شرط أمان برمجي قبل مراجعة AI',riskFlags:failedChecks});
-  }
-
-  const body = {
-    model:safeModel,
-    store:false,
-    reasoning:{effort:'none'},
-    max_output_tokens:120,
-    input:[
-      {
-        role:'system',
-        content:'أنت مراجع لإشارة ذهب XAUUSD. استخدم بيانات JSON فقط. جميع hardChecks صحيحة قبل وصول الطلب لك. مهمتك اكتشاف تعارض واضح فقط، وليست إضافة بوابة جديدة تمنع الإشارة. PRE_TOUCH موافقة تمهيدية قبل لمس النطاق، وEXECUTION يعني أن السعر داخل النطاق الآن. لا ترفض بسبب التحفظ العام أو نقص المثالية أو احتمال الخسارة الطبيعي.'
-      },
-      {role:'user', content:JSON.stringify(snapshot)}
-    ],
-    text:{format:{type:'json_schema',name:'xauusd_signal_review',strict:true,schema:REVIEW_SCHEMA}}
-  };
-
-  try {
-    const response = await fetchImpl('https://api.openai.com/v1/responses', {
-      method:'POST',
-      headers:{authorization:`Bearer ${key}`,'content-type':'application/json'},
-      body:JSON.stringify(body),
-      signal:AbortSignal.timeout(Math.min(8_000, Math.max(1200, Number(timeoutMs) || 2500)))
-    });
-    if (!response?.ok) {
-      const at=reviewedAtMs();
-      return fallbackApprove({setupId,reviewedAtMs:at,phase:reviewPhase,code:'AI_HTTP_FALLBACK',reason:'تعذر مراجع AI؛ تم الاعتماد بالقواعد الأساسية المكتملة'});
-    }
-    const payload = await response.json().catch(() => null);
-    if (!payload || (payload.status && payload.status !== 'completed')) {
-      const at=reviewedAtMs();
-      return fallbackApprove({setupId,reviewedAtMs:at,phase:reviewPhase,code:'AI_INCOMPLETE_FALLBACK',reason:'مراجعة AI غير مكتملة؛ تم الاعتماد بالقواعد الأساسية المكتملة'});
-    }
-    const text = extractResponseText(payload);
-    if (!text) {
-      const at=reviewedAtMs();
-      return fallbackApprove({setupId,reviewedAtMs:at,phase:reviewPhase,code:'AI_REFUSAL_FALLBACK',reason:'لم يتوفر قرار AI؛ تم الاعتماد بالقواعد الأساسية المكتملة'});
-    }
-    let parsed;
-    try { parsed = JSON.parse(text); }
-    catch {
-      const at=reviewedAtMs();
-      return fallbackApprove({setupId,reviewedAtMs:at,phase:reviewPhase,code:'AI_JSON_FALLBACK',reason:'صيغة مراجعة AI غير صالحة؛ تم الاعتماد بالقواعد الأساسية المكتملة'});
-    }
-    const decision = parsed?.decision === 'ALLOW' ? 'ALLOW' : 'DENY';
-    const at = reviewedAtMs();
-    if (decision !== 'ALLOW') {
-      return fallbackApprove({
-        setupId,
-        reviewedAtMs:at,
-        phase:reviewPhase,
-        code:'AI_DENY_ADVISORY_OVERRIDE',
-        reason:'شروط التأكيد البرمجية مكتملة؛ اعتُبر رفض AI تنبيهًا استشاريًا ولم يمنع الإشارة المؤكدة'
-      });
-    }
     return {
-      required:true,allowed:true,decision:'ALLOW',status:'APPROVED',code:reviewPhase === 'PRE_TOUCH' ? 'AI_PREAPPROVED' : 'AI_ALLOW',phase:reviewPhase,setupId,model:safeModel,
-      reason:String(parsed?.reason || 'وافق AI على الإشارة').slice(0, 320),riskFlags:Array.isArray(parsed?.riskFlags) ? parsed.riskFlags.map(String).slice(0, 8) : [],
-      reviewedAtMs:at,reviewedAt:new Date(at).toISOString(),expiresAtMs:at + (reviewPhase === 'PRE_TOUCH' ? 45_000 : 12_000)
+      required:false,
+      allowed:false,
+      decision:'DENY',
+      status:'DENIED',
+      code:'SITE_RULE_DENY',
+      phase:reviewPhase,
+      setupId,
+      model:'GOLD_ALPHA_SITE_RULES',
+      reason:'رفض مباشر من قواعد الموقع لأن شرطاً أساسياً غير مكتمل',
+      riskFlags:failedChecks,
+      reviewedAtMs:at,
+      reviewedAt:new Date(at).toISOString(),
+      expiresAtMs:at
     };
-  } catch (error) {
-    const at=reviewedAtMs();
-    return fallbackApprove({setupId,reviewedAtMs:at,phase:reviewPhase,code:'AI_UNAVAILABLE_FALLBACK',reason:'مراجع AI غير متاح مؤقتًا؛ تم الاعتماد بالقواعد الأساسية المكتملة'});
   }
+
+  return {
+    required:false,
+    allowed:true,
+    decision:'ALLOW',
+    status:'APPROVED',
+    code:'SITE_RULE_APPROVED',
+    phase:reviewPhase,
+    setupId,
+    model:'GOLD_ALPHA_SITE_RULES',
+    reason:'اعتماد مباشر من نموذج Gold Alpha بالموقع — بدون AI خارجي',
+    riskFlags:[],
+    reviewedAtMs:at,
+    reviewedAt:new Date(at).toISOString(),
+    expiresAtMs:at + (reviewPhase === 'PRE_TOUCH' ? 45_000 : 12_000)
+  };
 }
