@@ -13,10 +13,16 @@ let lastEarlyKey = null;
 let lastEarlyAt = 0;
 let lastCandidateKey = null;
 let lastCandidateAt = 0;
+let terminalPrimed = false;
 const sent = { signalId:null, targets:[false,false,false,false], terminalKey:null };
 
-function n(v,d=3){ const x=Number(v); return Number.isFinite(x)?x.toFixed(d):'—'; }
-function money(v,d=2){ const x=Number(v); return Number.isFinite(x)?'$'+x.toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d}):'—'; }
+function validNumber(v){
+  if(v === null || v === undefined || v === '') return false;
+  const x = Number(v);
+  return Number.isFinite(x) && x > 0;
+}
+function n(v,d=3){ return validNumber(v)?Number(v).toFixed(d):'—'; }
+function money(v,d=2){ return validNumber(v)?'$'+Number(v).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d}):'—'; }
 
 async function tg(method,body=null){
   if(!BOT_TOKEN) throw new Error('TELEGRAM_BOT_TOKEN missing');
@@ -64,8 +70,17 @@ function readConfidence(s){
   return Math.max(Number(s?.signalConfidence)||0,Number(s?.confidence)||0,Number(s?.prediction?.confidence)||0);
 }
 function activeSignal(s){ return Boolean(s?.signalId&&s?.status==='ACTIVE'&&['BUY','SELL'].includes(s?.candidateAction||s?.side||s?.action)); }
-function levelsReady(s){ return [s?.entryLow,s?.entryHigh,s?.stopLoss,s?.target1,s?.target2].every(v=>Number.isFinite(Number(v))); }
-function earlyReady(s){ return Boolean(readSide(s)&&readConfidence(s)>=EARLY_MIN_CONFIDENCE&&s?.degraded!==true); }
+function levelsReady(s){
+  const side = readSide(s);
+  const vals = [s?.entryLow,s?.entryHigh,s?.stopLoss,s?.target1,s?.target2];
+  if(!side || !vals.every(validNumber)) return false;
+  const entryLow = Number(s.entryLow), entryHigh = Number(s.entryHigh), stop = Number(s.stopLoss), tp1 = Number(s.target1), tp2 = Number(s.target2);
+  if(entryLow > entryHigh) return false;
+  if(side === 'BUY') return stop < entryLow && tp1 > entryHigh && tp2 > tp1;
+  if(side === 'SELL') return stop > entryHigh && tp1 < entryLow && tp2 < tp1;
+  return false;
+}
+function earlyReady(s){ return Boolean(readSide(s)&&validNumber(s?.price)&&readConfidence(s)>=EARLY_MIN_CONFIDENCE&&s?.degraded!==true); }
 function earlyKey(s){ return `${readSide(s)}|${Math.floor(readConfidence(s)/5)*5}`; }
 function candidateReady(s){ return Boolean(readSide(s)&&levelsReady(s)&&readConfidence(s)>=CANDIDATE_MIN_CONFIDENCE&&s?.degraded!==true); }
 function candidateKey(s){ return [readSide(s),s?.strategy||'',n(s?.entryLow,2),n(s?.entryHigh,2),n(s?.stopLoss,2),n(s?.target1,2)].join('|'); }
@@ -109,9 +124,11 @@ async function tick(){
         await send(candidateMessage(s));
         lastCandidateKey=key; lastCandidateAt=now;
       }
+    }else if(!levelsReady(s)){
+      lastCandidateKey=null;
     }
 
-    if(activeSignal(s)){
+    if(activeSignal(s)&&levelsReady(s)){
       currentSignal=s;
       if(sent.signalId!==s.signalId){
         await send(signalMessage(s));
@@ -120,13 +137,16 @@ async function tick(){
       }
       const hits=Array.isArray(s.targetHits)?s.targetHits:[];
       const targets=[s.target1,s.target2,s.target3,s.target4];
-      for(let i=0;i<4;i++) if(hits[i]&&!sent.targets[i]){ await send(tpMessage(i,targets[i])); sent.targets[i]=true; }
+      for(let i=0;i<4;i++) if(hits[i]&&!sent.targets[i]&&validNumber(targets[i])){ await send(tpMessage(i,targets[i])); sent.targets[i]=true; }
     }else currentSignal=null;
 
     const t=s.terminalEvent,key=terminalKey(t);
-    if(key&&key!==sent.terminalKey){
-      if(t.outcome==='SL') await send(`🛑 XAUUSD — STOP LOSS HIT\nSL: ${n(t.stopLoss)}\nExit: ${n(t.exitPrice)}`);
-      else if(t.outcome==='TP4') await send(`🏁 XAUUSD — ALL TARGETS COMPLETED\nTP4: ${n(t.target4)}`);
+    if(!terminalPrimed){
+      sent.terminalKey=key;
+      terminalPrimed=true;
+    }else if(key&&key!==sent.terminalKey){
+      if(t.outcome==='SL'&&validNumber(t.stopLoss)&&validNumber(t.exitPrice)) await send(`🛑 XAUUSD — STOP LOSS HIT\nSL: ${n(t.stopLoss)}\nExit: ${n(t.exitPrice)}`);
+      else if(t.outcome==='TP4'&&validNumber(t.target4)) await send(`🏁 XAUUSD — ALL TARGETS COMPLETED\nTP4: ${n(t.target4)}`);
       else if(t.outcome==='PREENTRY_INVALIDATED') await send('⚪ XAUUSD — SETUP CANCELLED BEFORE ENTRY\nالسيناريو فقد صلاحيته قبل تنفيذ الدخول.');
       else if(t.outcome==='EXPIRED') await send('⌛ XAUUSD — SETUP EXPIRED\nانتهت صلاحية السيناريو بدون دخول.');
       sent.terminalKey=key;
