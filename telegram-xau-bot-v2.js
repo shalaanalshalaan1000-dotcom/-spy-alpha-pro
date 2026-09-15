@@ -15,6 +15,8 @@ function money(v,d=2){return valid(v)?'$'+Number(v).toLocaleString(undefined,{mi
 function sideOf(s){return ['BUY','SELL'].find(x=>[s?.side,s?.candidateAction,s?.action].includes(x))||null;}
 function directionalSide(s){return sideOf(s)||(['BUY','SELL'].includes(s?.entryGuard?.side)?s.entryGuard.side:null)||(['BUY','SELL'].includes(s?.prediction?.side)?s.prediction.side:null);}
 function directionalConfidence(s){return Math.max(Number(s?.signalConfidence)||0,Number(s?.confidence)||0,Number(s?.prediction?.confidence)||0);}
+function targetOf(s,i){return num(s?.[`target${i}`])??num(s?.entryGuard?.[`target${i}`])??num(s?.prediction?.[`target${i}`]);}
+function targetSet(s){return [1,2,3,4].map(i=>targetOf(s,i));}
 function issuedMs(s){const direct=num(s?.issuedAtMs);if(direct&&direct>0)return direct;const p=Date.parse(String(s?.issuedAt||''));return Number.isFinite(p)?p:Date.now();}
 async function tg(method,body=null){
  if(!BOT_TOKEN)throw new Error('TELEGRAM_BOT_TOKEN missing');
@@ -27,7 +29,7 @@ async function startup(){
  if(!BOT_TOKEN||!CHAT_ID){console.error('[telegram-xau-v2] token/chat missing');return false;}
  try{
   const me=await tg('getMe');ready=true;console.log(`[telegram-xau-v2] authenticated @${me?.result?.username||'unknown'} chat=${CHAT_ID}`);
-  if(!bootAnnounced){await send(`✅ Gold Alpha Telegram ACTIVE\n\n🥇 XAUUSD directional signal starts at ${SIGNAL_THRESHOLD}% confidence.\n📍 Confirmed entry alerts remain separate when executable levels pass.\n🛡️ Managed trade mode ACTIVE for confirmed entries.`);bootAnnounced=true;}
+  if(!bootAnnounced){await send(`✅ Gold Alpha Telegram ACTIVE\n\n🥇 XAUUSD target signals start at ${SIGNAL_THRESHOLD}% confidence.\n🎯 عند بلوغ الحد تصل TP1–TP4 مباشرة.\n🛡️ Entry Guard يبقى داخليًا ولا ننتظره لإرسال الأهداف.`);bootAnnounced=true;}
   return true;
  }catch(e){console.error('[telegram-xau-v2] startup',e?.message||e);return false;}
 }
@@ -51,9 +53,8 @@ function viability(s,now=Date.now()){
  return{ok:true,age,risk,reward,rr};
 }
 function directionMessage(s){
- const side=directionalSide(s),confidence=Math.round(directionalConfidence(s)),icon=side==='BUY'?'🟢':'🔴',g=s?.entryGuard||{},room=num(g.rewardToTp1),rr=num(g.liveTp1R),price=num(s?.price);
- const details=[];if(room!=null)details.push(`الحركة المقدرة إلى TP1: ${room.toFixed(2)}$`);if(rr!=null)details.push(`RR الحالي: ${rr.toFixed(2)}R`);
- return `${icon} XAUUSD — ${side} SIGNAL\n📊 الثقة: ${confidence}%\n💵 السعر: ${money(price)}\n⚡ حد الإشارة: ${SIGNAL_THRESHOLD}%${details.length?'\n'+details.join('\n'):''}\nℹ️ هذه إشارة اتجاهية؛ رسالة CONFIRMED ENTRY تصل منفصلة إذا اعتمد محرك التنفيذ مستويات الدخول.`;
+ const side=directionalSide(s),confidence=Math.round(directionalConfidence(s)),icon=side==='BUY'?'🟢':'🔴',price=num(s?.price),targets=targetSet(s);
+ return `${icon} XAUUSD — ${side}\n📊 الثقة: ${confidence}%\n💵 السعر: ${money(price)}\n🎯 TP1: ${n(targets[0])}\n🎯 TP2: ${n(targets[1])}\n🎯 TP3: ${n(targets[2])}\n🎯 TP4: ${n(targets[3])}`;
 }
 function entryMessage(s){
  const side=sideOf(s),icon=side==='BUY'?'🟢':'🔴',v=viability(s),at=issuedMs(s);
@@ -80,10 +81,10 @@ async function tick(){
  try{
   if(!(await startup()))return;
   const r=await fetch(AUTO_URL,{cache:'no-store',signal:AbortSignal.timeout(7000)});if(!r.ok)throw new Error(`signal ${r.status}`);const s=await r.json();const now=Date.now();
-  const dSide=directionalSide(s),dConfidence=directionalConfidence(s),directionalOk=!s?.degraded&&Boolean(dSide)&&dConfidence>=SIGNAL_THRESHOLD&&String(s?.status||'').toUpperCase()!=='COLLECTING';
+  const dSide=directionalSide(s),dConfidence=directionalConfidence(s),targets=targetSet(s),targetsReady=targets.every(valid),directionalOk=!s?.degraded&&Boolean(dSide)&&dConfidence>=SIGNAL_THRESHOLD&&targetsReady&&String(s?.status||'').toUpperCase()!=='COLLECTING';
   if(directionalOk&&(!sent.directionalAbove||sent.directionalSide!==dSide)){
     await send(directionMessage(s));sent.directionalAbove=true;sent.directionalSide=dSide;sent.directionalAtMs=now;
-  }else if(!directionalOk&&dConfidence<=SIGNAL_THRESHOLD-3){sent.directionalAbove=false;sent.directionalSide=null;}
+  }else if((!directionalOk&&dConfidence<=SIGNAL_THRESHOLD-3)||!dSide){sent.directionalAbove=false;sent.directionalSide=null;}
   if(active(s)&&levelsReady(s)){
    if(sent.signalId!==s.signalId){
     sent.signalId=s.signalId;sent.announced=false;sent.announcedAtMs=0;sent.targets=[false,false,false,false];sent.managementEventId=0;
@@ -105,7 +106,7 @@ async function tick(){
   }
  }catch(e){console.error('[telegram-xau-v2]',e?.message||e);}
 }
-console.log(`[telegram-xau-v2] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} directional>=${SIGNAL_THRESHOLD}`);
+console.log(`[telegram-xau-v2] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} targets>=${SIGNAL_THRESHOLD}`);
 if(process.env.NODE_ENV!=='test')(async function loop(){while(true){await tick();await new Promise(r=>setTimeout(r,POLL_MS));}})();
 
 export {active,levelsReady,viability,directionMessage,entryMessage,terminalMessage};
