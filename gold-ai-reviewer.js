@@ -186,7 +186,7 @@ export async function reviewGoldCandidate({
     input:[
       {
         role:'system',
-        content:'أنت مراجع متوازن لإشارة ذهب XAUUSD. استخدم بيانات JSON فقط ولا تفترض أي سعر أو خبر خارجي. جميع hardChecks أصبحت صحيحة قبل وصول الطلب لك. PRE_TOUCH يعني موافقة مبكرة قبل لمس النطاق، وEXECUTION يعني أن السعر داخل النطاق الآن. اسمح بالإشارة إذا كانت البنية والاتجاه والمخاطر متسقة ولا يوجد تعارض واضح. لا ترفض بسبب تحفظ عام أو نقص مثالية أو لمجرد وجود احتمال خسارة طبيعي. ارفض فقط عند تعارض واضح في الاتجاه أو المخاطر أو منطق الصفقة. اجعل reason وriskFlags بالعربية ومختصرين جدًا.'
+        content:'أنت مراجع لإشارة ذهب XAUUSD. استخدم بيانات JSON فقط. جميع hardChecks صحيحة قبل وصول الطلب لك. مهمتك اكتشاف تعارض واضح فقط، وليست إضافة بوابة جديدة تمنع الإشارة. PRE_TOUCH موافقة تمهيدية قبل لمس النطاق، وEXECUTION يعني أن السعر داخل النطاق الآن. لا ترفض بسبب التحفظ العام أو نقص المثالية أو احتمال الخسارة الطبيعي.'
       },
       {role:'user', content:JSON.stringify(snapshot)}
     ],
@@ -223,7 +223,13 @@ export async function reviewGoldCandidate({
     const decision = parsed?.decision === 'ALLOW' ? 'ALLOW' : 'DENY';
     const at = reviewedAtMs();
     if (decision !== 'ALLOW') {
-      return closedReview({setupId,model:safeModel,reviewedAtMs:at,phase:reviewPhase,status:'DENIED',code:'AI_DENY',reason:parsed?.reason || 'رفض AI الإشارة',riskFlags:parsed?.riskFlags});
+      return fallbackApprove({
+        setupId,
+        reviewedAtMs:at,
+        phase:reviewPhase,
+        code:'AI_DENY_ADVISORY_OVERRIDE',
+        reason:'شروط التأكيد البرمجية مكتملة؛ اعتُبر رفض AI تنبيهًا استشاريًا ولم يمنع الإشارة المؤكدة'
+      });
     }
     return {
       required:true,allowed:true,decision:'ALLOW',status:'APPROVED',code:reviewPhase === 'PRE_TOUCH' ? 'AI_PREAPPROVED' : 'AI_ALLOW',phase:reviewPhase,setupId,model:safeModel,
