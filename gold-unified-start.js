@@ -1,14 +1,14 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 
-const BUILD_TAG='site-signal-noai-v11-managed-telegram';
+const BUILD_TAG='site-signal-noai-v12-fast-tp1-aligned';
 const PORT=Number(process.env.PORT||3000);
 const UI_PORT=3001,AUTO_PORT=3002,SPX_PORT=3003,CAPITAL_PORT=3004,DATA_PORT=3005;
 
 const capital=spawn(process.execPath,['capital-market.js'],{env:{...process.env,PORT:String(CAPITAL_PORT),CAPITAL_DEMO:process.env.CAPITAL_DEMO||'false'},stdio:['ignore','inherit','inherit']});
 const dataBridge=spawn(process.execPath,['gold-data-bridge.js'],{env:{...process.env,PORT:String(DATA_PORT)},stdio:['ignore','inherit','inherit']});
 const ui=spawn(process.execPath,['gold-site-ui-start.js'],{env:{...process.env,PORT:String(UI_PORT)},stdio:['ignore','inherit','inherit']});
-const auto=spawn(process.execPath,['gold-site-signal-engine-v7.js'],{env:{...process.env,PORT:String(AUTO_PORT)},stdio:['ignore','inherit','inherit']});
+const auto=spawn(process.execPath,['gold-site-signal-engine-v8.js'],{env:{...process.env,PORT:String(AUTO_PORT)},stdio:['ignore','inherit','inherit']});
 const spx=spawn(process.execPath,['spx-live-start.js'],{env:{...process.env,PORT:String(SPX_PORT)},stdio:['ignore','inherit','inherit']});
 const telegramEnabled=String(process.env.TELEGRAM_ENABLED||'false').toLowerCase()==='true'&&Boolean(process.env.TELEGRAM_BOT_TOKEN);
 const telegramBot=telegramEnabled?spawn(process.execPath,['telegram-xau-bot-v2.js'],{env:{...process.env,TELEGRAM_SIGNAL_URL:`http://127.0.0.1:${AUTO_PORT}/api/auto-trade/signal?observe=1`},stdio:['ignore','inherit','inherit']}):null;
