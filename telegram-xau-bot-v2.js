@@ -3,9 +3,10 @@ const BOT_TOKEN=String(process.env.TELEGRAM_BOT_TOKEN||'').trim();
 const CHAT_ID=String(process.env.TELEGRAM_CHAT_ID||'').trim();
 const POLL_MS=Math.max(1200,Number(process.env.TELEGRAM_POLL_MS||1500));
 const SIGNAL_THRESHOLD=Math.max(1,Math.min(100,Number(process.env.TELEGRAM_DIRECTIONAL_MIN_CONFIDENCE||75)));
+const RESET_HOLD_MS=Math.max(5000,Number(process.env.TELEGRAM_SIGNAL_RESET_HOLD_MS||20000));
 
 let ready=false;
-const sent={side:null,above:false,signature:null,sentAtMs:0};
+const sent={side:null,above:false,sentAtMs:0,belowSinceMs:0};
 
 function num(v){const x=Number(v);return Number.isFinite(x)?x:null;}
 function valid(v){const x=num(v);return x!=null&&x>0;}
@@ -19,7 +20,6 @@ function sideOf(s){
 function confidenceOf(s){return Math.max(Number(s?.signalConfidence)||0,Number(s?.confidence)||0,Number(s?.prediction?.confidence)||0);}
 function targetOf(s,i){return num(s?.[`target${i}`])??num(s?.entryGuard?.[`target${i}`])??num(s?.prediction?.[`target${i}`]);}
 function targetsOf(s){return [1,2,3,4].map(i=>targetOf(s,i));}
-function signatureOf(side,targets){return `${side}|${targets.map(v=>Number(v).toFixed(3)).join('|')}`;}
 
 async function tg(method,body=null){
   if(!BOT_TOKEN)throw new Error('TELEGRAM_BOT_TOKEN missing');
@@ -61,21 +61,36 @@ async function tick(){
     const r=await fetch(AUTO_URL,{cache:'no-store',signal:AbortSignal.timeout(7000)});
     if(!r.ok)throw new Error(`signal ${r.status}`);
     const s=await r.json();
-    const side=sideOf(s),confidence=confidenceOf(s),targets=targetsOf(s),targetsReady=targets.every(valid);
+    const now=Date.now(),side=sideOf(s),confidence=confidenceOf(s),targets=targetsOf(s),targetsReady=targets.every(valid);
     const ok=!s?.degraded&&Boolean(side)&&confidence>=SIGNAL_THRESHOLD&&targetsReady&&String(s?.status||'').toUpperCase()!=='COLLECTING';
+
     if(ok){
-      const signature=signatureOf(side,targets);
-      if(!sent.above||sent.side!==side||sent.signature!==signature){
+      sent.belowSinceMs=0;
+      if(!sent.above||sent.side!==side){
         await send(targetMessage(s));
-        sent.above=true;sent.side=side;sent.signature=signature;sent.sentAtMs=Date.now();
+        sent.above=true;
+        sent.side=side;
+        sent.sentAtMs=now;
+        console.log(`[telegram-xau-targets] sent ${side} ${Math.round(confidence)}%`);
       }
-    }else if(!side||confidence<=SIGNAL_THRESHOLD-3){
-      sent.above=false;sent.side=null;sent.signature=null;
+      return;
+    }
+
+    const clearlyBelow=!side||confidence<=SIGNAL_THRESHOLD-3;
+    if(clearlyBelow){
+      if(!sent.belowSinceMs)sent.belowSinceMs=now;
+      if(now-sent.belowSinceMs>=RESET_HOLD_MS){
+        sent.above=false;
+        sent.side=null;
+        sent.belowSinceMs=0;
+      }
+    }else{
+      sent.belowSinceMs=0;
     }
   }catch(e){console.error('[telegram-xau-targets]',e?.message||e);}
 }
 
-console.log(`[telegram-xau-targets] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} targets>=${SIGNAL_THRESHOLD}`);
+console.log(`[telegram-xau-targets] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} targets>=${SIGNAL_THRESHOLD}; dedupe=side-cycle`);
 if(process.env.NODE_ENV!=='test')(async function loop(){while(true){await tick();await new Promise(r=>setTimeout(r,POLL_MS));}})();
 
 export {targetMessage};
