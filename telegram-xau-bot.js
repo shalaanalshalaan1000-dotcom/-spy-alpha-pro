@@ -82,7 +82,7 @@ function terminalKey(t){ return t?.signalId&&t?.outcome?`${t.signalId}:${t.outco
 
 function signalMessage(s){
   const side=s.side||s.candidateAction||s.action,icon=side==='BUY'?'🟢':'🔴';
-  return `${icon} XAUUSD — CONFIRMED ${side} ENTRY\n🆔 ${s.signalId}\n💵 السعر الحالي: ${money(s.price)}\n📍 الدخول: ${n(s.entryLow)} — ${n(s.entryHigh)}\n🛑 SL: ${n(s.stopLoss)}\n🎯 TP1: ${n(s.target1)}\n🎯 TP2: ${n(s.target2)}\n🎯 TP3: ${n(s.target3)}\n🎯 TP4: ${n(s.target4)}\n📊 الثقة: ${Math.round(readConfidence(s))}%\n🕒 ${new Date().toLocaleString()}`;
+  return `${icon} XAUUSD — CONFIRMED ${side} ENTRY\n🆔 ${s.signalId}\n💵 السعر الحالي: ${money(s.price)}\n📍 الدخول: ${n(s.entryLow)} — ${n(s.entryHigh)}\n🛑 SL: ${n(s.stopLoss)}\n🎯 TP1: ${n(s.target1)}\n🎯 TP2: ${n(s.target2)}\n🎯 TP3: ${n(s.target3)}\n🎯 TP4: ${n(s.target4)}\n📊 الثقة: ${Math.round(readConfidence(s))}%\n🕒 ${new Intl.DateTimeFormat('ar-SA',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true}).format(new Date())} بتوقيت السعودية`;
 }
 function tpMessage(i,price){ return `✅ XAUUSD — TP${i+1} HIT\n🎯 TP${i+1}: ${n(price)}`; }
 
