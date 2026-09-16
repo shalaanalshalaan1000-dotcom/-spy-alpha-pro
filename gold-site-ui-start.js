@@ -11,7 +11,8 @@ function patchSiteSignalUi(source) {
   const ordered=targets.every(v=>v!=null)&&entry!=null&&targets.every((v,i)=>side==='BUY'?v>(i?targets[i-1]:entry):v<(i?targets[i-1]:entry));
   const active=!stale&&Boolean(raw?.signalId)&&['ACTIVE','MANAGING'].includes(status)&&raw?.entered===true&&raw?.triggered===true&&['BUY','SELL'].includes(side)&&ordered&&stop!=null;
   const confidence=Math.max(0,Math.min(100,Number(raw?.signalConfidence??raw?.confidence)||0)),collecting=!stale&&status==='COLLECTING';
-  const plan={serverOwned:true,signalId:active?raw.signalId:null,state:stale?'STALE':active?(side==='BUY'?'UP':'DOWN'):collecting?'COLLECTING':'WAIT',scenarioLabel:active?(side==='BUY'?'BUY مؤكد':'SELL مؤكد'):'انتظار',confidence,locked:active,entry:active?entry:null,invalidation:active?stop:null,target1:active?targets[0]:null,target2:active?targets[1]:null,target3:active?targets[2]:null,target4:active?targets[3]:null,entryLow:active?positive(raw.entryLow):null,entryHigh:active?positive(raw.entryHigh):null,tp1Hit:active&&Boolean(raw?.targetHits?.[0]),tp2Hit:active&&Boolean(raw?.targetHits?.[1]),tp3Hit:active&&Boolean(raw?.targetHits?.[2]),tp4Hit:active&&Boolean(raw?.targetHits?.[3]),lockCreatedAt:active?raw.issuedAtMs:null,eta1:null,eta2:null,sampleCount:Number(raw?.sampleCount)||0,spanMinutes:Math.min(5,(Number(raw?.readingCompleteness)||0)/20),channel:active?(side==='BUY'?'RISING':'FALLING'):'FLAT',note:stale?'بيانات المصدر غير صالحة حاليًا؛ الدخول متوقف.':active?'إشارة مؤكدة من محرك الموقع؛ الأهداف والوقف يتبعان حالة الخادم.':(raw?.reason||'بانتظار إشارة مؤكدة مكتملة.')};
+  const waitReason=raw?.reason?('لم تعتمد أي صفقة: '+String(raw.reason)):'بانتظار إشارة مؤكدة مكتملة.';
+  const plan={serverOwned:true,signalId:active?raw.signalId:null,state:stale?'STALE':active?(side==='BUY'?'UP':'DOWN'):collecting?'COLLECTING':'WAIT',scenarioLabel:active?(side==='BUY'?'BUY مؤكد':'SELL مؤكد'):'انتظار',confidence,locked:active,entry:active?entry:null,invalidation:active?stop:null,target1:active?targets[0]:null,target2:active?targets[1]:null,target3:active?targets[2]:null,target4:active?targets[3]:null,entryLow:active?positive(raw.entryLow):null,entryHigh:active?positive(raw.entryHigh):null,tp1Hit:active&&Boolean(raw?.targetHits?.[0]),tp2Hit:active&&Boolean(raw?.targetHits?.[1]),tp3Hit:active&&Boolean(raw?.targetHits?.[2]),tp4Hit:active&&Boolean(raw?.targetHits?.[3]),lockCreatedAt:active?raw.issuedAtMs:null,eta1:null,eta2:null,sampleCount:Number(raw?.sampleCount)||0,spanMinutes:Math.min(5,(Number(raw?.readingCompleteness)||0)/20),channel:active?(side==='BUY'?'RISING':'FALLING'):'FLAT',note:stale?'بيانات المصدر غير صالحة حاليًا؛ الدخول متوقف.':active?'إشارة مؤكدة من محرك الموقع؛ الأهداف والوقف يتبعان حالة الخادم.':waitReason};
   return {...base,stale,direction:active?(side==='BUY'?'UP':'DOWN'):'FLAT',plan};
 }`;
 
@@ -21,8 +22,16 @@ function patchSiteSignalUi(source) {
 
   source = source.replaceAll('const d=goldBrowserReading(raw);', 'const d=goldSignalReading(raw);');
   source = source.replace(
+    'توقع الذهب — نموذج 5 دقائق',
+    'إشارة الذهب — تأكيد 5 دقائق'
+  );
+  source = source.replace(
+    "symbol:'OANDA:XAUUSD',interval:'15'",
+    "symbol:'OANDA:XAUUSD',interval:'5'"
+  );
+  source = source.replace(
     'يُعرض السيناريو المتوقع بعد اكتمال 5 دقائق من العينات ووصول التأكيد إلى 75%؛ وإلا تبقى القراءة انتظار.',
-    'تظهر إشارة BUY/SELL والأهداف بعد تأكيد محرك الخادم وصلاحية السعر واجتياز فلاتر الدخول.'
+    'لا يظهر دخول أو أهداف إلا بعد اعتماد إشارة BUY/SELL مؤكدة من محرك الخادم.'
   );
   source = source.replace(
     "$('#goldScenario').textContent=labels[plan.state]||'انتظار';$('#goldScenario').className=classes[plan.state]||'muted';",
@@ -30,7 +39,7 @@ function patchSiteSignalUi(source) {
   );
   source = source.replace(
     "$('#goldConfidence').textContent=plan.state==='COLLECTING'?(plan.sampleCount+' عينة • '+plan.spanMinutes+' / 5 د'):('التأكيد '+plan.confidence+'% • الحركة المتوقعة '+(plan.expectedMove5!=null?money(plan.expectedMove5):'—')+' ('+(plan.expectedMovePct!=null?plan.expectedMovePct+'%':'—')+')');",
-    "$('#goldConfidence').textContent=plan.state==='COLLECTING'?(plan.sampleCount+' عينة • '+plan.spanMinutes+' / 5 د'):('التأكيد '+plan.confidence+'%');"
+    "$('#goldConfidence').textContent=(plan.state==='UP'||plan.state==='DOWN')?('التأكيد '+plan.confidence+'%'):(plan.state==='COLLECTING'?'بانتظار اكتمال بيانات 5 دقائق':'لا توجد إشارة مؤكدة');"
   );
   source = source.replace(
     "lock={state:plan.state,entry:p,target1:t1",
