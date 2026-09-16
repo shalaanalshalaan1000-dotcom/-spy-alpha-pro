@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 
-const BUILD_TAG='site-signal-noai-v14-telegram-5m-confirm';
+const BUILD_TAG='site-signal-noai-v13-balanced-10day';
 const PORT=Number(process.env.PORT||3000);
 const UI_PORT=3001,AUTO_PORT=3002,SPX_PORT=3003,CAPITAL_PORT=3004,DATA_PORT=3005;
 
@@ -11,7 +11,7 @@ const ui=spawn(process.execPath,['gold-site-ui-start.js'],{env:{...process.env,P
 const auto=spawn(process.execPath,['gold-site-signal-engine-v9.js'],{env:{...process.env,PORT:String(AUTO_PORT)},stdio:['ignore','inherit','inherit']});
 const spx=spawn(process.execPath,['spx-live-start.js'],{env:{...process.env,PORT:String(SPX_PORT)},stdio:['ignore','inherit','inherit']});
 const telegramEnabled=String(process.env.TELEGRAM_ENABLED||'false').toLowerCase()==='true'&&Boolean(process.env.TELEGRAM_BOT_TOKEN);
-const telegramBot=telegramEnabled?spawn(process.execPath,['telegram-xau-bot-v3.js'],{env:{...process.env,TELEGRAM_SIGNAL_URL:`http://127.0.0.1:${AUTO_PORT}/api/auto-trade/signal?observe=1`},stdio:['ignore','inherit','inherit']}):null;
+const telegramBot=telegramEnabled?spawn(process.execPath,['telegram-xau-bot-v2.js'],{env:{...process.env,TELEGRAM_SIGNAL_URL:`http://127.0.0.1:${AUTO_PORT}/api/auto-trade/signal?observe=1`},stdio:['ignore','inherit','inherit']}):null;
 const children=[capital,dataBridge,ui,auto,spx,telegramBot].filter(Boolean);
 for(const child of children)child.on('exit',c=>console.error('child exited',c));
 function shutdown(signal){for(const child of children)if(!child.killed)child.kill(signal);server.close(()=>process.exit(0));setTimeout(()=>process.exit(1),5000).unref();}
