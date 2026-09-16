@@ -80,7 +80,7 @@ function clearTradeLock(){
 function canSendSignal(s,now=Date.now()){
   const side=sideOf(s),entry=entryOf(s),sl=stopOf(s),p=num(s?.price),t=targetsOf(s),age=num(s?.quoteAgeMs),at=Date.parse(s?.updatedAt);
   if(s?.degraded||s?.liveFeedFresh!==true||age==null||age<0||age>20000||!Number.isFinite(at)||now-at>20000||at>now+5000)return false;
-  if(!isConfirmedActive(s)||!valid(p)||!valid(entry)||!stopValid(side,entry,sl)||tp1AlreadyGone(s,side,p,t[0]))return false;
+  if(!isConfirmedActive(s)||!valid(p)||!valid(entry)||!stopValid(side,entry,sl))return false;
   if(side==='BUY'?p<=sl:p>=sl)return false;
   return t.every((v,i)=>valid(v)&&(side==='BUY'?v>(i?t[i-1]:entry):v<(i?t[i-1]:entry)));
 }
@@ -120,7 +120,7 @@ async function startup(){
   try{
     const me=await tg('getMe');
     ready=true;
-    console.log(`[telegram-xau-confirmed] authenticated @${me?.result?.username||'unknown'} threshold=${SIGNAL_THRESHOLD} 5mClose=${CONFIRM_ON_5M_CLOSE}`);
+    console.log(`[telegram-xau-confirmed] authenticated @${me?.result?.username||'unknown'} threshold=${SIGNAL_THRESHOLD} siteMirror=true`);
     return true;
   }catch(e){
     console.error('[telegram-xau-confirmed] startup',e?.message||e);
@@ -188,10 +188,9 @@ async function tick(){
       return;
     }
 
-    const active=isConfirmedActive(s),side=sideOf(s),confidence=confidenceOf(s),livePrice=num(s?.price),entry=entryOf(s),sl=stopOf(s),targets=targetsOf(s),key=signalKey(s);
-    const late=active&&tp1AlreadyGone(s,side,livePrice,targets[0]);
+    const active=isConfirmedActive(s),side=sideOf(s),confidence=confidenceOf(s),entry=entryOf(s),sl=stopOf(s),key=signalKey(s);
     const sameLockedTrade=tradeLock.active&&tradeLock.key===key;
-    const eligibleNewTrade=!tradeLock.active&&startedThisRun(s)&&fiveMinuteCloseConfirmed(s,now);
+    const eligibleNewTrade=!tradeLock.active&&startedThisRun(s);
     const ok=canSendSignal(s,now)&&confidence>=SIGNAL_THRESHOLD&&lockAllowsSignal(tradeLock,s)&&(sameLockedTrade||eligibleNewTrade);
 
     if(ok){
@@ -231,12 +230,10 @@ async function tick(){
       console.warn(`[telegram-xau-confirmed] skipped pre-existing active signal key=${key}; bot will wait for a new lifecycle signal`);
       return;
     }
-    if(active&&!tradeLock.active&&!fiveMinuteCloseConfirmed(s,now))return;
-    if(late&&!tradeLock.active)console.warn(`[telegram-xau-confirmed] skipped late signal ${side} key=${key}: TP1 already reached before first send`);
   }catch(e){console.error('[telegram-xau-confirmed]',e?.message||e);}
 }
 
-console.log(`[telegram-xau-confirmed] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} one-active-trade lock; threshold=${SIGNAL_THRESHOLD}; 5m-close=${CONFIRM_ON_5M_CLOSE}; TP/SL lifecycle alerts=on; no-candidate/no-late mode`);
+console.log(`[telegram-xau-confirmed] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} one-active-trade lock; site-mirror=on; threshold=${SIGNAL_THRESHOLD}; TP/SL lifecycle alerts=on`);
 if(process.env.NODE_ENV!=='test')(async function loop(){while(true){await tick();await new Promise(r=>setTimeout(r,POLL_MS));}})();
 
 export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage};
