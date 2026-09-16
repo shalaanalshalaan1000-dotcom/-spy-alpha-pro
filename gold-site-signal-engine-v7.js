@@ -14,16 +14,16 @@ const TV_SYMBOL=String(process.env.TV_PUBLIC_SYMBOL||'OANDA:XAUUSD').trim();
 const MAX_QUOTE_AGE_MS=20_000;
 const state={samples:[],signal:null,lastTerminal:null,trades:[],cooldownUntil:0,sameSideBlockUntil:0,lastLossSide:null,quote:null,lastError:null,ws:null,wsConnected:false,lastTvAt:0,lastLpAt:0,loggedQuote:false,loggedLp:false,lastEntryGuard:null};
 
-const n=v=>Number.isFinite(Number(v))?Number(v):null;
+const n=v=>v!=null&&v!==''&&typeof v!=='boolean'&&Number.isFinite(Number(v))?Number(v):null;
 const iso=v=>new Date(v).toISOString();
 const round=(v,d=2)=>Number.isFinite(Number(v))?Number(Number(v).toFixed(d)):null;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 function json(res,status,body){res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','access-control-allow-origin':'*','x-gold-alpha-engine':BUILD});res.end(JSON.stringify(body));}
-function quoteAgeMs(q,now=Date.now()){const t=n(q?.t);return t==null?Infinity:Math.max(0,now-t);}
+function quoteAgeMs(q,now=Date.now()){const t=n(q?.t);return t==null?Infinity:(t>now+5000?Infinity:Math.max(0,now-t));}
 function freshQuote(q,now=Date.now()){return Boolean(q)&&!q.degraded&&quoteAgeMs(q,now)<=MAX_QUOTE_AGE_MS&&n(q.price)>0;}
 function normalize(){const cutoff=Date.now()-3*60*60_000;state.samples=state.samples.filter(x=>n(x.t)!=null&&n(x.p)!=null&&x.t>=cutoff).sort((a,b)=>a.t-b.t);const out=[];for(const x of state.samples){const last=out.at(-1);if(last&&last.t===x.t)Object.assign(last,x);else out.push(x)}state.samples=out.slice(-2400);}
 function add(t,p,bid=p,ask=p){t=n(t);p=n(p);if(t==null||p==null||p<=0)return;state.samples.push({t,p,price:p,bid:n(bid)??p,ask:n(ask)??p});}
-function recordLive(price,t=Date.now()){price=n(price);if(price==null||price<=0)return;const last=state.samples.at(-1);if(!last||t-last.t>=2500)add(t,price,price,price);else Object.assign(last,{p:price,price,bid:price,ask:price,t});normalize();}
+function recordLive(price,t=Date.now()){price=n(price);if(price==null||price<=0)return;const last=state.samples.at(-1);if(!last||t-last.t>=2500)add(t,price,price,price);normalize();}
 
 function minuteBars(now=Date.now()){
  const buckets=new Map(),span=60_000,currentKey=Math.floor(now/span)*span;
@@ -62,7 +62,7 @@ const frame=obj=>{const s=typeof obj==='string'?obj:JSON.stringify(obj);return `
 const send=(m,p)=>{if(state.ws?.readyState===WebSocket.OPEN)state.ws.send(frame({m,p}));};
 const rid=prefix=>`${prefix}_${Math.random().toString(36).slice(2,12)}`;
 function parseFrames(raw){const text=Buffer.isBuffer(raw)?raw.toString('utf8'):String(raw??'');const out=[];let i=0;while(i<text.length){if(!text.startsWith('~m~',i)){i+=1;continue}const j=text.indexOf('~m~',i+3);if(j<0)break;const len=Number(text.slice(i+3,j));if(!Number.isFinite(len))break;const start=j+3,end=start+len;out.push(text.slice(start,end));i=end;}return out;}
-function ingestQuote(msg){const d=msg?.p?.[1];const v=d?.v;if(!v||typeof v!=='object')return;const price=n(v.lp??v.last_price??v.close);if(price==null||price<=0)return;const now=Date.now(),rawT=n(v.lp_time),stamp=rawT==null?now:(rawT>1e12?rawT:rawT*1000);state.quote={price,bid:price,ask:price,t:Math.abs(now-stamp)>MAX_QUOTE_AGE_MS?now:stamp,provider:'TRADINGVIEW_OANDA_LP',degraded:false,symbol:TV_SYMBOL};state.lastTvAt=now;state.lastLpAt=now;state.lastError=null;recordLive(price,now);if(!state.loggedLp){state.loggedLp=true;console.log(`[tv-lp] first live quote ${TV_SYMBOL} ${price}`);}}
+function ingestQuote(msg){const d=msg?.p?.[1];const v=d?.v;if(!v||typeof v!=='object')return;const price=n(v.lp??v.last_price??v.close);if(price==null||price<=0)return;const now=Date.now(),rawT=n(v.lp_time),stamp=rawT==null?NaN:(rawT>1e12?rawT:rawT*1000);state.quote={price,bid:price,ask:price,t:stamp,provider:'TRADINGVIEW_OANDA_LP',degraded:false,symbol:TV_SYMBOL};state.lastTvAt=now;state.lastLpAt=now;state.lastError=null;if(freshQuote(state.quote,now))recordLive(price,stamp);if(!state.loggedLp){state.loggedLp=true;console.log(`[tv-lp] first live quote ${TV_SYMBOL} ${price}`);}}
 function ingestTimescale(msg){
  const payload=msg?.p?.[1];if(!payload||typeof payload!=='object')return;
  let newestT=0,newestClose=null,added=0;
@@ -71,7 +71,7 @@ function ingestTimescale(msg){
   for(const row of rows){const v=row?.v;if(!Array.isArray(v)||v.length<5)continue;const t=n(v[0]),close=n(v[4]);if(t==null||close==null||close<=0)continue;const ms=t>1e12?t:t*1000;add(ms,close,close,close);added++;if(ms>=newestT){newestT=ms;newestClose=close;}}
  }
  if(added)normalize();
- if(newestClose!=null&&Date.now()-state.lastLpAt>5000){const now=Date.now();state.quote={price:newestClose,bid:newestClose,ask:newestClose,t:now,provider:'TRADINGVIEW_OANDA_BAR',degraded:false,symbol:TV_SYMBOL};state.lastTvAt=now;state.lastError=null;recordLive(newestClose,now);if(!state.loggedQuote){state.loggedQuote=true;console.log(`[tv-bar] first chart fallback ${TV_SYMBOL} ${newestClose}`);}}
+ if(newestClose!=null&&!freshQuote(state.quote)){const now=Date.now();state.quote={price:newestClose,bid:newestClose,ask:newestClose,t:newestT,provider:'TRADINGVIEW_OANDA_BAR',degraded:true,symbol:TV_SYMBOL};state.lastTvAt=now;state.lastError=null;if(!state.loggedQuote){state.loggedQuote=true;console.log(`[tv-bar] first chart fallback ${TV_SYMBOL} ${newestClose}`);}}
 }
 function connectTradingView(){
  const cs=rid('cs'),qs=rid('qs');
@@ -86,7 +86,7 @@ function connectTradingView(){
 
 function reached(side,price,target){return target!=null&&price!=null&&(side==='BUY'?price>=target:price<=target)}
 function stopped(side,price,sl){return sl!=null&&price!=null&&(side==='BUY'?price<=sl:price>=sl)}
-function validLevels(m){const s=m.candidateAction,lo=n(m.entryLow),hi=n(m.entryHigh),sl=n(m.stopLoss),t=[m.target1,m.target2,m.target3,m.target4].map(n);if(!['BUY','SELL'].includes(s)||lo==null||hi==null||sl==null||t.some(v=>v==null)||lo>hi)return false;return s==='BUY'?sl<lo&&t[0]>hi&&t[1]>t[0]&&t[2]>t[1]&&t[3]>t[2]:sl>hi&&t[0]<lo&&t[1]<t[0]&&t[2]<t[1]&&t[3]<t[2];}
+function validLevels(m){const s=m.candidateAction,lo=n(m.entryLow),hi=n(m.entryHigh),sl=n(m.stopLoss),t=[m.target1,m.target2,m.target3,m.target4].map(n);if(!['BUY','SELL'].includes(s)||lo==null||hi==null||sl==null||t.some(v=>v==null||v<=0)||lo<=0||hi<=0||sl<=0||lo>hi)return false;return s==='BUY'?sl<lo&&t[0]>hi&&t[1]>t[0]&&t[2]>t[1]&&t[3]>t[2]:sl>hi&&t[0]<lo&&t[1]<t[0]&&t[2]<t[1]&&t[3]<t[2];}
 function entryPx(side,q){return side==='BUY'?(n(q.ask)??n(q.price)):(n(q.bid)??n(q.price))}
 function exitPx(side,q){return side==='BUY'?(n(q.bid)??n(q.price)):(n(q.ask)??n(q.price))}
 function inRange(v,a,b){return v!=null&&a!=null&&b!=null&&v>=Math.min(a,b)&&v<=Math.max(a,b)}
@@ -176,8 +176,8 @@ function maybeCreate(m,q,now){
  if(state.signal||now<state.cooldownUntil||!freshQuote(q,now)||m.status!=='CANDIDATE'||Number(m.confidence)<MIN_CONFIDENCE||!validLevels(m))return;
  const side=m.candidateAction,p=entryPx(side,q),lo=n(m.entryLow),hi=n(m.entryHigh);
  if(state.lastLossSide===side&&now<state.sameSideBlockUntil){state.lastEntryGuard={atMs:now,reason:'SAME_SIDE_AFTER_SL_COOLDOWN',side,blockedUntil:iso(state.sameSideBlockUntil)};return;}
- const failedSameSetup=state.lastTerminal?.result==='LOSS'&&state.lastTerminal?.setupId&&m.setupId&&state.lastTerminal.setupId===m.setupId&&now-(n(state.lastTerminal.closedAtMs)??0)<SAME_SETUP_REENTRY_MS;
- if(failedSameSetup){state.lastEntryGuard={atMs:now,reason:'FAILED_SETUP_LOCKOUT',side,setupId:m.setupId,blockedUntil:iso((n(state.lastTerminal.closedAtMs)??now)+SAME_SETUP_REENTRY_MS)};return;}
+ const failedSameSetup=state.lastTerminal?.setupId&&m.setupId&&state.lastTerminal.setupId===m.setupId&&now-(n(state.lastTerminal.closedAtMs)??0)<SAME_SETUP_REENTRY_MS;
+ if(failedSameSetup){state.lastEntryGuard={atMs:now,reason:'CONSUMED_SETUP_LOCKOUT',side,setupId:m.setupId,blockedUntil:iso((n(state.lastTerminal.closedAtMs)??now)+SAME_SETUP_REENTRY_MS)};return;}
  if(REQUIRE_1M_CONFIRM&&!m.oneMinuteConfirmed){state.lastEntryGuard={atMs:now,reason:'WAITING_1M_CONFIRMATION',side};return;}
  if(!inRange(p,lo,hi))return;
  const exit=exitPx(side,q),sl=n(m.stopLoss),tp1=n(m.target1);
@@ -190,13 +190,13 @@ function maybeCreate(m,q,now){
  }
  state.signal={
   signalId:`XAU-${now}-${side}`,setupId:m.setupId||null,side,candidateAction:side,action:'WAIT',status:'ACTIVE',strategy:m.strategy||null,
-  confidence:Number(m.confidence)||0,signalConfidence:Number(m.confidence)||0,entry:n(m.entry),entryLow:lo,entryHigh:hi,
+  confidence:Number(m.confidence)||0,signalConfidence:Number(m.confidence)||0,entry:p,entryLow:lo,entryHigh:hi,
   originalStopLoss:sl,stopLoss:sl,managedStopLoss:sl,target1:tp1,target2:n(m.target2),target3:n(m.target3),target4:n(m.target4),
   riskReward:n(m.riskReward),initialRiskUsd:round(viability.risk,3),liveRiskUsd:round(viability.risk,3),liveTp1R:round(viability.rr,2),tp1RoomUsd:round(viability.reward,3),
   volatilityPolicy:viability.policy,prediction:m.prediction||null,contextBias:m.contextBias||null,oneMinuteConfirmed:Boolean(m.oneMinuteConfirmed),
   issuedAt:iso(now),issuedAtMs:now,targetHits:[false,false,false,false],targetHitAt:[null,null,null,null],
   managementStage:0,managementEventId:0,lastManagementEvent:null,bestPrice:p,
-  source:'GOLD_ALPHA_SITE',executionMode:'SIGNAL_ONLY_TELEGRAM',executable:false,entered:true,triggered:true,triggerPrice:p,priceProvider:q.provider,quoteAgeSec:round(quoteAgeMs(q,now)/1000,1),lockedTargets:true,
+  source:'GOLD_ALPHA_SITE',executionMode:'SIGNAL_ONLY_TELEGRAM',executable:false,entered:true,triggered:true,triggerPrice:p,priceProvider:q.provider,lockedTargets:true,
   reason:`CONFIRMED BY SITE ENGINE ON FRESH ${q.provider} PRICE — 1m confirm + volatility guard passed (${round(viability.rr,2)}R to TP1, risk ${round(viability.risk,2)}$, ATR1 ${viability.policy.atr1}$); managed stop active; Telegram only, AI off`
  };
  state.trades.push({...state.signal,status:'SIGNAL'});state.trades=state.trades.slice(-300);
@@ -229,6 +229,7 @@ const server=http.createServer(async(req,res)=>{const u=new URL(req.url||'/','ht
  if(req.method==='GET'&&u.pathname==='/api/performance/journal')return json(res,200,journal());
  return json(res,404,{error:'Not found'});
 }catch(e){state.lastError=String(e?.message||e);return json(res,503,{error:'Signal engine unavailable',detail:state.lastError,build:BUILD,noAI:true});}});
+const evaluationTimer=setInterval(()=>{void signal().catch(()=>{});},1000);evaluationTimer.unref();
 server.listen(PORT,'0.0.0.0',()=>{console.log(`[gold-site-signal-engine] ${BUILD} listening on ${PORT}; TradingView OANDA LP primary + 1m chart fallback; confidence score ${MIN_CONFIDENCE}; 1m confirmation ${REQUIRE_1M_CONFIRM?'required':'optional'}; volatility-adaptive risk/TP guard; TP1 structure protection; TP2 profit lock; TP3 M1 trailing; SL cooldown ${SL_COOLDOWN_MS/1000}s; same-side block ${SAME_SIDE_REENTRY_MS/1000}s; AI=off; execution=off; telegram-only`);connectTradingView();});
 process.on('SIGTERM',()=>{try{state.ws?.close()}catch{}server.close(()=>process.exit(0));setTimeout(()=>process.exit(1),5000).unref();});
 process.on('SIGINT',()=>{try{state.ws?.close()}catch{}server.close(()=>process.exit(0));setTimeout(()=>process.exit(1),5000).unref();});

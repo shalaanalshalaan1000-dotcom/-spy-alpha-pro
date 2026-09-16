@@ -5,25 +5,14 @@ const previousWriteFileSync = fs.writeFileSync.bind(fs);
 
 function patchSiteSignalUi(source) {
   const mapper = `function goldSignalReading(raw){
-  const base=goldBrowserReading(raw),now=Date.now(),confidence=Math.max(Number(raw?.signalConfidence)||0,Number(raw?.confidence)||0),rawStatus=String(raw?.status||'').toUpperCase(),primarySide=['BUY','SELL'].includes(raw?.candidateAction)?raw.candidateAction:(['BUY','SELL'].includes(raw?.side)?raw.side:null),guardSide=['BUY','SELL'].includes(raw?.entryGuard?.side)?raw.entryGuard.side:null,predictedSide=['BUY','SELL'].includes(raw?.prediction?.side)?raw.prediction.side:null,displaySide=primarySide||guardSide||predictedSide,active=Boolean(raw?.signalId&&['ACTIVE','MANAGING'].includes(rawStatus)&&primarySide),stale=Boolean(raw?.degraded)||base.stale,complete=Math.max(0,Math.min(100,Number(raw?.readingCompleteness)||0)),collecting=!stale&&!active&&rawStatus==='COLLECTING',candidate=!stale&&!active&&Boolean(primarySide)&&rawStatus==='CANDIDATE',guarded=!stale&&!active&&!candidate&&Boolean(guardSide)&&rawStatus==='WAIT',predictive=!stale&&!active&&!candidate&&!guarded&&Boolean(predictedSide)&&confidence>=70,signal75=!stale&&!active&&Boolean(displaySide)&&confidence>=75,entry=Number.isFinite(Number(raw?.entry))?Number(raw.entry):(Number.isFinite(Number(raw?.entryLow))&&Number.isFinite(Number(raw?.entryHigh))?(Number(raw.entryLow)+Number(raw.entryHigh))/2:Number(base.price)),entryLow=Number(raw?.entryLow),entryHigh=Number(raw?.entryHigh),live=Number(base.price),target1=Number(raw?.target1),target2=Number(raw?.target2),target3=Number(raw?.target3),target4=Number(raw?.target4),stop=Number(raw?.stopLoss),expected=(active||candidate||guarded||signal75)&&Number.isFinite(target1)&&Number.isFinite(entry)?Math.abs(target1-entry):(guarded&&Number.isFinite(Number(raw?.entryGuard?.rewardToTp1))?Math.abs(Number(raw.entryGuard.rewardToTp1)):null),inCandidateRange=candidate&&Number.isFinite(live)&&Number.isFinite(entryLow)&&Number.isFinite(entryHigh)&&live>=Math.min(entryLow,entryHigh)&&live<=Math.max(entryLow,entryHigh),oneMinuteConfirmed=Boolean(raw?.oneMinuteConfirmed),directionLabel=displaySide==='BUY'?'صاعد':displaySide==='SELL'?'هابط':null;
-  const planState=stale?'STALE':active?(primarySide==='BUY'?'UP':'DOWN'):signal75?(displaySide==='BUY'?'UP':'DOWN'):collecting?'COLLECTING':'WAIT';
-  const scenarioLabel=active?(primarySide==='BUY'?'BUY مؤكد':'SELL مؤكد'):signal75?(displaySide==='BUY'?'BUY إشارة':'SELL إشارة'):candidate?(primarySide==='BUY'?'مرشح صاعد':'مرشح هابط'):guarded?(guardSide==='BUY'?'متوقع صاعد':'متوقع هابط'):predictive?(predictedSide==='BUY'?'متوقع صاعد':'متوقع هابط'):null;
-  let waitingNote=raw?.reason||'بانتظار إشارة مؤكدة من محرك الموقع.';
-  if(signal75&&!active){
-    waitingNote='إشارة '+(displaySide==='BUY'?'BUY':'SELL')+' من حد 75% — الأهداف معروضة مباشرة ولا ننتظر Entry Guard لإظهارها.';
-  } else if(candidate){
-    const sideLabel=primarySide==='BUY'?'BUY صاعد':'SELL هابط';
-    if(!oneMinuteConfirmed)waitingNote='مرشح '+sideLabel+' بثقة '+Math.round(confidence)+'% — الاتجاه موجود لكن تأكيد شمعة 1m لم يكتمل بعد.';
-    else if(!inCandidateRange)waitingNote='مرشح '+sideLabel+' بثقة '+Math.round(confidence)+'% لكن السعر خارج نطاق الدخول المقبول '+(Number.isFinite(entryLow)&&Number.isFinite(entryHigh)?Number(Math.min(entryLow,entryHigh).toFixed(2))+'–'+Number(Math.max(entryLow,entryHigh).toFixed(2)):'')+'.';
-    else waitingNote='مرشح '+sideLabel+' بثقة '+Math.round(confidence)+'% والسعر داخل نطاق الدخول.';
-  } else if(guarded){
-    waitingNote='إشارة '+(guardSide==='BUY'?'BUY':'SELL')+' مرصودة؛ Entry Guard يعمل داخليًا فقط ولا يمنع عرض الأهداف من 75%.';
-  } else if(predictive){
-    waitingNote='الاتجاه المتوقع '+directionLabel+' بثقة '+Math.round(confidence)+'%.';
-  }
-  const showTargets=active||signal75;
-  const plan={state:planState,scenarioLabel,expectedDirectionLabel:directionLabel,confidence:Math.round(confidence),directionalSignal:signal75,target1:showTargets&&Number.isFinite(target1)?target1:null,target2:showTargets&&Number.isFinite(target2)?target2:null,target3:showTargets&&Number.isFinite(target3)?target3:null,target4:showTargets&&Number.isFinite(target4)?target4:null,invalidation:active&&Number.isFinite(stop)?stop:null,entry:active&&Number.isFinite(entry)?entry:null,entryLow:active&&Number.isFinite(entryLow)?entryLow:null,entryHigh:active&&Number.isFinite(entryHigh)?entryHigh:null,eta1:null,eta2:null,sampleCount:Number(raw?.sampleCount)||0,spanMinutes:complete>=100?5:Number((complete/20).toFixed(1)),channel:displaySide==='BUY'?'RISING':displaySide==='SELL'?'FALLING':'FLAT',expectedMove5:Number.isFinite(expected)?Number(expected.toFixed(2)):null,expectedMovePct:Number.isFinite(expected)&&entry>0?Number((expected/entry*100).toFixed(3)):null,note:stale?'بيانات السعر غير حديثة؛ الإشارات متوقفة حتى عودة المصدر.':active?'CONFIRMED SITE SIGNAL — تم اعتماد الصفقة من محرك الموقع وإرسالها إلى تيليغرام.':collecting?(raw?.reason||'تحميل تاريخ السوق من الخادم…'):waitingNote};
-  return {...base,direction:(active||signal75)?(displaySide==='BUY'?'UP':'DOWN'):(collecting?'COLLECTING':'FLAT'),plan};
+  const base=goldBrowserReading(raw),positive=v=>v!=null&&v!==''&&typeof v!=='boolean'&&Number.isFinite(Number(v))&&Number(v)>0?Number(v):null;
+  const side=raw?.side,status=String(raw?.status||'').toUpperCase(),entry=positive(raw?.triggerPrice??raw?.entry),stop=positive(raw?.stopLoss),targets=[1,2,3,4].map(i=>positive(raw?.['target'+i]));
+  const age=Number(raw?.quoteAgeMs),stale=Boolean(raw?.degraded)||raw?.liveFeedFresh!==true||raw?.quoteAgeMs==null||!Number.isFinite(age)||age<0||age>20000||Date.now()-Date.parse(raw?.updatedAt)>20000||!Number.isFinite(Date.parse(raw?.updatedAt))||Date.parse(raw?.updatedAt)>Date.now()+5000;
+  const ordered=targets.every(v=>v!=null)&&entry!=null&&targets.every((v,i)=>side==='BUY'?v>(i?targets[i-1]:entry):v<(i?targets[i-1]:entry));
+  const active=!stale&&Boolean(raw?.signalId)&&['ACTIVE','MANAGING'].includes(status)&&raw?.entered===true&&raw?.triggered===true&&['BUY','SELL'].includes(side)&&ordered&&stop!=null;
+  const confidence=Math.max(0,Math.min(100,Number(raw?.signalConfidence??raw?.confidence)||0)),collecting=!stale&&status==='COLLECTING';
+  const plan={serverOwned:true,signalId:active?raw.signalId:null,state:stale?'STALE':active?(side==='BUY'?'UP':'DOWN'):collecting?'COLLECTING':'WAIT',scenarioLabel:active?(side==='BUY'?'BUY مؤكد':'SELL مؤكد'):'انتظار',confidence,locked:active,entry:active?entry:null,invalidation:active?stop:null,target1:active?targets[0]:null,target2:active?targets[1]:null,target3:active?targets[2]:null,target4:active?targets[3]:null,entryLow:active?positive(raw.entryLow):null,entryHigh:active?positive(raw.entryHigh):null,tp1Hit:active&&Boolean(raw?.targetHits?.[0]),tp2Hit:active&&Boolean(raw?.targetHits?.[1]),tp3Hit:active&&Boolean(raw?.targetHits?.[2]),tp4Hit:active&&Boolean(raw?.targetHits?.[3]),lockCreatedAt:active?raw.issuedAtMs:null,eta1:null,eta2:null,sampleCount:Number(raw?.sampleCount)||0,spanMinutes:Math.min(5,(Number(raw?.readingCompleteness)||0)/20),channel:active?(side==='BUY'?'RISING':'FALLING'):'FLAT',note:stale?'بيانات المصدر غير صالحة حاليًا؛ الدخول متوقف.':active?'إشارة مؤكدة من محرك الموقع؛ الأهداف والوقف يتبعان حالة الخادم.':(raw?.reason||'بانتظار إشارة مؤكدة مكتملة.')};
+  return {...base,stale,direction:active?(side==='BUY'?'UP':'DOWN'):'FLAT',plan};
 }`;
 
   if (!source.includes('function goldSignalReading(raw){') && source.includes('function goldBrowserReading(raw){')) {
@@ -33,7 +22,7 @@ function patchSiteSignalUi(source) {
   source = source.replaceAll('const d=goldBrowserReading(raw);', 'const d=goldSignalReading(raw);');
   source = source.replace(
     'يُعرض السيناريو المتوقع بعد اكتمال 5 دقائق من العينات ووصول التأكيد إلى 75%؛ وإلا تبقى القراءة انتظار.',
-    'من 75% تظهر إشارة BUY/SELL مع الأهداف مباشرة. Entry Guard لا يؤخر عرض الأهداف.'
+    'تظهر إشارة BUY/SELL والأهداف بعد تأكيد محرك الخادم وصلاحية السعر واجتياز فلاتر الدخول.'
   );
   source = source.replace(
     "$('#goldScenario').textContent=labels[plan.state]||'انتظار';$('#goldScenario').className=classes[plan.state]||'muted';",
@@ -51,6 +40,8 @@ function patchSiteSignalUi(source) {
     "$('#goldModelWindow').textContent=channelLabel+' • رصد '+plan.spanMinutes+' د';",
     "$('#goldModelWindow').textContent=(plan.state==='COLLECTING'?'تهيئة بيانات الخادم':channelLabel+' • محرك الموقع');"
   );
+  // Server lifecycle is authoritative; never revive a browser-local trade.
+  source = source.replace('function lockGoldPlan(plan,price){', 'function lockGoldPlan(plan,price){if(plan?.serverOwned)return plan;');
   return source;
 }
 
