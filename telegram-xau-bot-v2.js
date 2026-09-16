@@ -2,7 +2,6 @@ const AUTO_URL=process.env.TELEGRAM_SIGNAL_URL||'http://127.0.0.1:3002/api/auto-
 const BOT_TOKEN=String(process.env.TELEGRAM_BOT_TOKEN||'').trim();
 const CHAT_ID=String(process.env.TELEGRAM_CHAT_ID||'').trim();
 const POLL_MS=Math.max(1200,Number(process.env.TELEGRAM_POLL_MS||1500));
-const SIGNAL_THRESHOLD=Math.max(1,Math.min(100,Number(process.env.TELEGRAM_DIRECTIONAL_MIN_CONFIDENCE||75)));
 const EDIT_MIN_MS=Math.max(3000,Number(process.env.TELEGRAM_EDIT_MIN_MS||5000));
 const RECENT_KEY_TTL_MS=Math.max(60_000,Number(process.env.TELEGRAM_RECENT_SIGNAL_TTL_MS||600_000));
 const CONFIRM_ON_5M_CLOSE=String(process.env.TELEGRAM_CONFIRM_ON_5M_CLOSE||'true').toLowerCase()!=='false';
@@ -120,7 +119,7 @@ async function startup(){
   try{
     const me=await tg('getMe');
     ready=true;
-    console.log(`[telegram-xau-confirmed] authenticated @${me?.result?.username||'unknown'} threshold=${SIGNAL_THRESHOLD} siteMirror=true`);
+    console.log(`[telegram-xau-confirmed] authenticated @${me?.result?.username||'unknown'} siteMirror=true`);
     return true;
   }catch(e){
     console.error('[telegram-xau-confirmed] startup',e?.message||e);
@@ -191,7 +190,7 @@ async function tick(){
     const active=isConfirmedActive(s),side=sideOf(s),confidence=confidenceOf(s),entry=entryOf(s),sl=stopOf(s),key=signalKey(s);
     const sameLockedTrade=tradeLock.active&&tradeLock.key===key;
     const eligibleNewTrade=!tradeLock.active&&startedThisRun(s);
-    const ok=canSendSignal(s,now)&&confidence>=SIGNAL_THRESHOLD&&lockAllowsSignal(tradeLock,s)&&(sameLockedTrade||eligibleNewTrade);
+    const ok=canSendSignal(s,now)&&lockAllowsSignal(tradeLock,s)&&(sameLockedTrade||eligibleNewTrade);
 
     if(ok){
       const text=targetMessage(s);
@@ -233,7 +232,7 @@ async function tick(){
   }catch(e){console.error('[telegram-xau-confirmed]',e?.message||e);}
 }
 
-console.log(`[telegram-xau-confirmed] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} one-active-trade lock; site-mirror=on; threshold=${SIGNAL_THRESHOLD}; TP/SL lifecycle alerts=on`);
+console.log(`[telegram-xau-confirmed] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} one-active-trade lock; site-mirror=on; confidence-filter=off; TP/SL lifecycle alerts=on`);
 if(process.env.NODE_ENV!=='test')(async function loop(){while(true){await tick();await new Promise(r=>setTimeout(r,POLL_MS));}})();
 
 export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage};
