@@ -16,7 +16,7 @@ const replacements = [
   ],
   [
     "const BUILD='site-signal-noai-v19-trade-management';",
-    "const BUILD='site-signal-noai-v24-feed-timestamp';"
+    "const BUILD='site-signal-noai-v25-balanced-entry-guard';"
   ],
   [
     "const state={samples:[],signal:null,lastTerminal:null,trades:[],cooldownUntil:0,sameSideBlockUntil:0,lastLossSide:null,quote:null,lastError:null,ws:null,wsConnected:false,lastTvAt:0,lastLpAt:0,loggedQuote:false,loggedLp:false,lastEntryGuard:null};",
@@ -28,7 +28,11 @@ const replacements = [
   ],
   [
     "maxRisk:round(clamp(atr1*2.80,2.00,5.00),3),",
-    "maxRisk:round(clamp(atr1*3.40,2.50,5.25),3),"
+    "maxRisk:round(clamp(atr1*3.60,2.50,5.50),3),"
+  ],
+  [
+    "minTp1Usd:round(clamp(atr1*.60,.75,1.80),3),",
+    "minTp1Usd:round(clamp(atr1*.42,.55,1.25),3),"
   ],
   [
     "if(REQUIRE_1M_CONFIRM&&!m.oneMinuteConfirmed){state.lastEntryGuard={atMs:now,reason:'WAITING_1M_CONFIRMATION',side};return;}",
