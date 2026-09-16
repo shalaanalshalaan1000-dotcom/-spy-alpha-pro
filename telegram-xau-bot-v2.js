@@ -11,7 +11,7 @@ let ready=false;
 const sent={side:null,key:null,above:false,messageId:null,lastText:null,lastEditMs:0,belowSinceMs:0};
 const recentKeys=new Map();
 
-function num(v){const x=Number(v);return Number.isFinite(x)?x:null;}
+function num(v){if(v==null||v===''||typeof v==='boolean')return null;const x=Number(v);return Number.isFinite(x)?x:null;}
 function valid(v){const x=num(v);return x!=null&&x>0;}
 function n(v,d=3){return valid(v)?Number(v).toFixed(d):'—';}
 function money(v,d=2){return valid(v)?'$'+Number(v).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d}):'—';}
@@ -25,6 +25,7 @@ function stopValid(side,entry,sl){return valid(sl)&&valid(entry)&&(side==='BUY'?
 function reached(side,price,target){return valid(price)&&valid(target)&&(side==='BUY'?price>=target:price<=target);}
 function signalKey(s){
   const side=sideOf(s),entry=entryOf(s),issued=num(s?.issuedAtMs);
+  if(s?.signalId)return String(s.signalId);
   if(s?.setupId)return String(s.setupId);
   return `${side||'NA'}|${issued||'NA'}|${entry||'NA'}`;
 }
@@ -32,10 +33,18 @@ function cleanupRecent(now=Date.now()){
   for(const [key,at] of recentKeys.entries())if(now-at>RECENT_KEY_TTL_MS)recentKeys.delete(key);
 }
 function isConfirmedActive(s){
-  return String(s?.status||'').toUpperCase()==='ACTIVE'&&Boolean(s?.entered)&&Boolean(s?.triggered)&&['BUY','SELL'].includes(s?.side);
+  return String(s?.status||'').toUpperCase()==='ACTIVE'&&Boolean(s?.signalId)&&s?.entered===true&&s?.triggered===true&&['BUY','SELL'].includes(s?.side);
 }
 function tp1AlreadyGone(s,side,livePrice,tp1){
   return Boolean(s?.tp1||s?.targetHits?.[0])||reached(side,livePrice,tp1);
+}
+
+function canSendSignal(s,now=Date.now()){
+  const side=sideOf(s),entry=entryOf(s),sl=stopOf(s),p=num(s?.price),t=targetsOf(s),age=num(s?.quoteAgeMs),at=Date.parse(s?.updatedAt);
+  if(s?.degraded||s?.liveFeedFresh!==true||age==null||age<0||age>20000||!Number.isFinite(at)||now-at>20000||at>now+5000)return false;
+  if(!isConfirmedActive(s)||!valid(p)||!valid(entry)||!stopValid(side,entry,sl)||tp1AlreadyGone(s,side,p,t[0]))return false;
+  if(side==='BUY'?p<=sl:p>=sl)return false;
+  return t.every((v,i)=>valid(v)&&(side==='BUY'?v>(i?t[i-1]:entry):v<(i?t[i-1]:entry)));
 }
 
 async function tg(method,body=null){
@@ -102,7 +111,7 @@ async function tick(){
     const now=Date.now();cleanupRecent(now);
     const active=isConfirmedActive(s),side=sideOf(s),confidence=confidenceOf(s),livePrice=num(s?.price),entry=entryOf(s),sl=stopOf(s),targets=targetsOf(s),targetsReady=targets.every(valid),slReady=stopValid(side,entry,sl),key=signalKey(s);
     const late=active&&tp1AlreadyGone(s,side,livePrice,targets[0]);
-    const ok=!s?.degraded&&active&&confidence>=SIGNAL_THRESHOLD&&targetsReady&&slReady&&!late;
+    const ok=canSendSignal(s,now)&&confidence>=SIGNAL_THRESHOLD;
 
     if(ok){
       sent.belowSinceMs=0;
@@ -137,4 +146,4 @@ async function tick(){
 console.log(`[telegram-xau-confirmed] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} confirmed ACTIVE only; threshold=${SIGNAL_THRESHOLD}; no-candidate/no-late mode`);
 if(process.env.NODE_ENV!=='test')(async function loop(){while(true){await tick();await new Promise(r=>setTimeout(r,POLL_MS));}})();
 
-export {targetMessage};
+export {targetMessage,canSendSignal};

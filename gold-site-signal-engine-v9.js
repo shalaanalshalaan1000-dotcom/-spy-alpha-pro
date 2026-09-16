@@ -16,7 +16,7 @@ const replacements = [
   ],
   [
     "const BUILD='site-signal-noai-v19-trade-management';",
-    "const BUILD='site-signal-noai-v21-balanced-10day';"
+    "const BUILD='site-signal-noai-v22-trade-safety';"
   ],
   [
     "maxRisk:round(clamp(atr1*2.80,2.00,5.00),3),",
