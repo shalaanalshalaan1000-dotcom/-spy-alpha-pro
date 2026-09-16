@@ -10,9 +10,11 @@ function patchSiteSignalUi(source) {
   const age=Number(raw?.quoteAgeMs),stale=Boolean(raw?.degraded)||raw?.liveFeedFresh!==true||raw?.quoteAgeMs==null||!Number.isFinite(age)||age<0||age>20000||Date.now()-Date.parse(raw?.updatedAt)>20000||!Number.isFinite(Date.parse(raw?.updatedAt))||Date.parse(raw?.updatedAt)>Date.now()+5000;
   const ordered=targets.every(v=>v!=null)&&entry!=null&&targets.every((v,i)=>side==='BUY'?v>(i?targets[i-1]:entry):v<(i?targets[i-1]:entry));
   const active=!stale&&Boolean(raw?.signalId)&&['ACTIVE','MANAGING'].includes(status)&&raw?.entered===true&&raw?.triggered===true&&['BUY','SELL'].includes(side)&&ordered&&stop!=null;
-  const confidence=Math.max(0,Math.min(100,Number(raw?.signalConfidence??raw?.confidence)||0)),collecting=!stale&&status==='COLLECTING';
-  const waitReason=raw?.reason?('لم تعتمد أي صفقة: '+String(raw.reason)):'بانتظار إشارة مؤكدة مكتملة.';
-  const plan={serverOwned:true,signalId:active?raw.signalId:null,state:stale?'STALE':active?(side==='BUY'?'UP':'DOWN'):collecting?'COLLECTING':'WAIT',scenarioLabel:active?(side==='BUY'?'BUY مؤكد':'SELL مؤكد'):'انتظار',confidence,locked:active,entry:active?entry:null,invalidation:active?stop:null,target1:active?targets[0]:null,target2:active?targets[1]:null,target3:active?targets[2]:null,target4:active?targets[3]:null,entryLow:active?positive(raw.entryLow):null,entryHigh:active?positive(raw.entryHigh):null,tp1Hit:active&&Boolean(raw?.targetHits?.[0]),tp2Hit:active&&Boolean(raw?.targetHits?.[1]),tp3Hit:active&&Boolean(raw?.targetHits?.[2]),tp4Hit:active&&Boolean(raw?.targetHits?.[3]),lockCreatedAt:active?raw.issuedAtMs:null,eta1:null,eta2:null,sampleCount:Number(raw?.sampleCount)||0,spanMinutes:Math.min(5,(Number(raw?.readingCompleteness)||0)/20),channel:active?(side==='BUY'?'RISING':'FALLING'):'FLAT',note:stale?'بيانات المصدر غير صالحة حاليًا؛ الدخول متوقف.':active?'إشارة مؤكدة من محرك الموقع؛ الأهداف والوقف يتبعان حالة الخادم.':waitReason};
+  const collecting=!stale&&status==='COLLECTING',reason=String(raw?.reason||''),cooldown=/COOLDOWN/i.test(reason),recovering=/DATA_RECOVERING|ENGINE_UNAVAILABLE/i.test(reason),guard=/ENTRY_GUARD|TP1_TOO_CLOSE|WAITING_1M|STOP_TOO_|TP1_OR_SL/i.test(reason);
+  const rawConfidence=Math.max(0,Math.min(100,Number(raw?.signalConfidence??raw?.confidence)||0)),confidence=active?rawConfidence:0;
+  const scenarioLabel=active?(side==='BUY'?'BUY مؤكد':'SELL مؤكد'):recovering?'استعادة البيانات':cooldown?'انتظار بعد الصفقة':'انتظار';
+  const waitReason=recovering?'جاري استعادة بيانات السعر الحي؛ لن تُرسل صفقة حتى تعود البيانات.':cooldown?'فترة حماية قصيرة بعد الصفقة السابقة؛ لا توجد صفقة نشطة.':guard?'تم رفض الفرصة الحالية لأن شروط الدخول لم تكتمل؛ ننتظر فرصة جديدة.':'بانتظار إشارة مؤكدة مكتملة.';
+  const plan={serverOwned:true,signalId:active?raw.signalId:null,state:stale?'STALE':active?(side==='BUY'?'UP':'DOWN'):collecting?'COLLECTING':'WAIT',scenarioLabel,confidence,locked:active,entry:active?entry:null,invalidation:active?stop:null,target1:active?targets[0]:null,target2:active?targets[1]:null,target3:active?targets[2]:null,target4:active?targets[3]:null,entryLow:active?positive(raw.entryLow):null,entryHigh:active?positive(raw.entryHigh):null,tp1Hit:active&&Boolean(raw?.targetHits?.[0]),tp2Hit:active&&Boolean(raw?.targetHits?.[1]),tp3Hit:active&&Boolean(raw?.targetHits?.[2]),tp4Hit:active&&Boolean(raw?.targetHits?.[3]),lockCreatedAt:active?raw.issuedAtMs:null,eta1:null,eta2:null,sampleCount:Number(raw?.sampleCount)||0,spanMinutes:Math.min(5,(Number(raw?.readingCompleteness)||0)/20),channel:active?(side==='BUY'?'RISING':'FALLING'):'FLAT',note:active?'إشارة مؤكدة من محرك الموقع؛ الأهداف والوقف يتبعان حالة الخادم.':waitReason};
   return {...base,stale,direction:active?(side==='BUY'?'UP':'DOWN'):'FLAT',plan};
 }`;
 
@@ -49,6 +51,8 @@ function patchSiteSignalUi(source) {
     "$('#goldModelWindow').textContent=channelLabel+' • رصد '+plan.spanMinutes+' د';",
     "$('#goldModelWindow').textContent=(plan.state==='COLLECTING'?'تهيئة بيانات الخادم':channelLabel+' • محرك الموقع');"
   );
+  source = source.replaceAll("$('#mode').textContent=cfg.mode+' / '+cfg.provider;", "$('#mode').textContent='XAUUSD / SIGNALS';");
+  source = source.replaceAll("$('#mode').textContent=d.mode+' / '+d.provider;", "$('#mode').textContent='XAUUSD / SIGNALS';");
   // Server lifecycle is authoritative; never revive a browser-local trade.
   source = source.replace('function lockGoldPlan(plan,price){', 'function lockGoldPlan(plan,price){if(plan?.serverOwned)return plan;');
   return source;
