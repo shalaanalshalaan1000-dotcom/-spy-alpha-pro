@@ -12,19 +12,19 @@ const replacements = [
   ],
   [
     "const MIN_CONFIDENCE=Number(process.env.MIN_CONFIDENCE||72);",
-    "const MIN_CONFIDENCE=Math.max(82,Math.min(92,Number(process.env.MIN_CONFIDENCE||82)));"
+    "const MIN_CONFIDENCE=Math.max(80,Math.min(90,Number(process.env.MIN_CONFIDENCE||80)));"
   ],
   [
     "const BASE_MIN_TP1_R=Math.max(.9,Number(process.env.GOLD_MIN_LIVE_TP1_R||1.20));",
-    "const BASE_MIN_TP1_R=Math.max(1.05,Math.min(1.40,Number(process.env.GOLD_MIN_LIVE_TP1_R||1.10)));\nconst MAX_DAILY_SIGNALS=Math.max(1,Math.min(10,Number(process.env.GOLD_MAX_DAILY_SIGNALS||10)));\nconst POST_TRADE_COOLDOWN_MS=Math.max(900000,Number(process.env.GOLD_POST_TRADE_COOLDOWN_MS||900000));\nconst M5_ENTRY_WINDOW_MS=Math.max(30000,Math.min(90000,Number(process.env.GOLD_M5_ENTRY_WINDOW_MS||75000)));"
+    "const BASE_MIN_TP1_R=Math.max(1.05,Math.min(1.40,Number(process.env.GOLD_MIN_LIVE_TP1_R||1.10)));\nconst MAX_DAILY_SIGNALS=Math.max(1,Math.min(20,Number(process.env.GOLD_MAX_DAILY_SIGNALS||20)));\nconst POST_TRADE_COOLDOWN_MS=Math.max(300000,Number(process.env.GOLD_POST_TRADE_COOLDOWN_MS||300000));\nconst M5_ENTRY_WINDOW_MS=Math.max(60000,Math.min(150000,Number(process.env.GOLD_M5_ENTRY_WINDOW_MS||120000)));"
   ],
   [
     "const SL_COOLDOWN_MS=Math.max(120000,Number(process.env.GOLD_SL_COOLDOWN_MS||300000));",
-    "const SL_COOLDOWN_MS=Math.max(900000,Number(process.env.GOLD_SL_COOLDOWN_MS||900000));"
+    "const SL_COOLDOWN_MS=Math.max(600000,Number(process.env.GOLD_SL_COOLDOWN_MS||600000));"
   ],
   [
     "const BUILD='site-signal-noai-v19-trade-management';",
-    "const BUILD='site-signal-noai-v29-news-guard';"
+    "const BUILD='site-signal-noai-v30-balanced-20day';"
   ],
   [
     "const state={samples:[],signal:null,lastTerminal:null,trades:[],cooldownUntil:0,sameSideBlockUntil:0,lastLossSide:null,quote:null,lastError:null,ws:null,wsConnected:false,lastTvAt:0,lastLpAt:0,loggedQuote:false,loggedLp:false,lastEntryGuard:null};",
@@ -48,7 +48,7 @@ const replacements = [
   ],
   [
     "function maybeCreate(m,q,now){\n state.lastEntryGuard=null;",
-    "const RIYADH_DAY_FORMATTER=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit'});\nfunction riyadhDayKey(ms=Date.now()){return RIYADH_DAY_FORMATTER.format(new Date(ms));}\nfunction refreshDailyQuota(now){const key=riyadhDayKey(now);if(state.dailySignalDate!==key){state.dailySignalDate=key;state.dailySignalCount=0;}}\nfunction maybeCreate(m,q,now){\n refreshDailyQuota(now);\n state.lastEntryGuard=null;\n if(state.dailySignalCount>=MAX_DAILY_SIGNALS){state.lastEntryGuard={atMs:now,reason:'DAILY_TOP10_LIMIT_REACHED',dailySignalCount:state.dailySignalCount,maxDailySignals:MAX_DAILY_SIGNALS};return;}\n const msInto5m=now%300000;\n if(msInto5m>M5_ENTRY_WINDOW_MS){state.lastEntryGuard={atMs:now,reason:'WAITING_NEXT_5M_CLOSE_WINDOW',nextWindowInSec:Math.ceil((300000-msInto5m)/1000)};return;}"
+    "const RIYADH_DAY_FORMATTER=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit'});\nfunction riyadhDayKey(ms=Date.now()){return RIYADH_DAY_FORMATTER.format(new Date(ms));}\nfunction refreshDailyQuota(now){const key=riyadhDayKey(now);if(state.dailySignalDate!==key){state.dailySignalDate=key;state.dailySignalCount=0;}}\nfunction maybeCreate(m,q,now){\n refreshDailyQuota(now);\n state.lastEntryGuard=null;\n if(state.dailySignalCount>=MAX_DAILY_SIGNALS){state.lastEntryGuard={atMs:now,reason:'DAILY_TOP20_LIMIT_REACHED',dailySignalCount:state.dailySignalCount,maxDailySignals:MAX_DAILY_SIGNALS};return;}\n const msInto5m=now%300000;\n if(msInto5m>M5_ENTRY_WINDOW_MS){state.lastEntryGuard={atMs:now,reason:'WAITING_NEXT_5M_CLOSE_WINDOW',nextWindowInSec:Math.ceil((300000-msInto5m)/1000)};return;}"
   ],
   [
     " const exit=exitPx(side,q),sl=n(m.stopLoss),tp1=n(m.target1);",
@@ -60,11 +60,11 @@ const replacements = [
   ],
   [
     "source:'GOLD_ALPHA_SITE',executionMode:'SIGNAL_ONLY_TELEGRAM',executable:false,entered:true,triggered:true,triggerPrice:p,priceProvider:q.provider,lockedTargets:true,",
-    "source:'GOLD_ALPHA_SITE',executionMode:'SIGNAL_ONLY_TELEGRAM',executable:false,entered:true,triggered:true,triggerPrice:p,priceProvider:q.provider,lockedTargets:true,tradeStyle:'HIGH_CONFIDENCE_5M_15M_SWING',maxDailySignals:MAX_DAILY_SIGNALS,dailySignalNumber:state.dailySignalCount+1,newsRiskAtEntry:state.lastNewsRisk,"
+    "source:'GOLD_ALPHA_SITE',executionMode:'SIGNAL_ONLY_TELEGRAM',executable:false,entered:true,triggered:true,triggerPrice:p,priceProvider:q.provider,lockedTargets:true,tradeStyle:'BALANCED_5M_15M_SWING',maxDailySignals:MAX_DAILY_SIGNALS,dailySignalNumber:state.dailySignalCount+1,newsRiskAtEntry:state.lastNewsRisk,"
   ],
   [
     "reason:`CONFIRMED BY SITE ENGINE ON FRESH ${q.provider} PRICE — 1m confirm + volatility guard passed (${round(viability.rr,2)}R to TP1, risk ${round(viability.risk,2)}$, ATR1 ${viability.policy.atr1}$); managed stop active; Telegram only, AI off`",
-    "reason:`HIGH-CONFIDENCE GOLD SETUP — ${Number(m.confidence)||0}% confidence; 5m execution + 15m context with 1m used only for timing; USD news guard clear; extended targets active (${round(viability.rr,2)}R to TP1, risk ${round(viability.risk,2)}$, ATR1 ${viability.policy.atr1}$); max ${MAX_DAILY_SIGNALS}/day; Telegram only, AI off`"
+    "reason:`CONFIRMED GOLD SETUP — ${Number(m.confidence)||0}% confidence; 5m execution + 15m context with 1m used only for timing; USD news guard clear; extended targets active (${round(viability.rr,2)}R to TP1, risk ${round(viability.risk,2)}$, ATR1 ${viability.policy.atr1}$); max ${MAX_DAILY_SIGNALS}/day; Telegram only, AI off`"
   ],
   [
     " state.trades.push({...state.signal,status:'SIGNAL'});state.trades=state.trades.slice(-300);",
@@ -80,7 +80,7 @@ const replacements = [
   ],
   [
     "signalConfidence:Number(state.signal?.confidence??model.confidence??0),minConfidence:MIN_CONFIDENCE,volatilityPolicy:policy,",
-    "signalConfidence:Number(state.signal?.confidence??model.confidence??0),minConfidence:MIN_CONFIDENCE,dailySignalCount:state.dailySignalCount,maxDailySignals:MAX_DAILY_SIGNALS,tradeStyle:'HIGH_CONFIDENCE_5M_15M_SWING',newsRisk,volatilityPolicy:policy,"
+    "signalConfidence:Number(state.signal?.confidence??model.confidence??0),minConfidence:MIN_CONFIDENCE,dailySignalCount:state.dailySignalCount,maxDailySignals:MAX_DAILY_SIGNALS,tradeStyle:'BALANCED_5M_15M_SWING',newsRisk,volatilityPolicy:policy,"
   ],
   [
     "if(state.lastEntryGuard?.atMs===now)return{...base,status:'WAIT',action:'WAIT',candidateAction:'WAIT',reason:`ENTRY_GUARD: ${state.lastEntryGuard.reason} — no Telegram entry sent`};",
