@@ -7,6 +7,10 @@ let source = fs.readFileSync(sourceUrl, 'utf8');
 
 const replacements = [
   [
+    "import { analyzeGoldSignal } from './gold-signal-model.js';",
+    "import { analyzeGoldSignal } from './gold-signal-model.js';\nimport { getGoldNewsRisk } from './gold-news-risk.js';"
+  ],
+  [
     "const MIN_CONFIDENCE=Number(process.env.MIN_CONFIDENCE||72);",
     "const MIN_CONFIDENCE=Math.max(82,Math.min(92,Number(process.env.MIN_CONFIDENCE||82)));"
   ],
@@ -20,11 +24,11 @@ const replacements = [
   ],
   [
     "const BUILD='site-signal-noai-v19-trade-management';",
-    "const BUILD='site-signal-noai-v28-top10-swing';"
+    "const BUILD='site-signal-noai-v29-news-guard';"
   ],
   [
     "const state={samples:[],signal:null,lastTerminal:null,trades:[],cooldownUntil:0,sameSideBlockUntil:0,lastLossSide:null,quote:null,lastError:null,ws:null,wsConnected:false,lastTvAt:0,lastLpAt:0,loggedQuote:false,loggedLp:false,lastEntryGuard:null};",
-    "const state={samples:[],signal:null,lastTerminal:null,trades:[],cooldownUntil:0,sameSideBlockUntil:0,lastLossSide:null,quote:null,lastError:null,ws:null,wsConnected:false,lastTvAt:0,lastLpAt:0,loggedQuote:false,loggedLp:false,lastEntryGuard:null,lastReconnectAttempt:0,dailySignalDate:null,dailySignalCount:0,lastSignalAtMs:0};"
+    "const state={samples:[],signal:null,lastTerminal:null,trades:[],cooldownUntil:0,sameSideBlockUntil:0,lastLossSide:null,quote:null,lastError:null,ws:null,wsConnected:false,lastTvAt:0,lastLpAt:0,loggedQuote:false,loggedLp:false,lastEntryGuard:null,lastReconnectAttempt:0,dailySignalDate:null,dailySignalCount:0,lastSignalAtMs:0,lastNewsRisk:null};"
   ],
   [
     "const now=Date.now(),rawT=n(v.lp_time),stamp=rawT==null?NaN:(rawT>1e12?rawT:rawT*1000);",
@@ -56,19 +60,31 @@ const replacements = [
   ],
   [
     "source:'GOLD_ALPHA_SITE',executionMode:'SIGNAL_ONLY_TELEGRAM',executable:false,entered:true,triggered:true,triggerPrice:p,priceProvider:q.provider,lockedTargets:true,",
-    "source:'GOLD_ALPHA_SITE',executionMode:'SIGNAL_ONLY_TELEGRAM',executable:false,entered:true,triggered:true,triggerPrice:p,priceProvider:q.provider,lockedTargets:true,tradeStyle:'HIGH_CONFIDENCE_5M_15M_SWING',maxDailySignals:MAX_DAILY_SIGNALS,dailySignalNumber:state.dailySignalCount+1,"
+    "source:'GOLD_ALPHA_SITE',executionMode:'SIGNAL_ONLY_TELEGRAM',executable:false,entered:true,triggered:true,triggerPrice:p,priceProvider:q.provider,lockedTargets:true,tradeStyle:'HIGH_CONFIDENCE_5M_15M_SWING',maxDailySignals:MAX_DAILY_SIGNALS,dailySignalNumber:state.dailySignalCount+1,newsRiskAtEntry:state.lastNewsRisk,"
   ],
   [
     "reason:`CONFIRMED BY SITE ENGINE ON FRESH ${q.provider} PRICE — 1m confirm + volatility guard passed (${round(viability.rr,2)}R to TP1, risk ${round(viability.risk,2)}$, ATR1 ${viability.policy.atr1}$); managed stop active; Telegram only, AI off`",
-    "reason:`HIGH-CONFIDENCE GOLD SETUP — ${Number(m.confidence)||0}% confidence; 5m execution + 15m context with 1m used only for timing; extended targets active (${round(viability.rr,2)}R to TP1, risk ${round(viability.risk,2)}$, ATR1 ${viability.policy.atr1}$); max ${MAX_DAILY_SIGNALS}/day; Telegram only, AI off`"
+    "reason:`HIGH-CONFIDENCE GOLD SETUP — ${Number(m.confidence)||0}% confidence; 5m execution + 15m context with 1m used only for timing; USD news guard clear; extended targets active (${round(viability.rr,2)}R to TP1, risk ${round(viability.risk,2)}$, ATR1 ${viability.policy.atr1}$); max ${MAX_DAILY_SIGNALS}/day; Telegram only, AI off`"
   ],
   [
     " state.trades.push({...state.signal,status:'SIGNAL'});state.trades=state.trades.slice(-300);",
     " state.trades.push({...state.signal,status:'SIGNAL'});state.trades=state.trades.slice(-300);state.dailySignalCount+=1;state.lastSignalAtMs=now;"
   ],
   [
+    " const q=state.quote,now=Date.now();",
+    " const q=state.quote,now=Date.now();\n const newsRisk=await getGoldNewsRisk(now);state.lastNewsRisk=newsRisk;"
+  ],
+  [
+    " const model=analyzeGoldSignal(state.samples,q.price,now);\n if(!state.signal)maybeCreate(model,q,now);",
+    " const model=analyzeGoldSignal(state.samples,q.price,now);\n if(!state.signal){if(newsRisk.blockEntries){state.lastEntryGuard={atMs:now,reason:'USD_NEWS_BLACKOUT',newsLevel:newsRisk.level,newsReason:newsRisk.reason,activeEvent:newsRisk.activeEvent};}else maybeCreate(model,q,now);}"
+  ],
+  [
     "signalConfidence:Number(state.signal?.confidence??model.confidence??0),minConfidence:MIN_CONFIDENCE,volatilityPolicy:policy,",
-    "signalConfidence:Number(state.signal?.confidence??model.confidence??0),minConfidence:MIN_CONFIDENCE,dailySignalCount:state.dailySignalCount,maxDailySignals:MAX_DAILY_SIGNALS,tradeStyle:'HIGH_CONFIDENCE_5M_15M_SWING',volatilityPolicy:policy,"
+    "signalConfidence:Number(state.signal?.confidence??model.confidence??0),minConfidence:MIN_CONFIDENCE,dailySignalCount:state.dailySignalCount,maxDailySignals:MAX_DAILY_SIGNALS,tradeStyle:'HIGH_CONFIDENCE_5M_15M_SWING',newsRisk,volatilityPolicy:policy,"
+  ],
+  [
+    "if(state.lastEntryGuard?.atMs===now)return{...base,status:'WAIT',action:'WAIT',candidateAction:'WAIT',reason:`ENTRY_GUARD: ${state.lastEntryGuard.reason} — no Telegram entry sent`};",
+    "if(state.lastEntryGuard?.atMs===now)return{...base,status:'WAIT',action:'WAIT',candidateAction:'WAIT',reason:state.lastEntryGuard.reason==='USD_NEWS_BLACKOUT'?`NEWS RISK: ${newsRisk.reason} — no Telegram entry sent`:`ENTRY_GUARD: ${state.lastEntryGuard.reason} — no Telegram entry sent`};"
   ],
   [
     "if(stage===1){\n  const nearEntry=s.side==='BUY'?entry-Math.min(.18,initialRisk*.12):entry+Math.min(.18,initialRisk*.12);\n  const structure=swing==null?nearEntry:(s.side==='BUY'?swing-buffer:swing+buffer);\n  candidate=s.side==='BUY'?Math.max(nearEntry,structure):Math.min(nearEntry,structure);\n }else if(stage===2){",
