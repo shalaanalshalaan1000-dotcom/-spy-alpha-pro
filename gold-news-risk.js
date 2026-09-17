@@ -1,11 +1,21 @@
 const CALENDAR_URL = String(process.env.GOLD_ECON_CALENDAR_URL || 'https://nfs.faireconomy.media/ff_calendar_thisweek.json').trim();
 const CACHE_MS = Math.max(60_000, Number(process.env.GOLD_NEWS_CACHE_MS || 300_000));
+const RISK_CACHE_MS = Math.max(1_000, Number(process.env.GOLD_NEWS_RISK_CACHE_MS || 5_000));
 const REQUIRE_NEWS_FEED = String(process.env.GOLD_REQUIRE_NEWS_FEED || 'true').toLowerCase() !== 'false';
+const RIYADH_DAY_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit'
+});
 
 const cache = { expiresAt: 0, events: [], error: null, updatedAt: null };
+let calendarLoadPromise = null;
+let riskCache = { expiresAt: 0, value: null };
 
 const MAJOR_RE = /(fomc|federal funds rate|interest rate decision|fed chair|fed press conference|cpi|consumer price index|core pce|pce price|non[- ]farm|employment situation|unemployment rate|average hourly earnings|payrolls)/i;
 const IMPORTANT_RE = /(jobless claims|unemployment claims|retail sales|gdp|ism|jolts|ppi|producer price|consumer confidence|durable goods|adp|treasury|powell|warsh|federal reserve)/i;
+
+function riyadhDayKey(ms) {
+  return RIYADH_DAY_FORMATTER.format(new Date(ms));
+}
 
 function eventTime(event) {
   const raw = event?.date || event?.datetime || event?.time;
@@ -30,6 +40,7 @@ function normalizeEvent(event = {}) {
     country,
     impact: normalizeImpact(event.impact),
     atMs,
+    dayKey: atMs ? riyadhDayKey(atMs) : null,
     at: atMs ? new Date(atMs).toISOString() : null,
     forecast: event.forecast ?? null,
     previous: event.previous ?? null,
@@ -37,9 +48,7 @@ function normalizeEvent(event = {}) {
   };
 }
 
-async function loadCalendar() {
-  const now = Date.now();
-  if (cache.expiresAt > now && (cache.events.length || cache.error)) return cache;
+async function refreshCalendar(now) {
   try {
     const response = await fetch(CALENDAR_URL, {
       headers: { 'user-agent': 'Gold-Alpha-Pro/1.0', accept: 'application/json' },
@@ -60,10 +69,16 @@ async function loadCalendar() {
   return cache;
 }
 
-function riyadhDayKey(ms) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit'
-  }).format(new Date(ms));
+async function loadCalendar() {
+  const now = Date.now();
+  if (cache.expiresAt > now && (cache.events.length || cache.error)) return cache;
+  if (calendarLoadPromise) return calendarLoadPromise;
+  calendarLoadPromise = refreshCalendar(now);
+  try {
+    return await calendarLoadPromise;
+  } finally {
+    calendarLoadPromise = null;
+  }
 }
 
 function windowsFor(event) {
@@ -75,16 +90,23 @@ function windowsFor(event) {
   return { beforeMin: 0, afterMin: 0, severity: 'NORMAL' };
 }
 
+function memoizeRisk(value, now) {
+  riskCache = { expiresAt: now + RISK_CACHE_MS, value };
+  return value;
+}
+
 export async function getGoldNewsRisk(now = Date.now()) {
+  if (riskCache.value && riskCache.expiresAt > now) return riskCache.value;
+
   const cal = await loadCalendar();
   const todayKey = riyadhDayKey(now);
   const usdToday = cal.events
-    .filter(e => riyadhDayKey(e.atMs) === todayKey)
+    .filter(e => e.dayKey === todayKey)
     .sort((a, b) => a.atMs - b.atMs);
   const highImpactToday = usdToday.filter(e => e.impact === 'HIGH' || MAJOR_RE.test(e.title));
 
   if (cal.error && REQUIRE_NEWS_FEED) {
-    return {
+    return memoizeRisk({
       available: false,
       dayHasHighImpactUsd: null,
       level: 'UNKNOWN',
@@ -95,7 +117,7 @@ export async function getGoldNewsRisk(now = Date.now()) {
       eventsToday: [],
       error: cal.error,
       updatedAt: cal.updatedAt
-    };
+    }, now);
   }
 
   let activeEvent = null;
@@ -124,7 +146,7 @@ export async function getGoldNewsRisk(now = Date.now()) {
       ? `NEWS_DAY: ${highImpactToday.length} high-impact USD event(s) can move gold; entries allowed only outside blackout windows`
       : 'NORMAL: no high-impact USD event detected for today';
 
-  return {
+  return memoizeRisk({
     available: !cal.error,
     dayHasHighImpactUsd,
     level,
@@ -135,5 +157,5 @@ export async function getGoldNewsRisk(now = Date.now()) {
     eventsToday: usdToday.slice(0, 12),
     updatedAt: cal.updatedAt,
     error: cal.error
-  };
+  }, now);
 }

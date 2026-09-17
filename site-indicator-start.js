@@ -123,7 +123,8 @@ function injectIndicator(html) {
    document.getElementById('siteSignalReason').textContent=s.reason||'—';
   }catch(e){const word=document.getElementById('siteSignalWord');if(word){word.textContent='WAIT';word.className='siteWait';}}
  }
- (async function loop(){await refreshSiteIndicator();setTimeout(loop,1000)})();
+ // Three seconds is fast enough for a 5m execution model and cuts needless internal polling by ~67%.
+ (async function loop(){await refreshSiteIndicator();setTimeout(loop,3000)})();
 })();
 </script>`;
 
