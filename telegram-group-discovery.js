@@ -1,39 +1,49 @@
 const BOT_TOKEN=String(process.env.TELEGRAM_BOT_TOKEN||'').trim();
-let offset=0;
+const CHAT_ID=String(process.env.TELEGRAM_CHAT_ID||'').trim();
+const AUTO_URL=process.env.TELEGRAM_SIGNAL_URL||'http://127.0.0.1:3002/api/auto-trade/signal?observe=1';
+const POLL_MS=Math.max(1200,Number(process.env.TELEGRAM_POLL_MS||1500));
+const BOOT_MS=Date.now();
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+let activeKey=null;
+let sent=[false,false,false,false];
 
-async function tg(method,body=null){
-  if(!BOT_TOKEN)throw new Error('TELEGRAM_BOT_TOKEN missing');
-  const r=await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`,{
-    method:body?'POST':'GET',
-    headers:body?{'content-type':'application/json'}:undefined,
-    body:body?JSON.stringify(body):undefined,
-    cache:'no-store',signal:AbortSignal.timeout(15000)
+function num(v){if(v==null||v===''||typeof v==='boolean')return null;const x=Number(v);return Number.isFinite(x)?x:null;}
+function valid(v){const x=num(v);return x!=null&&x>0;}
+function n(v){return valid(v)?Number(v).toFixed(3):'—';}
+function keyOf(s){return String(s?.signalId||s?.setupId||'');}
+
+async function tgSend(text){
+  if(!BOT_TOKEN||!CHAT_ID)throw new Error('Telegram token/chat missing');
+  const r=await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,{
+    method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({chat_id:CHAT_ID,text,disable_web_page_preview:true}),
+    cache:'no-store',signal:AbortSignal.timeout(8000)
   });
   const d=await r.json().catch(()=>({}));
-  if(!r.ok||d?.ok===false)throw new Error(`${method} ${r.status} ${d?.description||''}`.trim());
-  return d;
+  if(!r.ok||d?.ok===false)throw new Error(`sendMessage ${r.status} ${d?.description||''}`.trim());
 }
 
-async function poll(){
-  const d=await tg(`getUpdates?timeout=10&allowed_updates=%5B%22message%22%5D&offset=${offset}`);
-  for(const u of d?.result||[]){
-    offset=Math.max(offset,Number(u.update_id||0)+1);
-    const m=u.message;
-    const chat=m?.chat;
-    if(!chat)continue;
-    const type=String(chat.type||'');
-    const text=String(m.text||'').trim().toLowerCase();
-    if(type==='group'||type==='supergroup'){
-      console.log(`[telegram-group-id] title=${JSON.stringify(chat.title||'')} chat_id=${chat.id} type=${type}`);
-      if(text==='getid123'||text==='/getid123'){
-        await tg('sendMessage',{chat_id:chat.id,text:`Gold Alpha Group ID: ${chat.id}`});
-        console.log(`[telegram-group-id] replied chat_id=${chat.id}`);
-      }
+async function tick(){
+  const r=await fetch(AUTO_URL,{cache:'no-store',signal:AbortSignal.timeout(7000)});
+  if(!r.ok)throw new Error(`signal ${r.status}`);
+  const s=await r.json();
+  const key=keyOf(s);
+  if(!key||String(s?.status||'').toUpperCase()!=='ACTIVE')return;
+  if(activeKey!==key){activeKey=key;sent=[false,false,false,false];}
+  const hits=Array.isArray(s?.targetHits)?s.targetHits:[];
+  const hitTimes=Array.isArray(s?.targetHitAt)?s.targetHitAt:[];
+  const managed=num(s?.managedStopLoss);
+  if(!valid(managed))return;
+  for(let i=0;i<3;i++){
+    const hitAt=num(hitTimes[i]);
+    if(hits[i]&&!sent[i]&&hitAt!=null&&hitAt>=BOOT_MS){
+      await tgSend(`🔒 XAUUSD — بعد TP${i+1}\n⬆️ ارفع وقف الخسارة إلى: ${n(managed)}`);
+      sent[i]=true;
+      console.log(`[telegram-managed-stop] TP${i+1} raise-stop=${n(managed)} key=${key}`);
     }
   }
 }
 
-console.log('[telegram-group-id] discovery listener started');
-if(BOT_TOKEN)(async()=>{while(true){try{await poll();}catch(e){console.error('[telegram-group-id]',e?.message||e);await sleep(5000);}}})();
-else console.error('[telegram-group-id] TELEGRAM_BOT_TOKEN missing');
+console.log('[telegram-managed-stop] notifier started; uses site managedStopLoss only');
+if(BOT_TOKEN&&CHAT_ID)(async()=>{while(true){try{await tick();}catch(e){console.error('[telegram-managed-stop]',e?.message||e);}await sleep(POLL_MS);}})();
+else console.error('[telegram-managed-stop] Telegram token/chat missing');
