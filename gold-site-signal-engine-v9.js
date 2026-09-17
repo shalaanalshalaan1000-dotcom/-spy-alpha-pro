@@ -16,7 +16,7 @@ const replacements = [
   ],
   [
     "const BUILD='site-signal-noai-v19-trade-management';",
-    "const BUILD='site-signal-noai-v25-balanced-entry-guard';"
+    "const BUILD='site-signal-noai-v26-tp1-stop-breathing-room';"
   ],
   [
     "const state={samples:[],signal:null,lastTerminal:null,trades:[],cooldownUntil:0,sameSideBlockUntil:0,lastLossSide:null,quote:null,lastError:null,ws:null,wsConnected:false,lastTvAt:0,lastLpAt:0,loggedQuote:false,loggedLp:false,lastEntryGuard:null};",
@@ -37,6 +37,10 @@ const replacements = [
   [
     "if(REQUIRE_1M_CONFIRM&&!m.oneMinuteConfirmed){state.lastEntryGuard={atMs:now,reason:'WAITING_1M_CONFIRMATION',side};return;}",
     "if(REQUIRE_1M_CONFIRM&&!m.oneMinuteConfirmed&&Number(m.confidence)<82){state.lastEntryGuard={atMs:now,reason:'WAITING_1M_CONFIRMATION',side};return;}"
+  ],
+  [
+    "if(stage===1){\n  const nearEntry=s.side==='BUY'?entry-Math.min(.18,initialRisk*.12):entry+Math.min(.18,initialRisk*.12);\n  const structure=swing==null?nearEntry:(s.side==='BUY'?swing-buffer:swing+buffer);\n  candidate=s.side==='BUY'?Math.max(nearEntry,structure):Math.min(nearEntry,structure);\n }else if(stage===2){",
+    "if(stage===1){\n  // TP1 is not enough confirmation to tighten the stop on XAUUSD. Keep the original structural stop so a normal post-TP1 retest does not stop the trade immediately.\n  candidate=null;\n }else if(stage===2){"
   ],
   [
     "if(!freshQuote(q,now))throw new Error(`TRADINGVIEW_DIRECT_NOT_FRESH age=${Number.isFinite(quoteAgeMs(q,now))?round(quoteAgeMs(q,now)/1000,1):'na'}s connected=${state.wsConnected}`);",
