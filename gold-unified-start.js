@@ -12,7 +12,8 @@ const auto=spawn(process.execPath,['gold-site-signal-engine-v9.js'],{env:{...pro
 const spx=spawn(process.execPath,['spx-live-start.js'],{env:{...process.env,PORT:String(SPX_PORT)},stdio:['ignore','inherit','inherit']});
 const telegramEnabled=String(process.env.TELEGRAM_ENABLED||'false').toLowerCase()==='true'&&Boolean(process.env.TELEGRAM_BOT_TOKEN);
 const telegramBot=telegramEnabled?spawn(process.execPath,['telegram-xau-bot-v2.js'],{env:{...process.env,TELEGRAM_SIGNAL_URL:`http://127.0.0.1:${AUTO_PORT}/api/auto-trade/signal?observe=1`},stdio:['ignore','inherit','inherit']}):null;
-const children=[capital,dataBridge,ui,auto,spx,telegramBot].filter(Boolean);
+const telegramGroupDiscovery=telegramEnabled?spawn(process.execPath,['telegram-group-discovery.js'],{env:{...process.env},stdio:['ignore','inherit','inherit']}):null;
+const children=[capital,dataBridge,ui,auto,spx,telegramBot,telegramGroupDiscovery].filter(Boolean);
 for(const child of children)child.on('exit',c=>console.error('child exited',c));
 function shutdown(signal){for(const child of children)if(!child.killed)child.kill(signal);server.close(()=>process.exit(0));setTimeout(()=>process.exit(1),5000).unref();}
 function requestBuffer(port,req){return new Promise((resolve,reject)=>{const p=http.request({hostname:'127.0.0.1',port,path:req.url,method:req.method,headers:{...req.headers,host:`127.0.0.1:${port}`}},r=>{const chunks=[];r.on('data',c=>chunks.push(c));r.on('end',()=>resolve({status:r.statusCode||502,headers:r.headers,body:Buffer.concat(chunks)}));});p.on('error',reject);p.setTimeout(10000,()=>p.destroy(new Error('upstream timeout')));if(req.method==='GET'||req.method==='HEAD')p.end();else req.pipe(p);});}
