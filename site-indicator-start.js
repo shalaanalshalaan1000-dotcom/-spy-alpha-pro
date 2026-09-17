@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 
 const PORT = Number(process.env.PORT || 3000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_INNER_PORT || 3100);
-const BUILD_TAG = 'site-indicator-v1';
+const BUILD_TAG = 'site-indicator-v2-top10-swing';
 
 const app = spawn(process.execPath, ['gold-unified-start.js'], {
   env: { ...process.env, PORT: String(INNER_PORT) },
@@ -77,7 +77,7 @@ function mapIndicator(source = {}) {
     executable: Boolean(source.executable && ['BUY', 'SELL'].includes(source.action)),
     confidence: Number.isFinite(confidence) ? confidence : 0,
     price: Number.isFinite(Number(source.price)) ? Number(source.price) : null,
-    timeframe: '1m/5m site model',
+    timeframe: '5m execution / 15m context (1m timing only)',
     provider: source.provider || null,
     status: source.status || 'WAIT',
     reason: source.reason || 'بانتظار اكتمال شروط إشارة الموقع',
