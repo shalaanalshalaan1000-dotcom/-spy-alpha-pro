@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 
 const PORT = Number(process.env.PORT || 3000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_INNER_PORT || 3100);
-const BUILD_TAG = 'site-indicator-v2-top10-swing';
+const BUILD_TAG = 'site-indicator-v3-news-risk';
 
 const app = spawn(process.execPath, ['gold-unified-start.js'], {
   env: { ...process.env, PORT: String(INNER_PORT) },
@@ -68,19 +68,22 @@ function mapIndicator(source = {}) {
       ? source.candidateAction
       : null;
 
-  const signal = raw === 'BUY' ? 'BULL' : raw === 'SELL' ? 'BEAR' : 'WAIT';
+  const newsRisk = source.newsRisk || null;
+  const blockedByNews = Boolean(newsRisk?.blockEntries);
+  const signal = blockedByNews ? 'WAIT' : raw === 'BUY' ? 'BULL' : raw === 'SELL' ? 'BEAR' : 'WAIT';
   const confidence = Number(source.signalConfidence ?? source.confidence ?? 0);
 
   return {
     signal,
     source: 'GOLD_ALPHA_SITE',
-    executable: Boolean(source.executable && ['BUY', 'SELL'].includes(source.action)),
+    executable: Boolean(!blockedByNews && source.executable && ['BUY', 'SELL'].includes(source.action)),
     confidence: Number.isFinite(confidence) ? confidence : 0,
     price: Number.isFinite(Number(source.price)) ? Number(source.price) : null,
     timeframe: '5m execution / 15m context (1m timing only)',
     provider: source.provider || null,
-    status: source.status || 'WAIT',
-    reason: source.reason || 'بانتظار اكتمال شروط إشارة الموقع',
+    status: blockedByNews ? 'NEWS_BLOCK' : (source.status || 'WAIT'),
+    newsRisk,
+    reason: blockedByNews ? (newsRisk.reason || 'USD news blackout') : (source.reason || 'بانتظار اكتمال شروط إشارة الموقع'),
     updatedAt: source.updatedAt || new Date().toISOString()
   };
 }
@@ -92,14 +95,14 @@ function injectIndicator(html) {
 #siteOwnedIndicator{margin:14px 0;padding:16px;border:1px solid #36516f;border-radius:16px;background:#0c1320;direction:rtl}
 #siteOwnedIndicator h3{margin:0 0 12px;font-size:18px}
 #siteSignalWord{font-size:34px;font-weight:900;letter-spacing:1px}
-.siteBull{color:#45e6a7}.siteBear{color:#ff6f8b}.siteWait{color:#ffd166}
+.siteBull{color:#45e6a7}.siteBear{color:#ff6f8b}.siteWait{color:#ffd166}.siteNewsBlock{color:#ff8c5a}
 .siteIndicatorMeta{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
 .siteIndicatorMeta div{padding:9px;border:1px solid #26384f;border-radius:10px;background:#0a101a}
 .siteIndicatorMeta span{display:block;color:#8fa0b8;font-size:11px}.siteIndicatorMeta strong{display:block;margin-top:4px}
 @media(max-width:760px){.siteIndicatorMeta{grid-template-columns:1fr 1fr}}
 </style>`;
 
-  const panel = `<section id="siteOwnedIndicator"><h3>مؤشر الموقع — المصدر الوحيد للإشارة</h3><div id="siteSignalWord" class="siteWait">WAIT</div><div class="siteIndicatorMeta"><div><span>الثقة</span><strong id="siteSignalConfidence">0%</strong></div><div><span>السعر</span><strong id="siteSignalPrice">—</strong></div><div><span>الحالة</span><strong id="siteSignalStatus">WAIT</strong></div><div><span>التنفيذ</span><strong id="siteSignalExecutable">غير تنفيذي</strong></div><div><span>المصدر</span><strong>Gold Alpha Site</strong></div><div><span>سبب القرار</span><strong id="siteSignalReason">—</strong></div></div></section>`;
+  const panel = `<section id="siteOwnedIndicator"><h3>مؤشر الموقع — المصدر الوحيد للإشارة</h3><div id="siteSignalWord" class="siteWait">WAIT</div><div class="siteIndicatorMeta"><div><span>الثقة</span><strong id="siteSignalConfidence">0%</strong></div><div><span>السعر</span><strong id="siteSignalPrice">—</strong></div><div><span>الحالة</span><strong id="siteSignalStatus">WAIT</strong></div><div><span>حالة الأخبار</span><strong id="siteNewsRisk">جارٍ الفحص…</strong></div><div><span>الخبر المؤثر</span><strong id="siteNewsEvent">—</strong></div><div><span>التنفيذ</span><strong id="siteSignalExecutable">غير تنفيذي</strong></div><div><span>المصدر</span><strong>Gold Alpha Site</strong></div><div><span>سبب القرار</span><strong id="siteSignalReason">—</strong></div></div></section>`;
 
   const js = `<script>
 (function(){
@@ -107,11 +110,16 @@ function injectIndicator(html) {
   try{
    const r=await fetch('/api/site-indicator',{cache:'no-store'});const s=await r.json();
    const word=document.getElementById('siteSignalWord');if(!word)return;
-   word.textContent=s.signal||'WAIT';word.className=s.signal==='BULL'?'siteBull':s.signal==='BEAR'?'siteBear':'siteWait';
+   word.textContent=s.signal||'WAIT';word.className=s.status==='NEWS_BLOCK'?'siteNewsBlock':s.signal==='BULL'?'siteBull':s.signal==='BEAR'?'siteBear':'siteWait';
    document.getElementById('siteSignalConfidence').textContent=Math.round(Number(s.confidence)||0)+'%';
    document.getElementById('siteSignalPrice').textContent=Number.isFinite(Number(s.price))?Number(s.price).toFixed(2):'—';
    document.getElementById('siteSignalStatus').textContent=s.status||'WAIT';
    document.getElementById('siteSignalExecutable').textContent=s.executable?'تنفيذي':'قراءة فقط';
+   const nr=s.newsRisk||{};
+   const newsLabel=nr.blockEntries?'⛔ إيقاف صفقات — خبر مؤثر':nr.dayHasHighImpactUsd?'⚠️ يوم أخبار USD':'✅ أخبار طبيعية';
+   document.getElementById('siteNewsRisk').textContent=nr.available===false?'⚠️ مصدر الأخبار غير متاح — الصفقات موقوفة':newsLabel;
+   const ev=nr.activeEvent||nr.nextEvent||null;
+   document.getElementById('siteNewsEvent').textContent=ev?.title||'لا يوجد خبر أمريكي مؤثر قريب';
    document.getElementById('siteSignalReason').textContent=s.reason||'—';
   }catch(e){const word=document.getElementById('siteSignalWord');if(word){word.textContent='WAIT';word.className='siteWait';}}
  }
