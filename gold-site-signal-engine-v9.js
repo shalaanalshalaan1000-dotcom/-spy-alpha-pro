@@ -15,8 +15,12 @@ const replacements = [
     "const BASE_MIN_TP1_R=Math.max(.45,Math.min(.65,Number(process.env.GOLD_MIN_LIVE_TP1_R||.50)));"
   ],
   [
+    "const SL_COOLDOWN_MS=Math.max(120000,Number(process.env.GOLD_SL_COOLDOWN_MS||300000));",
+    "const SL_COOLDOWN_MS=Math.max(300000,Number(process.env.GOLD_SL_COOLDOWN_MS||300000));"
+  ],
+  [
     "const BUILD='site-signal-noai-v19-trade-management';",
-    "const BUILD='site-signal-noai-v26-tp1-stop-breathing-room';"
+    "const BUILD='site-signal-noai-v27-5m-post-sl';"
   ],
   [
     "const state={samples:[],signal:null,lastTerminal:null,trades:[],cooldownUntil:0,sameSideBlockUntil:0,lastLossSide:null,quote:null,lastError:null,ws:null,wsConnected:false,lastTvAt:0,lastLpAt:0,loggedQuote:false,loggedLp:false,lastEntryGuard:null};",
