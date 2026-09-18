@@ -51,6 +51,18 @@ services:
         value: "82"
       - key: GOLD_TELEGRAM_MIN_CONFIDENCE
         value: "82"
+      - key: GOLD_TELEGRAM_MIN_RR
+        value: "1.30"
+      - key: TELEGRAM_CONFIRM_ON_5M_CLOSE
+        value: "true"
+      - key: GOLD_MIN_LIVE_TP1_R
+        value: "1.30"
+      - key: GOLD_SL_COOLDOWN_MS
+        value: "900000"
+      - key: GOLD_SAME_SIDE_REENTRY_MS
+        value: "900000"
+      - key: GOLD_M5_ENTRY_WINDOW_MS
+        value: "90000"
       - key: TELEGRAM_EARLY_MIN_CONFIDENCE
         value: "82"
       - key: TELEGRAM_CANDIDATE_MIN_CONFIDENCE
