@@ -16,15 +16,15 @@ const replacements = [
   ],
   [
     "const BASE_MIN_TP1_R=Math.max(.9,Number(process.env.GOLD_MIN_LIVE_TP1_R||1.20));",
-    "const BASE_MIN_TP1_R=Math.max(1.05,Math.min(1.40,Number(process.env.GOLD_MIN_LIVE_TP1_R||1.10)));\nconst MAX_DAILY_SIGNALS=Math.max(1,Math.min(20,Number(process.env.GOLD_MAX_DAILY_SIGNALS||20)));\nconst POST_TRADE_COOLDOWN_MS=Math.max(300000,Number(process.env.GOLD_POST_TRADE_COOLDOWN_MS||300000));\nconst M5_ENTRY_WINDOW_MS=Math.max(60000,Math.min(150000,Number(process.env.GOLD_M5_ENTRY_WINDOW_MS||120000)));"
+    "const BASE_MIN_TP1_R=Math.max(1.25,Math.min(1.60,Number(process.env.GOLD_MIN_LIVE_TP1_R||1.30)));\nconst MAX_DAILY_SIGNALS=Math.max(1,Math.min(20,Number(process.env.GOLD_MAX_DAILY_SIGNALS||20)));\nconst POST_TRADE_COOLDOWN_MS=Math.max(300000,Number(process.env.GOLD_POST_TRADE_COOLDOWN_MS||300000));\nconst M5_ENTRY_WINDOW_MS=Math.max(60000,Math.min(120000,Number(process.env.GOLD_M5_ENTRY_WINDOW_MS||90000)));"
   ],
   [
     "const SL_COOLDOWN_MS=Math.max(120000,Number(process.env.GOLD_SL_COOLDOWN_MS||300000));",
-    "const SL_COOLDOWN_MS=Math.max(600000,Number(process.env.GOLD_SL_COOLDOWN_MS||600000));"
+    "const SL_COOLDOWN_MS=Math.max(900000,Number(process.env.GOLD_SL_COOLDOWN_MS||900000));"
   ],
   [
     "const BUILD='site-signal-noai-v19-trade-management';",
-    "const BUILD='site-signal-noai-v30-balanced-20day';"
+    "const BUILD='site-signal-noai-v31-structural-stop-5m-confirm';"
   ],
   [
     "const state={samples:[],signal:null,lastTerminal:null,trades:[],cooldownUntil:0,sameSideBlockUntil:0,lastLossSide:null,quote:null,lastError:null,ws:null,wsConnected:false,lastTvAt:0,lastLpAt:0,loggedQuote:false,loggedLp:false,lastEntryGuard:null};",
@@ -48,15 +48,15 @@ const replacements = [
   ],
   [
     "function maybeCreate(m,q,now){\n state.lastEntryGuard=null;",
-    "const RIYADH_DAY_FORMATTER=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit'});\nfunction riyadhDayKey(ms=Date.now()){return RIYADH_DAY_FORMATTER.format(new Date(ms));}\nfunction refreshDailyQuota(now){const key=riyadhDayKey(now);if(state.dailySignalDate!==key){state.dailySignalDate=key;state.dailySignalCount=0;}}\nfunction maybeCreate(m,q,now){\n refreshDailyQuota(now);\n state.lastEntryGuard=null;\n if(state.dailySignalCount>=MAX_DAILY_SIGNALS){state.lastEntryGuard={atMs:now,reason:'DAILY_TOP20_LIMIT_REACHED',dailySignalCount:state.dailySignalCount,maxDailySignals:MAX_DAILY_SIGNALS};return;}\n const msInto5m=now%300000;\n if(msInto5m>M5_ENTRY_WINDOW_MS){state.lastEntryGuard={atMs:now,reason:'WAITING_NEXT_5M_CLOSE_WINDOW',nextWindowInSec:Math.ceil((300000-msInto5m)/1000)};return;}"
+    "const RIYADH_DAY_FORMATTER=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit'});\nfunction riyadhDayKey(ms=Date.now()){return RIYADH_DAY_FORMATTER.format(new Date(ms));}\nfunction refreshDailyQuota(now){const key=riyadhDayKey(now);if(state.dailySignalDate!==key){state.dailySignalDate=key;state.dailySignalCount=0;}}\nfunction completedTimeframeBars(spanMs,now=Date.now()){const buckets=new Map(),currentKey=Math.floor(now/spanMs)*spanMs;for(const x of state.samples){const t=n(x.t),p=n(x.p??x.price);if(t==null||p==null||p<=0)continue;const key=Math.floor(t/spanMs)*spanMs;if(key>=currentKey)continue;const b=buckets.get(key);if(!b)buckets.set(key,{t:key,open:p,high:p,low:p,close:p});else{b.high=Math.max(b.high,p);b.low=Math.min(b.low,p);b.close=p;}}return [...buckets.values()].sort((a,b)=>a.t-b.t);}\nfunction recentFiveMinuteSwing(side,now=Date.now(),count=4){const bars=completedTimeframeBars(300000,now).slice(-Math.max(2,count));if(bars.length<2)return null;return side==='BUY'?Math.min(...bars.map(b=>b.low)):Math.max(...bars.map(b=>b.high));}\nfunction structuralStop(side,entry,modelStop,now=Date.now()){const policy=volatilityPolicy(now),atr1=Number(policy.atr1)||1,swing=recentFiveMinuteSwing(side,now,4),buffer=clamp(atr1*.50,.45,.90),minDistance=clamp(atr1*1.60,2.00,3.50);let stop=n(modelStop);if(stop==null||!Number.isFinite(entry))return{ok:false,reason:'INVALID_STRUCTURAL_STOP',policy};if(swing!=null){const structural=side==='BUY'?swing-buffer:swing+buffer;stop=side==='BUY'?Math.min(stop,structural):Math.max(stop,structural);}stop=side==='BUY'?Math.min(stop,entry-minDistance):Math.max(stop,entry+minDistance);const risk=Math.abs(entry-stop),maxRisk=Number(policy.maxRisk)||5;if(!(risk>0))return{ok:false,reason:'INVALID_STRUCTURAL_RISK',policy};if(risk>maxRisk)return{ok:false,reason:'STRUCTURAL_STOP_TOO_WIDE',stop:round(stop,3),risk:round(risk,3),swing:round(swing,3),buffer:round(buffer,3),minDistance:round(minDistance,3),policy};return{ok:true,stop:round(stop,3),risk:round(risk,3),swing:round(swing,3),buffer:round(buffer,3),minDistance:round(minDistance,3),policy};}\nfunction maybeCreate(m,q,now){\n refreshDailyQuota(now);\n state.lastEntryGuard=null;\n if(state.dailySignalCount>=MAX_DAILY_SIGNALS){state.lastEntryGuard={atMs:now,reason:'DAILY_TOP20_LIMIT_REACHED',dailySignalCount:state.dailySignalCount,maxDailySignals:MAX_DAILY_SIGNALS};return;}\n const msInto5m=now%300000;\n if(msInto5m>M5_ENTRY_WINDOW_MS){state.lastEntryGuard={atMs:now,reason:'WAITING_NEXT_5M_CLOSE_WINDOW',nextWindowInSec:Math.ceil((300000-msInto5m)/1000)};return;}"
   ],
   [
     " const exit=exitPx(side,q),sl=n(m.stopLoss),tp1=n(m.target1);",
-    " const exit=exitPx(side,q),sl=n(m.stopLoss);\n const policyForTargets=volatilityPolicy(now),liveRisk=Math.abs(p-sl),direction=side==='BUY'?1:-1;\n const tp1=round(p+direction*Math.max(1.50,liveRisk*1.10,(policyForTargets.atr1||1)*1.60),3);\n const tp2=round(p+direction*Math.max(3.00,liveRisk*1.80,(policyForTargets.atr1||1)*2.80),3);\n const tp3=round(p+direction*Math.max(5.00,liveRisk*2.60,(policyForTargets.atr1||1)*4.20),3);\n const tp4=round(p+direction*Math.max(8.00,liveRisk*3.50,(policyForTargets.atr1||1)*6.00),3);"
+    " const exit=exitPx(side,q),stopPlan=structuralStop(side,p,n(m.stopLoss),now);\n if(!stopPlan?.ok){state.lastEntryGuard={atMs:now,reason:stopPlan?.reason||'STRUCTURAL_STOP_REJECTED',side,price:round(p,3),risk:stopPlan?.risk??null,structuralSwing:stopPlan?.swing??null,policy:stopPlan?.policy??volatilityPolicy(now)};return;}\n const sl=stopPlan.stop;\n const policyForTargets=volatilityPolicy(now),liveRisk=Math.abs(p-sl),direction=side==='BUY'?1:-1;\n const tp1=round(p+direction*Math.max(1.75,liveRisk*1.35,(policyForTargets.atr1||1)*1.80),3);\n const tp2=round(p+direction*Math.max(3.50,liveRisk*2.00,(policyForTargets.atr1||1)*3.00),3);\n const tp3=round(p+direction*Math.max(5.50,liveRisk*2.80,(policyForTargets.atr1||1)*4.50),3);\n const tp4=round(p+direction*Math.max(8.50,liveRisk*3.80,(policyForTargets.atr1||1)*6.50),3);"
   ],
   [
     "originalStopLoss:sl,stopLoss:sl,managedStopLoss:sl,target1:tp1,target2:n(m.target2),target3:n(m.target3),target4:n(m.target4),",
-    "originalStopLoss:sl,stopLoss:sl,managedStopLoss:sl,target1:tp1,target2:tp2,target3:tp3,target4:tp4,"
+    "originalStopLoss:sl,stopLoss:sl,managedStopLoss:sl,structuralStopPlan:stopPlan,target1:tp1,target2:tp2,target3:tp3,target4:tp4,"
   ],
   [
     "source:'GOLD_ALPHA_SITE',executionMode:'SIGNAL_ONLY_TELEGRAM',executable:false,entered:true,triggered:true,triggerPrice:p,priceProvider:q.provider,lockedTargets:true,",
@@ -64,7 +64,7 @@ const replacements = [
   ],
   [
     "reason:`CONFIRMED BY SITE ENGINE ON FRESH ${q.provider} PRICE — 1m confirm + volatility guard passed (${round(viability.rr,2)}R to TP1, risk ${round(viability.risk,2)}$, ATR1 ${viability.policy.atr1}$); managed stop active; Telegram only, AI off`",
-    "reason:`CONFIRMED GOLD SETUP — ${Number(m.confidence)||0}% confidence; 5m execution + 15m context with 1m used only for timing; USD news guard clear; extended targets active (${round(viability.rr,2)}R to TP1, risk ${round(viability.risk,2)}$, ATR1 ${viability.policy.atr1}$); max ${MAX_DAILY_SIGNALS}/day; Telegram only, AI off`"
+    "reason:`CONFIRMED GOLD SETUP — ${Number(m.confidence)||0}% confidence; 5m structure stop + ${round(stopPlan.buffer,2)}$ buffer; 5m execution + 15m context with 1m used only for timing; USD news guard clear; ${round(viability.rr,2)}R to TP1, risk ${round(viability.risk,2)}$, ATR1 ${viability.policy.atr1}$; max ${MAX_DAILY_SIGNALS}/day; Telegram only, AI off`"
   ],
   [
     " state.trades.push({...state.signal,status:'SIGNAL'});state.trades=state.trades.slice(-300);",
