@@ -1,5 +1,5 @@
 #property strict
-#property version   "2.12"
+#property version   "2.20"
 #property description "Gold Alpha Pro - JustMarkets margin-safe executor for small Standard Cent accounts"
 
 #include <Trade/Trade.mqh>
@@ -18,6 +18,8 @@ input double MaxLot                  = 0.01;
 input double MinMarginLevelPercent   = 500.0;
 input double MinFreeMarginReservePct = 50.0;
 input double MaxSpreadPrice          = 0.80;
+input bool   AllowHedgedPositions     = true;
+input bool   UseStepTrailing          = true;
 input int    PollSeconds             = 5;
 input int    RequestTimeoutMs        = 15000;
 input int    DeviationPoints         = 30;
@@ -133,8 +135,6 @@ bool DailyLossLimitReached()
    return false;
 }
 
-bool HasAnyPositionOnSymbol(){ return PositionSelect(g_symbol); }
-
 int VolumeDigits(const double step)
 {
    int digits=0; double x=step;
@@ -200,10 +200,109 @@ bool PriceInside(const double price,const double low,const double high)
    return price>=MathMin(low,high) && price<=MathMax(low,high);
 }
 
+string PositionKey(const ulong ticket,const string suffix){ return Key("pos_"+(string)ticket+"_"+suffix); }
+void SavePositionLevel(const ulong ticket,const string suffix,const double value){ GlobalVariableSet(PositionKey(ticket,suffix),value); }
+double LoadPositionLevel(const ulong ticket,const string suffix,const double fallback=0.0){ return GlobalVariableCheck(PositionKey(ticket,suffix))?GlobalVariableGet(PositionKey(ticket,suffix)):fallback; }
+
+ulong FindNewestPosition(const ENUM_POSITION_TYPE wanted_type)
+{
+   ulong best_ticket=0;
+   long best_time=0;
+   for(int i=PositionsTotal()-1;i>=0;i--)
+   {
+      ulong ticket=PositionGetTicket(i);
+      if(ticket==0 || !PositionSelectByTicket(ticket)) continue;
+      if(PositionGetString(POSITION_SYMBOL)!=g_symbol) continue;
+      if((ulong)PositionGetInteger(POSITION_MAGIC)!=MagicNumber) continue;
+      if((ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE)!=wanted_type) continue;
+      long t=(long)PositionGetInteger(POSITION_TIME_MSC);
+      if(t>=best_time){ best_time=t; best_ticket=ticket; }
+   }
+   return best_ticket;
+}
+
+bool HedgingSupported()
+{
+   return (ENUM_ACCOUNT_MARGIN_MODE)AccountInfoInteger(ACCOUNT_MARGIN_MODE)==ACCOUNT_MARGIN_MODE_RETAIL_HEDGING;
+}
+
+bool ImproveStop(const ulong ticket,const double desired_sl)
+{
+   if(!PositionSelectByTicket(ticket)) return false;
+   ENUM_POSITION_TYPE type=(ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+   double current_sl=PositionGetDouble(POSITION_SL);
+   double current_tp=PositionGetDouble(POSITION_TP);
+   int digits=(int)SymbolInfoInteger(g_symbol,SYMBOL_DIGITS);
+   double point=SymbolInfoDouble(g_symbol,SYMBOL_POINT);
+   long stops_level=SymbolInfoInteger(g_symbol,SYMBOL_TRADE_STOPS_LEVEL);
+   MqlTick tick; if(!SymbolInfoTick(g_symbol,tick)) return false;
+   double min_gap=MathMax((double)stops_level*point,point);
+
+   double sl=NormalizeDouble(desired_sl,digits);
+   if(type==POSITION_TYPE_BUY)
+   {
+      if(current_sl>0.0 && sl<=current_sl+point*0.5) return true;
+      if(sl>=tick.bid-min_gap) return false;
+   }
+   else
+   {
+      if(current_sl>0.0 && sl>=current_sl-point*0.5) return true;
+      if(sl<=tick.ask+min_gap) return false;
+   }
+   if(!trade.PositionModify(ticket,sl,current_tp))
+   {
+      Print("Trailing modify failed #",ticket,": ",trade.ResultRetcodeDescription());
+      return false;
+   }
+   Print("TRAIL #",ticket," SL -> ",DoubleToString(sl,digits));
+   return true;
+}
+
+void ManageOpenPositions()
+{
+   if(!UseStepTrailing) return;
+   MqlTick tick; if(!SymbolInfoTick(g_symbol,tick)) return;
+
+   for(int i=PositionsTotal()-1;i>=0;i--)
+   {
+      ulong ticket=PositionGetTicket(i);
+      if(ticket==0 || !PositionSelectByTicket(ticket)) continue;
+      if(PositionGetString(POSITION_SYMBOL)!=g_symbol) continue;
+      if((ulong)PositionGetInteger(POSITION_MAGIC)!=MagicNumber) continue;
+
+      ENUM_POSITION_TYPE type=(ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      double px=(type==POSITION_TYPE_BUY)?tick.bid:tick.ask;
+      double tp1=LoadPositionLevel(ticket,"tp1");
+      double tp2=LoadPositionLevel(ticket,"tp2");
+      double tp3=LoadPositionLevel(ticket,"tp3");
+      double tp4=LoadPositionLevel(ticket,"tp4");
+      if(tp1<=0 || tp2<=0 || tp3<=0 || tp4<=0) continue;
+
+      if(type==POSITION_TYPE_BUY)
+      {
+         if(px>=tp4) ImproveStop(ticket,tp4);
+         else if(px>=tp3) ImproveStop(ticket,tp3);
+         else if(px>=tp2) ImproveStop(ticket,tp2);
+         else if(px>=tp1) ImproveStop(ticket,tp1);
+      }
+      else
+      {
+         if(px<=tp4) ImproveStop(ticket,tp4);
+         else if(px<=tp3) ImproveStop(ticket,tp3);
+         else if(px<=tp2) ImproveStop(ticket,tp2);
+         else if(px<=tp1) ImproveStop(ticket,tp1);
+      }
+   }
+}
+
 void ProcessSignal()
 {
    if(DailyLossLimitReached()) return;
-   if(HasAnyPositionOnSymbol()) return; // exactly one XAUUSD position at a time
+   if(AllowHedgedPositions && !HedgingSupported())
+   {
+      static bool warned=false;
+      if(!warned){ Print("HEDGING unavailable: account is NETTING. Opposite trades cannot coexist."); warned=true; }
+   }
 
    string json;
    if(!HttpGet(SignalUrl,json)) return;
@@ -226,10 +325,13 @@ void ProcessSignal()
    double entry_low=JsonNumber(json,"entryLow");
    double entry_high=JsonNumber(json,"entryHigh");
    double stop=JsonNumber(json,"stopLoss");
+   double tp1=JsonNumber(json,"target1");
+   double tp2=JsonNumber(json,"target2");
+   double tp3=JsonNumber(json,"target3");
    double tp4=JsonNumber(json,"target4");
    double price=(side=="BUY")?tick.ask:tick.bid;
 
-   if(!PriceInside(price,entry_low,entry_high) || stop<=0 || tp4<=0) return;
+   if(!PriceInside(price,entry_low,entry_high) || stop<=0 || tp1<=0 || tp2<=0 || tp3<=0 || tp4<=0) return;
    if((side=="BUY" && (stop>=price || tp4<=price)) ||
       (side=="SELL" && (stop<=price || tp4>=price))) return;
 
@@ -265,7 +367,16 @@ void ProcessSignal()
    }
 
    SaveValue("last_signal",(double)issued);
-   Print("SAFE OPEN: ",side," ",DoubleToString(volume,2)," lot; projected margin guard passed.");
+   ENUM_POSITION_TYPE ptype=(side=="BUY")?POSITION_TYPE_BUY:POSITION_TYPE_SELL;
+   ulong pos_ticket=FindNewestPosition(ptype);
+   if(pos_ticket>0)
+   {
+      SavePositionLevel(pos_ticket,"tp1",tp1);
+      SavePositionLevel(pos_ticket,"tp2",tp2);
+      SavePositionLevel(pos_ticket,"tp3",tp3);
+      SavePositionLevel(pos_ticket,"tp4",tp4);
+   }
+   Print("SAFE OPEN: ",side," ",DoubleToString(volume,2)," lot; step trailing active; hedging=",HedgingSupported()?"YES":"NO");
 }
 
 int OnInit()
@@ -299,9 +410,9 @@ int OnInit()
    trade.SetTypeFillingBySymbol(g_symbol);
    EventSetTimer(MathMax(PollSeconds,1));
 
-   Print("GoldAlpha JustMarkets SAFE v2.12 active. Risk=",DoubleToString(RiskPercent,2),"%, MaxLot=",DoubleToString(MaxLot,2),", MinMarginLevel=",DoubleToString(MinMarginLevelPercent,0),"%");
+   Print("GoldAlpha JustMarkets SAFE v2.20 active. Risk=",DoubleToString(RiskPercent,2),"%, MaxLot=",DoubleToString(MaxLot,2),", StepTrailing=",UseStepTrailing?"ON":"OFF",", Hedging=",HedgingSupported()?"YES":"NO");
    return INIT_SUCCEEDED;
 }
 
 void OnDeinit(const int reason){ EventKillTimer(); }
-void OnTimer(){ ProcessSignal(); }
+void OnTimer(){ ManageOpenPositions(); ProcessSignal(); }
