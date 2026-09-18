@@ -1,5 +1,5 @@
 #property strict
-#property version   "2.20"
+#property version   "2.30"
 #property description "Gold Alpha Pro - JustMarkets margin-safe executor for small Standard Cent accounts"
 
 #include <Trade/Trade.mqh>
@@ -12,9 +12,11 @@ input bool   RequireGoldSymbol       = true;
 input bool   RequireCentAccount      = true;
 input bool   EnableTrading           = false;
 input bool   AllowLiveAccount        = false;
-input double RiskPercent             = 1.00;
+input double StopLossUsd             = 0.70;
+input double ProfitStepUsd           = 1.00;
+input double TrailTriggerBufferUsd   = 0.20;
+input double TradeLot                = 0.01;
 input double MaxDailyLossPercent     = 3.00;
-input double MaxLot                  = 0.01;
 input double MinMarginLevelPercent   = 500.0;
 input double MinFreeMarginReservePct = 50.0;
 input double MaxSpreadPrice          = 0.80;
@@ -142,25 +144,40 @@ int VolumeDigits(const double step)
    return digits;
 }
 
-double RiskVolume(const double entry,const double stop)
+double AccountCashFromUsd(const double usd)
 {
-   double distance=MathAbs(entry-stop);
-   double tick_size=SymbolInfoDouble(g_symbol,SYMBOL_TRADE_TICK_SIZE);
-   double tick_value=SymbolInfoDouble(g_symbol,SYMBOL_TRADE_TICK_VALUE_LOSS);
+   string ccy=AccountInfoString(ACCOUNT_CURRENCY);
+   if(ccy=="USC") return usd*100.0;
+   return usd; // Safe profile is intended for USD/USC accounts.
+}
+
+double ProfitUsdFromAccountCash(const double account_cash)
+{
+   string ccy=AccountInfoString(ACCOUNT_CURRENCY);
+   if(ccy=="USC") return account_cash/100.0;
+   return account_cash;
+}
+
+double FixedTradeVolume()
+{
    double step=SymbolInfoDouble(g_symbol,SYMBOL_VOLUME_STEP);
    double minimum=SymbolInfoDouble(g_symbol,SYMBOL_VOLUME_MIN);
-   double broker_max=SymbolInfoDouble(g_symbol,SYMBOL_VOLUME_MAX);
-   if(distance<=0 || tick_size<=0 || tick_value<=0 || step<=0 || minimum<=0) return 0.0;
-
-   double risk_cash=AccountInfoDouble(ACCOUNT_EQUITY)*RiskPercent/100.0;
-   double cash_per_lot=(distance/tick_size)*tick_value;
-   if(cash_per_lot<=0) return 0.0;
-
-   double raw=risk_cash/cash_per_lot;
-   double cap=MathMin(MaxLot,broker_max);
-   double volume=MathFloor(MathMin(raw,cap)/step)*step;
-   if(volume+1e-9<minimum) return 0.0;
+   double maximum=SymbolInfoDouble(g_symbol,SYMBOL_VOLUME_MAX);
+   if(step<=0 || minimum<=0 || maximum<=0) return 0.0;
+   double requested=MathMax(minimum,MathMin(TradeLot,maximum));
+   double volume=MathFloor(requested/step+1e-9)*step;
+   if(volume<minimum) volume=minimum;
    return NormalizeDouble(volume,VolumeDigits(step));
+}
+
+double CashToPriceDistance(const double usd,const double volume,const bool for_loss)
+{
+   double tick_size=SymbolInfoDouble(g_symbol,SYMBOL_TRADE_TICK_SIZE);
+   double tick_value=for_loss ? SymbolInfoDouble(g_symbol,SYMBOL_TRADE_TICK_VALUE_LOSS)
+                              : SymbolInfoDouble(g_symbol,SYMBOL_TRADE_TICK_VALUE_PROFIT);
+   if(tick_size<=0 || tick_value<=0 || volume<=0 || usd<=0) return 0.0;
+   double cash=AccountCashFromUsd(usd);
+   return (cash/(tick_value*volume))*tick_size;
 }
 
 bool MarginSafe(const ENUM_ORDER_TYPE type,const double volume,const double price)
@@ -271,27 +288,21 @@ void ManageOpenPositions()
       if((ulong)PositionGetInteger(POSITION_MAGIC)!=MagicNumber) continue;
 
       ENUM_POSITION_TYPE type=(ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
-      double px=(type==POSITION_TYPE_BUY)?tick.bid:tick.ask;
-      double tp1=LoadPositionLevel(ticket,"tp1");
-      double tp2=LoadPositionLevel(ticket,"tp2");
-      double tp3=LoadPositionLevel(ticket,"tp3");
-      double tp4=LoadPositionLevel(ticket,"tp4");
-      if(tp1<=0 || tp2<=0 || tp3<=0 || tp4<=0) continue;
+      double open_price=PositionGetDouble(POSITION_PRICE_OPEN);
+      double volume=PositionGetDouble(POSITION_VOLUME);
+      double profit_usd=ProfitUsdFromAccountCash(PositionGetDouble(POSITION_PROFIT));
+      if(open_price<=0 || volume<=0 || ProfitStepUsd<=0) continue;
 
-      if(type==POSITION_TYPE_BUY)
-      {
-         if(px>=tp4) ImproveStop(ticket,tp4);
-         else if(px>=tp3) ImproveStop(ticket,tp3);
-         else if(px>=tp2) ImproveStop(ticket,tp2);
-         else if(px>=tp1) ImproveStop(ticket,tp1);
-      }
-      else
-      {
-         if(px<=tp4) ImproveStop(ticket,tp4);
-         else if(px<=tp3) ImproveStop(ticket,tp3);
-         else if(px<=tp2) ImproveStop(ticket,tp2);
-         else if(px<=tp1) ImproveStop(ticket,tp1);
-      }
+      // A milestone is locked only after price has moved beyond it by a small cash buffer.
+      // Example defaults: +$1.20 floating profit -> lock +$1.00; +$2.20 -> lock +$2.00.
+      int completed=(int)MathFloor((profit_usd-TrailTriggerBufferUsd)/ProfitStepUsd);
+      if(completed<1) continue;
+
+      double lock_usd=completed*ProfitStepUsd;
+      double distance=CashToPriceDistance(lock_usd,volume,false);
+      if(distance<=0) continue;
+      double desired_sl=(type==POSITION_TYPE_BUY)?open_price+distance:open_price-distance;
+      ImproveStop(ticket,desired_sl);
    }
 }
 
@@ -324,16 +335,8 @@ void ProcessSignal()
 
    double entry_low=JsonNumber(json,"entryLow");
    double entry_high=JsonNumber(json,"entryHigh");
-   double stop=JsonNumber(json,"stopLoss");
-   double tp1=JsonNumber(json,"target1");
-   double tp2=JsonNumber(json,"target2");
-   double tp3=JsonNumber(json,"target3");
-   double tp4=JsonNumber(json,"target4");
    double price=(side=="BUY")?tick.ask:tick.bid;
-
-   if(!PriceInside(price,entry_low,entry_high) || stop<=0 || tp1<=0 || tp2<=0 || tp3<=0 || tp4<=0) return;
-   if((side=="BUY" && (stop>=price || tp4<=price)) ||
-      (side=="SELL" && (stop<=price || tp4>=price))) return;
+   if(!PriceInside(price,entry_low,entry_high)) return;
 
    bool live=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_REAL);
    if(!EnableTrading || (live && !AllowLiveAccount))
@@ -344,12 +347,14 @@ void ProcessSignal()
    }
    if(!TradingEnvironmentReady()){ Print("BLOCKED: terminal/account trading permission."); return; }
 
-   double volume=RiskVolume(price,stop);
-   if(volume<=0.0)
-   {
-      Print("BLOCKED: broker minimum lot would exceed risk cap. No trade.");
-      return;
-   }
+   double volume=FixedTradeVolume();
+   if(volume<=0.0){ Print("BLOCKED: invalid broker volume."); return; }
+
+   double stop_distance=CashToPriceDistance(StopLossUsd,volume,true);
+   if(stop_distance<=0.0){ Print("BLOCKED: cannot convert $ stop to broker price distance."); return; }
+   int digits=(int)SymbolInfoInteger(g_symbol,SYMBOL_DIGITS);
+   double stop=(side=="BUY")?price-stop_distance:price+stop_distance;
+   stop=NormalizeDouble(stop,digits);
 
    ENUM_ORDER_TYPE order_type=(side=="BUY")?ORDER_TYPE_BUY:ORDER_TYPE_SELL;
    if(!MarginSafe(order_type,volume,price)) return;
@@ -358,8 +363,9 @@ void ProcessSignal()
    trade.SetDeviationInPoints(DeviationPoints);
    trade.SetTypeFillingBySymbol(g_symbol);
 
-   bool sent=(side=="BUY") ? trade.Buy(volume,g_symbol,0.0,stop,tp4,"Gold Alpha SAFE")
-                            : trade.Sell(volume,g_symbol,0.0,stop,tp4,"Gold Alpha SAFE");
+   // No fixed take-profit: let winners run. Cash-step trailing locks $1, $2, $3... as price advances.
+   bool sent=(side=="BUY") ? trade.Buy(volume,g_symbol,0.0,stop,0.0,"Gold Alpha CASH TRAIL")
+                            : trade.Sell(volume,g_symbol,0.0,stop,0.0,"Gold Alpha CASH TRAIL");
    if(!sent)
    {
       Print("Order failed: ",trade.ResultRetcodeDescription());
@@ -367,16 +373,8 @@ void ProcessSignal()
    }
 
    SaveValue("last_signal",(double)issued);
-   ENUM_POSITION_TYPE ptype=(side=="BUY")?POSITION_TYPE_BUY:POSITION_TYPE_SELL;
-   ulong pos_ticket=FindNewestPosition(ptype);
-   if(pos_ticket>0)
-   {
-      SavePositionLevel(pos_ticket,"tp1",tp1);
-      SavePositionLevel(pos_ticket,"tp2",tp2);
-      SavePositionLevel(pos_ticket,"tp3",tp3);
-      SavePositionLevel(pos_ticket,"tp4",tp4);
-   }
-   Print("SAFE OPEN: ",side," ",DoubleToString(volume,2)," lot; step trailing active; hedging=",HedgingSupported()?"YES":"NO");
+   Print("SAFE OPEN: ",side," ",DoubleToString(volume,2)," lot; cash SL=$",DoubleToString(StopLossUsd,2),
+         "; trail=$",DoubleToString(ProfitStepUsd,2)," steps; hedging=",HedgingSupported()?"YES":"NO");
 }
 
 int OnInit()
@@ -410,7 +408,9 @@ int OnInit()
    trade.SetTypeFillingBySymbol(g_symbol);
    EventSetTimer(MathMax(PollSeconds,1));
 
-   Print("GoldAlpha JustMarkets SAFE v2.20 active. Risk=",DoubleToString(RiskPercent,2),"%, MaxLot=",DoubleToString(MaxLot,2),", StepTrailing=",UseStepTrailing?"ON":"OFF",", Hedging=",HedgingSupported()?"YES":"NO");
+   Print("GoldAlpha JustMarkets SAFE v2.30 active. Lot=",DoubleToString(TradeLot,2),
+         ", CashSL=$",DoubleToString(StopLossUsd,2),", ProfitStep=$",DoubleToString(ProfitStepUsd,2),
+         ", StepTrailing=",UseStepTrailing?"ON":"OFF",", Hedging=",HedgingSupported()?"YES":"NO");
    return INIT_SUCCEEDED;
 }
 
