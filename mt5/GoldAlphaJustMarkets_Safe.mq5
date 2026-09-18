@@ -1,5 +1,5 @@
 #property strict
-#property version   "2.30"
+#property version   "2.31"
 #property description "Gold Alpha Pro - JustMarkets margin-safe executor for small Standard Cent accounts"
 
 #include <Trade/Trade.mqh>
@@ -243,6 +243,20 @@ bool HedgingSupported()
    return (ENUM_ACCOUNT_MARGIN_MODE)AccountInfoInteger(ACCOUNT_MARGIN_MODE)==ACCOUNT_MARGIN_MODE_RETAIL_HEDGING;
 }
 
+bool HasOppositePosition(const string side)
+{
+   ENUM_POSITION_TYPE opposite=(side=="BUY")?POSITION_TYPE_SELL:POSITION_TYPE_BUY;
+   for(int i=PositionsTotal()-1;i>=0;i--)
+   {
+      ulong ticket=PositionGetTicket(i);
+      if(ticket==0 || !PositionSelectByTicket(ticket)) continue;
+      if(PositionGetString(POSITION_SYMBOL)!=g_symbol) continue;
+      if((ulong)PositionGetInteger(POSITION_MAGIC)!=MagicNumber) continue;
+      if((ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE)==opposite) return true;
+   }
+   return false;
+}
+
 bool ImproveStop(const ulong ticket,const double desired_sl)
 {
    if(!PositionSelectByTicket(ticket)) return false;
@@ -327,6 +341,11 @@ void ProcessSignal()
 
    if(status!="ACTIVE" || action!=side || (side!="BUY" && side!="SELL")) return;
    if(issued<=0 || expires<=now_ms) return;
+   if(!HedgingSupported() && HasOppositePosition(side))
+   {
+      Print("BLOCKED: opposite position exists on NETTING account; cannot hold BUY and SELL together.");
+      return;
+   }
    if((long)LoadValue("last_signal",0.0)==issued) return;
 
    MqlTick tick;
@@ -352,6 +371,14 @@ void ProcessSignal()
 
    double stop_distance=CashToPriceDistance(StopLossUsd,volume,true);
    if(stop_distance<=0.0){ Print("BLOCKED: cannot convert $ stop to broker price distance."); return; }
+   double point=SymbolInfoDouble(g_symbol,SYMBOL_POINT);
+   long stops_level=SymbolInfoInteger(g_symbol,SYMBOL_TRADE_STOPS_LEVEL);
+   double broker_min_stop=MathMax((double)stops_level*point,point);
+   if(stop_distance<broker_min_stop)
+   {
+      Print("BLOCKED: broker minimum stop would exceed the requested $",DoubleToString(StopLossUsd,2)," risk.");
+      return;
+   }
    int digits=(int)SymbolInfoInteger(g_symbol,SYMBOL_DIGITS);
    double stop=(side=="BUY")?price-stop_distance:price+stop_distance;
    stop=NormalizeDouble(stop,digits);
@@ -408,7 +435,7 @@ int OnInit()
    trade.SetTypeFillingBySymbol(g_symbol);
    EventSetTimer(MathMax(PollSeconds,1));
 
-   Print("GoldAlpha JustMarkets SAFE v2.30 active. Lot=",DoubleToString(TradeLot,2),
+   Print("GoldAlpha JustMarkets SAFE v2.31 active. Lot=",DoubleToString(TradeLot,2),
          ", CashSL=$",DoubleToString(StopLossUsd,2),", ProfitStep=$",DoubleToString(ProfitStepUsd,2),
          ", StepTrailing=",UseStepTrailing?"ON":"OFF",", Hedging=",HedgingSupported()?"YES":"NO");
    return INIT_SUCCEEDED;
