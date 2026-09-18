@@ -6,10 +6,11 @@ const EDIT_MIN_MS=Math.max(3000,Number(process.env.TELEGRAM_EDIT_MIN_MS||5000));
 const RECENT_KEY_TTL_MS=Math.max(60_000,Number(process.env.TELEGRAM_RECENT_SIGNAL_TTL_MS||600_000));
 const CONFIRM_ON_5M_CLOSE=String(process.env.TELEGRAM_CONFIRM_ON_5M_CLOSE||'true').toLowerCase()!=='false';
 const FIVE_MIN_MS=300_000;
+const BOOT_MS=Date.now();
 const XAU_CONTRACT_SIZE=Math.max(1,Number(process.env.XAU_CONTRACT_SIZE||100));
 const XAU_LOT_STEP=Math.max(.001,Number(process.env.XAU_LOT_STEP||.01));
-const XAU_RISK_BUDGETS=String(process.env.XAU_RISK_BUDGETS||'5,10,20').split(',').map(x=>Number(x.trim())).filter(x=>Number.isFinite(x)&&x>0).slice(0,5);
-const BOOT_MS=Date.now();
+const XAU_SAFE_RISK_USD=Math.max(1,Number(process.env.XAU_SAFE_RISK_USD||5));
+const XAU_MAX_RISK_USD=Math.max(XAU_SAFE_RISK_USD,Number(process.env.XAU_MAX_RISK_USD||10));
 const BOOT_GRACE_MS=15_000;
 
 let ready=false;
@@ -239,7 +240,7 @@ if(process.env.NODE_ENV!=='test')(async function loop(){while(true){await tick()
 
 export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage};+Number(v).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d}):'—';}
 function lotForRisk(entry,sl,riskUsd){const distance=Math.abs(Number(entry)-Number(sl));if(!(distance>0)||!(riskUsd>0))return null;const raw=riskUsd/(distance*XAU_CONTRACT_SIZE);if(!(raw>0))return null;const stepped=Math.floor((raw+1e-12)/XAU_LOT_STEP)*XAU_LOT_STEP;return stepped>=XAU_LOT_STEP?Number(stepped.toFixed(3)):0;}
-function lotSizingLines(entry,sl){const distance=Math.abs(Number(entry)-Number(sl));if(!(distance>0))return [];const lines=[`📏 مسافة الوقف: ${distance.toFixed(2)}`,`📐 حجم اللوت (${XAU_CONTRACT_SIZE} oz/lot):`];for(const risk of XAU_RISK_BUDGETS){const lot=lotForRisk(entry,sl,risk);if(lot===0)lines.push(`• مخاطرة ${risk}: أقل من ${XAU_LOT_STEP.toFixed(2)} lot`);else if(lot)lines.push(`• مخاطرة ${risk}: ${lot.toFixed(2)} lot`);}return lines;}
+function lotSizingLines(entry,sl){const distance=Math.abs(Number(entry)-Number(sl));if(!(distance>0))return [];const safeLot=lotForRisk(entry,sl,XAU_SAFE_RISK_USD),maxLot=lotForRisk(entry,sl,XAU_MAX_RISK_USD),minLotRisk=distance*XAU_CONTRACT_SIZE*XAU_LOT_STEP;const fmt=lot=>lot&&lot>0?`${lot.toFixed(2)} lot`:`أقل من ${XAU_LOT_STEP.toFixed(2)} lot`;const lines=[`📏 مسافة الوقف: ${distance.toFixed(2)}`,`✅ اللوت المقترح (مخاطرة ≈ ${XAU_SAFE_RISK_USD}): ${fmt(safeLot)}`,`⛔ أقصى لوت (مخاطرة ≈ ${XAU_MAX_RISK_USD}): ${fmt(maxLot)}`];if(maxLot===0)lines.push(`🚫 تخطَّ الصفقة: أقل لوت ${XAU_LOT_STEP.toFixed(2)} قد يخسر ≈ ${minLotRisk.toFixed(2)} عند SL`);else lines.push('⚠️ لا تتجاوز اللوت الأقصى لهذه الصفقة');return lines;}
 function sideOf(s){return ['BUY','SELL'].includes(s?.side)?s.side:null;}
 function confidenceOf(s){return Number(s?.signalConfidence??s?.confidence??0)||0;}
 function targetOf(s,i){return num(s?.[`target${i}`]);}
