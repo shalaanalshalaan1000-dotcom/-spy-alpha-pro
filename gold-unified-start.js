@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 
-const BUILD_TAG='site-signal-noai-v13-balanced-10day';
+const BUILD_TAG='site-signal-noai-v14-protected-entry';
 const PORT=Number(process.env.PORT||3000);
 const UI_PORT=3001,AUTO_PORT=3002,DATA_PORT=3005;
 
@@ -12,7 +12,7 @@ const dataBridge=spawn(process.execPath,['gold-data-bridge.js'],{env:{...process
 const ui=spawn(process.execPath,['gold-site-ui-start.js'],{env:{...process.env,PORT:String(UI_PORT)},stdio:['ignore','inherit','inherit']});
 const auto=spawn(process.execPath,['gold-site-signal-engine-v9.js'],{env:{...process.env,PORT:String(AUTO_PORT)},stdio:['ignore','inherit','inherit']});
 const telegramEnabled=String(process.env.TELEGRAM_ENABLED||'false').toLowerCase()==='true'&&Boolean(process.env.TELEGRAM_BOT_TOKEN);
-const telegramBot=telegramEnabled?spawn(process.execPath,['telegram-xau-bot-v2.js'],{env:{...process.env,TELEGRAM_SIGNAL_URL:`http://127.0.0.1:${AUTO_PORT}/api/auto-trade/signal?observe=1`},stdio:['ignore','inherit','inherit']}):null;
+const telegramBot=telegramEnabled?spawn(process.execPath,['telegram-xau-bot-v3.js'],{env:{...process.env,TELEGRAM_SIGNAL_URL:`http://127.0.0.1:${AUTO_PORT}/api/auto-trade/signal?observe=1`},stdio:['ignore','inherit','inherit']}):null;
 // Despite the legacy filename, this process now sends managed-stop updates after TP hits.
 const telegramManagedStop=telegramEnabled?spawn(process.execPath,['telegram-group-discovery.js'],{env:{...process.env,TELEGRAM_SIGNAL_URL:`http://127.0.0.1:${AUTO_PORT}/api/auto-trade/signal?observe=1`},stdio:['ignore','inherit','inherit']}):null;
 const btcTelegramBot=telegramEnabled?spawn(process.execPath,['btc-telegram-bot.js'],{env:{...process.env,BTC_TELEGRAM_SIGNAL_URL:String(process.env.BTC_TELEGRAM_SIGNAL_URL||'https://spy-alpha-pro-1.onrender.com/api/btc-signal')},stdio:['ignore','inherit','inherit']}):null;
