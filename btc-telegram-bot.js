@@ -8,6 +8,7 @@ let primed = false;
 let previousActive = false;
 let lastSentKey = null;
 let lastSentAt = 0;
+let trackedTrade = null;
 
 function validNumber(value) {
   return Number.isFinite(Number(value));
@@ -30,6 +31,55 @@ function isConfirmed(signal) {
 function signalKey(signal, now = Date.now()) {
   const fiveMinuteBucket = Math.floor(now / 300000);
   return `${signal.action}:${signal.strategy || 'SETUP'}:${fiveMinuteBucket}`;
+}
+
+function reached(side, price, target) {
+  const p = Number(price);
+  const t = Number(target);
+  if (!Number.isFinite(p) || !Number.isFinite(t)) return false;
+  return side === 'BUY' ? p >= t : side === 'SELL' ? p <= t : false;
+}
+
+function startTracking(signal, key, announcedAtMs = Date.now()) {
+  trackedTrade = {
+    key,
+    side: signal.action,
+    announcedAtMs,
+    entry: Number(signal.entry),
+    stopLoss: Number(signal.stopLoss),
+    targets: [signal.target1, signal.target2, signal.target3, signal.target4].map(Number),
+    sentTargets: [false, false, false, false]
+  };
+}
+
+function tpHitMessage(index, target, livePrice) {
+  return `✅ BTCUSD — TP${index + 1} HIT / تم ضرب الهدف ${index + 1}\n` +
+    `🎯 TP${index + 1}: ${n(target)}\n` +
+    `💵 BTC: ${n(livePrice)}`;
+}
+
+async function sendTrackedTargetHits(signal) {
+  if (!trackedTrade) return;
+  const livePrice = Number(signal?.price);
+  if (!Number.isFinite(livePrice)) return;
+
+  for (let i = 0; i < trackedTrade.targets.length; i++) {
+    const target = trackedTrade.targets[i];
+    if (!trackedTrade.sentTargets[i] && reached(trackedTrade.side, livePrice, target)) {
+      await telegram('sendMessage', {
+        chat_id: CHAT_ID,
+        text: tpHitMessage(i, target, livePrice),
+        disable_web_page_preview: true
+      });
+      trackedTrade.sentTargets[i] = true;
+      console.log(`[btc-telegram] TP${i + 1} hit key=${trackedTrade.key} target=${n(target)} live=${n(livePrice)}`);
+    }
+  }
+
+  if (trackedTrade.sentTargets.every(Boolean)) {
+    console.log(`[btc-telegram] all targets completed key=${trackedTrade.key}`);
+    trackedTrade = null;
+  }
 }
 
 async function telegram(method, body) {
@@ -82,6 +132,11 @@ async function fetchSignal() {
 
 async function tick() {
   const signal = await fetchSignal();
+
+  // Target lifecycle is independent from whether the signal endpoint still reports ACTIVE.
+  // Once an entry was actually announced, keep watching the live BTC price until TP1-TP4 hit.
+  await sendTrackedTargetHits(signal);
+
   const active = isConfirmed(signal);
 
   // Prime from the live state after a deploy so an already-existing signal is not resent.
@@ -109,7 +164,8 @@ async function tick() {
       });
       lastSentKey = key;
       lastSentAt = now;
-      console.log(`[btc-telegram] sent ${signal.action} ${signal.confidence}% strategy=${signal.strategy || 'SETUP'}`);
+      startTracking(signal, key, now);
+      console.log(`[btc-telegram] sent+tracking ${signal.action} ${signal.confidence}% strategy=${signal.strategy || 'SETUP'} key=${key}`);
     }
   }
 
@@ -128,4 +184,4 @@ if (process.env.NODE_ENV !== 'test' && BOT_TOKEN && CHAT_ID) {
   })();
 }
 
-export { isConfirmed, message };
+export { isConfirmed, message, reached, tpHitMessage };
