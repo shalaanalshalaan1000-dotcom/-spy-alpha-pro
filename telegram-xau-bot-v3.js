@@ -7,8 +7,8 @@ let source = fs.readFileSync(sourceUrl, 'utf8');
 
 const replacements = [
   [
-    "const FIVE_MIN_MS=300_000;\nconst BOOT_MS=Date.now();",
-    "const FIVE_MIN_MS=300_000;\nconst MIN_CONFIDENCE=Math.max(0,Number(process.env.GOLD_TELEGRAM_MIN_CONFIDENCE||process.env.TELEGRAM_MIN_CONFIDENCE||75));\nconst MIN_LIVE_RR=Math.max(1.20,Number(process.env.GOLD_TELEGRAM_MIN_RR||1.30));\nconst BOOT_MS=Date.now();"
+    "const FIVE_MIN_MS=300_000;",
+    "const FIVE_MIN_MS=300_000;\nconst MIN_CONFIDENCE=Math.max(0,Number(process.env.GOLD_TELEGRAM_MIN_CONFIDENCE||process.env.TELEGRAM_MIN_CONFIDENCE||75));\nconst MIN_LIVE_RR=Math.max(1.20,Number(process.env.GOLD_TELEGRAM_MIN_RR||1.30));"
   ],
   [
     "if(!isConfirmedActive(s)||!valid(p)||!valid(entry)||!stopValid(side,entry,sl))return false;",
