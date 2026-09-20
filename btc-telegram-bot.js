@@ -3,6 +3,11 @@ const BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
 const CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || '').trim();
 const POLL_MS = Math.max(5000, Number(process.env.BTC_TELEGRAM_POLL_MS || 5000));
 const MIN_CONFIDENCE = Math.max(70, Number(process.env.BTC_TELEGRAM_MIN_CONFIDENCE || 70));
+const BTC_ACCOUNT_BALANCE_USD = Math.max(1, Number(process.env.BTC_ACCOUNT_BALANCE_USD || 155));
+const BTC_CONTRACT_SIZE = Math.max(0.000001, Number(process.env.EXNESS_BTC_CONTRACT_SIZE || 1));
+const BTC_LOT_STEP = Math.max(0.001, Number(process.env.EXNESS_BTC_LOT_STEP || 0.01));
+const BTC_SAFE_RISK_USD = Math.max(1, Number(process.env.BTC_SAFE_RISK_USD || 5));
+const BTC_MAX_RISK_USD = Math.max(BTC_SAFE_RISK_USD, Number(process.env.BTC_MAX_RISK_USD || 10));
 
 let primed = false;
 let previousActive = false;
@@ -16,6 +21,36 @@ function validNumber(value) {
 
 function n(value, digits = 2) {
   return validNumber(value) ? Number(value).toFixed(digits) : '—';
+}
+
+function lotForRisk(entry, stopLoss, riskUsd) {
+  const distance = Math.abs(Number(entry) - Number(stopLoss));
+  if (!(distance > 0) || !(riskUsd > 0)) return null;
+  const raw = riskUsd / (distance * BTC_CONTRACT_SIZE);
+  if (!(raw > 0)) return null;
+  const stepped = Math.floor((raw + 1e-12) / BTC_LOT_STEP) * BTC_LOT_STEP;
+  return stepped >= BTC_LOT_STEP ? Number(stepped.toFixed(3)) : 0;
+}
+
+function lotSizingLines(entry, stopLoss) {
+  const distance = Math.abs(Number(entry) - Number(stopLoss));
+  if (!(distance > 0)) return [];
+  const safeLot = lotForRisk(entry, stopLoss, BTC_SAFE_RISK_USD);
+  const maxLot = lotForRisk(entry, stopLoss, BTC_MAX_RISK_USD);
+  const minLotRisk = distance * BTC_CONTRACT_SIZE * BTC_LOT_STEP;
+  const safePct = BTC_SAFE_RISK_USD / BTC_ACCOUNT_BALANCE_USD * 100;
+  const maxPct = BTC_MAX_RISK_USD / BTC_ACCOUNT_BALANCE_USD * 100;
+  const fmt = lot => lot && lot > 0 ? `${lot.toFixed(2)} lot` : `أقل من ${BTC_LOT_STEP.toFixed(2)} lot`;
+  const lines = [
+    `🏦 Broker: Exness • BTCUSD`,
+    `💼 Balance: ${BTC_ACCOUNT_BALANCE_USD.toFixed(0)}`,
+    `📏 SL distance: ${distance.toFixed(2)}`,
+    `✅ Suggested lot (risk ≈ ${BTC_SAFE_RISK_USD.toFixed(0)} / ${safePct.toFixed(1)}%): ${fmt(safeLot)}`,
+    `⛔ Max lot (risk ≈ ${BTC_MAX_RISK_USD.toFixed(0)} / ${maxPct.toFixed(1)}%): ${fmt(maxLot)}`
+  ];
+  if (maxLot === 0) lines.push(`🚫 Skip: minimum ${BTC_LOT_STEP.toFixed(2)} lot risks ≈ ${minLotRisk.toFixed(2)} at SL`);
+  else lines.push('⚠️ Do not exceed the max lot for this setup');
+  return lines;
 }
 
 function isConfirmed(signal) {
@@ -126,17 +161,19 @@ function message(signal) {
     timeZone: 'Asia/Riyadh', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
   }).format(new Date());
 
+  const sizing = lotSizingLines(signal.entry, signal.stopLoss);
   return `${icon} BTCUSD — CONFIRMED ${signal.action}\n` +
     `🧠 Strategy: ${strategy}\n` +
     `📊 Confidence: ${Math.round(Number(signal.confidence) || 0)}%\n` +
     `📈 Trend: ${trend}\n` +
-    `💵 Price: $${n(signal.price)}\n` +
-    `📍 Entry: $${n(signal.entry)}\n` +
-    `🛑 SL: $${n(signal.stopLoss)}\n` +
-    `🎯 TP1: $${n(signal.target1)}\n` +
-    `🎯 TP2: $${n(signal.target2)}\n` +
-    `🎯 TP3: $${n(signal.target3)}\n` +
-    `🎯 TP4: $${n(signal.target4)}\n` +
+    `💵 Price: ${n(signal.price)}\n` +
+    `📍 Entry: ${n(signal.entry)}\n` +
+    `🛑 SL: ${n(signal.stopLoss)}\n` +
+    `🎯 TP1: ${n(signal.target1)}\n` +
+    `🎯 TP2: ${n(signal.target2)}\n` +
+    `🎯 TP3: ${n(signal.target3)}\n` +
+    `🎯 TP4: ${n(signal.target4)}\n\n` +
+    `${sizing.join('\\n')}\n` +
     `⏱️ 5m setup / 1m timing\n` +
     `🕒 ${stamp} بتوقيت السعودية\n` +
     `⚪ إشارات فقط — لا تداول آلي`;
