@@ -11,7 +11,7 @@ let lastSentAt = 0;
 let trackedTrade = null;
 
 function validNumber(value) {
-  return Number.isFinite(Number(value));
+  return (typeof value === 'number' || (typeof value === 'string' && value.trim() !== '')) && Number.isFinite(Number(value)) && Number(value) > 0;
 }
 
 function n(value, digits = 2) {
@@ -58,15 +58,37 @@ function tpHitMessage(index, target, livePrice) {
     `💵 BTC: ${n(livePrice)}`;
 }
 
-async function sendTrackedTargetHits(signal) {
+function stopHitMessage(trade) {
+  return `🔴 BTCUSD — SL HIT / تم ضرب وقف الخسارة\n` +
+    `الاتجاه: ${trade.side}\n📍 الدخول: ${n(trade.entry)}\n` +
+    `🛑 SL: ${n(trade.stopLoss)}\n💵 BTC عند الرصد: ${n(trade.stopHitPrice)}\n` +
+    'انتهت متابعة الصفقة — لا تُحتسب أهداف لاحقة لها.';
+}
+
+async function sendTrackedTargetHits(signal, send = telegram) {
   if (!trackedTrade) return;
   const livePrice = Number(signal?.price);
-  if (!Number.isFinite(livePrice)) return;
+  // Latch the stop before delivery: a failed notification must never allow later TPs.
+  if (!trackedTrade.stopHitPrice && validNumber(signal?.price) &&
+      (trackedTrade.side === 'BUY' ? livePrice <= trackedTrade.stopLoss : livePrice >= trackedTrade.stopLoss)) {
+    trackedTrade.stopHitPrice = livePrice;
+  }
+  if (trackedTrade.stopHitPrice) {
+    await send('sendMessage', {
+      chat_id: CHAT_ID,
+      text: stopHitMessage(trackedTrade),
+      disable_web_page_preview: true
+    });
+    console.log(`[btc-telegram] SL hit key=${trackedTrade.key} stop=${n(trackedTrade.stopLoss)} live=${n(trackedTrade.stopHitPrice)}`);
+    trackedTrade = null;
+    return;
+  }
+  if (!validNumber(signal?.price)) return;
 
   for (let i = 0; i < trackedTrade.targets.length; i++) {
     const target = trackedTrade.targets[i];
     if (!trackedTrade.sentTargets[i] && reached(trackedTrade.side, livePrice, target)) {
-      await telegram('sendMessage', {
+      await send('sendMessage', {
         chat_id: CHAT_ID,
         text: tpHitMessage(i, target, livePrice),
         disable_web_page_preview: true
@@ -134,7 +156,7 @@ async function tick() {
   const signal = await fetchSignal();
 
   // Target lifecycle is independent from whether the signal endpoint still reports ACTIVE.
-  // Once an entry was actually announced, keep watching the live BTC price until TP1-TP4 hit.
+  // Once announced, watch until the stop or all four targets are reached.
   await sendTrackedTargetHits(signal);
 
   const active = isConfirmed(signal);
@@ -184,4 +206,4 @@ if (process.env.NODE_ENV !== 'test' && BOT_TOKEN && CHAT_ID) {
   })();
 }
 
-export { isConfirmed, message, reached, tpHitMessage };
+export { isConfirmed, message, reached, tpHitMessage, startTracking, sendTrackedTargetHits };
