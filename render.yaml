@@ -73,6 +73,16 @@ services:
         value: "100"
       - key: XAU_LOT_STEP
         value: "0.01"
+      - key: BTC_ACCOUNT_BALANCE_USD
+        value: "155"
+      - key: EXNESS_BTC_CONTRACT_SIZE
+        value: "1"
+      - key: EXNESS_BTC_LOT_STEP
+        value: "0.01"
+      - key: BTC_SAFE_RISK_USD
+        value: "5"
+      - key: BTC_MAX_RISK_USD
+        value: "10"
       - key: TELEGRAM_EARLY_MIN_CONFIDENCE
         value: "82"
       - key: TELEGRAM_CANDIDATE_MIN_CONFIDENCE
