@@ -42,7 +42,7 @@ jobs:
           node --check gold-site-ui-start.js
           node --check telegram-xau-bot-v3.js
       - name: Install runtime dependency
-        run: npm ci --ignore-scripts
+        run: npm install --ignore-scripts --no-audit --no-fund
       - name: Smoke boot ICT signal engine
         shell: bash
         run: |
