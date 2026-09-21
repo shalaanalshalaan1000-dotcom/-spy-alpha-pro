@@ -117,7 +117,7 @@ for (const [from, to] of replacements) {
 
   source=source.replace("const t=n(v[0]),close=n(v[4]);","const t=n(v[0]),open=n(v[1]),high=n(v[2]),low=n(v[3]),close=n(v[4]);");
   source=source.replace("add(ms,close,close,close);","add(ms,close,close,close,{open,high,low,close});");
-  source=source.replace("send('create_series',[cs,'s1','s1','symbol_1','1',180]);","send('create_series',[cs,'s1','s1','symbol_1','1',5800]);");
+  source=source.replace("send('create_series',[cs,'s1','s1','symbol_1','1',180]);","send('create_series',[cs,'s1','s1','symbol_1','1',5000]);");
 
   const validStart=source.indexOf("function validLevels("),validEnd=source.indexOf("\\nfunction entryPx",validStart);
   if(validStart<0||validEnd<0)throw new Error('ICT patch: validLevels anchor missing');
