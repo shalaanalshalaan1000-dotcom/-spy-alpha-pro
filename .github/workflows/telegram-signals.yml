@@ -41,6 +41,28 @@ jobs:
           node --check gold-site-signal-engine-v9.js
           node --check gold-site-ui-start.js
           node --check telegram-xau-bot-v3.js
+      - name: Install runtime dependency
+        run: npm ci --ignore-scripts
+      - name: Smoke boot ICT signal engine
+        shell: bash
+        run: |
+          set +e
+          timeout 8s node gold-site-signal-engine-v9.js > /tmp/ict-engine.log 2>&1
+          code=$?
+          cat /tmp/ict-engine.log
+          if [ "$code" -ne 0 ] && [ "$code" -ne 124 ] && [ "$code" -ne 143 ]; then
+            exit "$code"
+          fi
+      - name: Smoke boot gold UI runtime
+        shell: bash
+        run: |
+          set +e
+          timeout 8s node gold-site-ui-start.js > /tmp/gold-ui.log 2>&1
+          code=$?
+          cat /tmp/gold-ui.log
+          if [ "$code" -ne 0 ] && [ "$code" -ne 124 ] && [ "$code" -ne 143 ]; then
+            exit "$code"
+          fi
       - name: Diagnose live XAUUSD feeds
         run: |
           set +e
