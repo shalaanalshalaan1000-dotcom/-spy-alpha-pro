@@ -7,12 +7,16 @@ on:
       - .github/workflows/telegram-signals.yml
       - gold-site-signal-engine.js
       - gold-site-signal-engine-v3.js
+      - gold-site-signal-engine-v9.js
+      - gold-ict-swing-model.js
       - gold-site-ui-start.js
       - gold-data-bridge.js
       - gold-signal-model.js
       - gold-unified-start.js
       - site-indicator-start.js
       - telegram-xau-bot.js
+      - telegram-xau-bot-v3.js
+      - render.yaml
       - package.json
   schedule:
     - cron: "*/5 * * * 0-5"
@@ -30,6 +34,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
+      - uses: actions/checkout@v4
+      - name: Validate ICT runtime syntax
+        run: |
+          node --check gold-ict-swing-model.js
+          node --check gold-site-signal-engine-v9.js
+          node --check gold-site-ui-start.js
+          node --check telegram-xau-bot-v3.js
       - name: Diagnose live XAUUSD feeds
         run: |
           set +e
