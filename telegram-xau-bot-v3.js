@@ -29,5 +29,23 @@ for (const [from, to] of replacements) {
   source = source.replace(from, to);
 }
 
+
+{
+  const oldReturn="return t.every((v,i)=>valid(v)&&(side==='BUY'?v>(i?t[i-1]:entry):v<(i?t[i-1]:entry)));";
+  const newReturn="const present=t.filter(valid);if(!present.length)return false;return present.every((v,i)=>side==='BUY'?v>(i?present[i-1]:entry):v<(i?present[i-1]:entry));";
+  if(!source.includes(oldReturn))throw new Error('telegram v3 ICT target validation anchor missing');
+  source=source.replace(oldReturn,newReturn);
+
+  const oldTarget="return \`\${icon} XAUUSD — \${side}\\n✅ CONFIRMED\\n📊 الثقة: \${confidence}%\\n💵 الدخول: \${money(entry)}\\n🛑 SL: \${n(sl)}\\n🎯 TP1: \${n(t[0])}\\n🎯 TP2: \${n(t[1])}\\n🎯 TP3: \${n(t[2])}\\n🎯 TP4: \${n(t[3])}\${sizing.length?'\\n\\n'+sizing.join('\\n'):''}\`;";
+  const newTarget="const labels=Array.isArray(s?.targetLabels)?s.targetLabels:[],targetLines=t.map((v,i)=>valid(v)?\`🎯 TP\${i+1}: \${n(v)}\${labels[i]?' • '+labels[i]:''}\`:null).filter(Boolean);const ict=s?.ict||{},lot=s?.lotSizing||null,ictLines=[\`🧭 ICT: \${String(s?.strategy||'SETUP')}\`,\`📍 HTF: \${String(s?.contextBias||'—')} • \${String(ict.session||'—')}\`,\`💧 Draw: \${String(ict.drawOnLiquidity||labels[0]||'opposing liquidity')}\`,lot&&Number(lot.recommendedLot)>0?\`📐 اللوت المحسوب: \${Number(lot.recommendedLot).toFixed(2)} lot • Risk ≈ $\${Number(lot.actualRiskUsd||0).toFixed(2)}\`:null].filter(Boolean);return \`\${icon} XAUUSD — \${side}\\n✅ ICT CONFIRMED\\n📊 الثقة: \${confidence}%\\n💵 الدخول: \${money(entry)}\\n🛑 SL: \${n(sl)}\\n\${targetLines.join('\\n')}\\n\\n\${ictLines.join('\\n')}\${sizing.length?'\\n\\n'+sizing.join('\\n'):''}\`;";
+  if(!source.includes(oldTarget))throw new Error('telegram v3 target message anchor missing');
+  source=source.replace(oldTarget,newTarget);
+
+  const oldTerminal="if(outcome==='TP4')return \`🏁 XAUUSD — ALL TARGETS COMPLETED / تم تحقيق جميع الأهداف\\n🎯 TP4: \${n(t?.target4)}\`;";
+  const newTerminal="if(/^TP[1-4]$/.test(outcome)){const i=Number(outcome.slice(2));return \`🏁 XAUUSD — LIQUIDITY TARGET COMPLETED / تم تحقيق هدف السيولة\\n🎯 TP\${i}: \${n(t?.['target'+i])}\`;}";
+  if(!source.includes(oldTerminal))throw new Error('telegram v3 terminal target anchor missing');
+  source=source.replace(oldTerminal,newTerminal);
+}
+
 fs.writeFileSync(runtimeUrl, source, 'utf8');
 await import(`${runtimeUrl.href}?v=${Date.now()}`);
