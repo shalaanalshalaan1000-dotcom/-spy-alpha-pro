@@ -136,9 +136,10 @@ function targetPlan(side,entry,stop,levels,h1,h4){
   const risk=Math.abs(entry-stop); if(!(risk>0))return null;
   const candidates=dedupePools(pools,side,entry);
   if(!candidates.length)return null;
-  const rr=Math.abs(candidates[0].price-entry)/risk;
-  if(rr<2)return null;
-  const picked=candidates.slice(0,4);
+  const mainIndex=candidates.findIndex(x=>Math.abs(x.price-entry)/risk>=2);
+  if(mainIndex<0)return null;
+  const picked=candidates.slice(mainIndex,mainIndex+4);
+  const rr=Math.abs(picked[0].price-entry)/risk;
   return{risk,rr,targets:picked};
 }
 
