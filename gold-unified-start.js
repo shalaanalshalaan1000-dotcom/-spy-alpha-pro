@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 
-const BUILD_TAG='site-signal-noai-v14-protected-entry';
+const BUILD_TAG='ict-topdown-v15-liquidity-targets';
 const PORT=Number(process.env.PORT||3000);
 const UI_PORT=3001,AUTO_PORT=3002,DATA_PORT=3005;
 
