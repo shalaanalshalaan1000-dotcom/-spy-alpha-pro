@@ -63,6 +63,42 @@ function patchSiteSignalUi(source) {
   );
   source = source.replaceAll("$('#mode').textContent=cfg.mode+' / '+cfg.provider;", "$('#mode').textContent='XAUUSD / SIGNALS';");
   source = source.replaceAll("$('#mode').textContent=d.mode+' / '+d.provider;", "$('#mode').textContent='XAUUSD / SIGNALS';");
+  const liveProgressScript = \`<script id="goldLiveProgressPoller">
+(function(){
+ const el=id=>document.getElementById(id),set=(id,v)=>{const n=el(id);if(n)n.textContent=v;};
+ const dir=(v)=>v===1?'↑':v===-1?'↓':'—';
+ function missing(raw){
+  const s=String(raw?.reason||'').toUpperCase(),st=String(raw?.status||'').toUpperCase();
+  if(/DATA_RECOVERING|ENGINE_UNAVAILABLE/.test(s)||raw?.degraded)return 'استعادة بيانات السعر الحي';
+  if(st==='COLLECTING')return 'يجمع تاريخ 4H / 1H / 15m المطلوب';
+  if(/COOLDOWN/.test(s))return 'فترة حماية قصيرة بعد الصفقة السابقة';
+  if(/4H\\/1H BIAS IS NOT ALIGNED/.test(s))return 'ينقص توافق اتجاه 4H و1H';
+  if(/OFF-KILLZONE/.test(s))return 'خارج Killzone: ننتظر تأكيد هيكلي قوي';
+  if(/NO COMPLETE LIQUIDITY SWEEP|DISPLACEMENT\\/FVG/.test(s))return 'ينقص FVG أو Displacement / سحب سيولة';
+  if(/NO OPPOSING LIQUIDITY TARGET|BELOW_1_5R/.test(s))return 'لا يوجد هدف سيولة يحقق 1.5R';
+  if(/WAITING_NEXT_5M_CLOSE_WINDOW/.test(s))return 'انتظار نافذة إغلاق 5m';
+  if(/WAITING_1M_CONFIRMATION/.test(s))return 'ينقص تأكيد 1m للإعداد الهامشي';
+  if(/USD_NEWS_BLACKOUT|NEWS RISK/.test(s))return 'فلتر الأخبار يمنع الدخول مؤقتًا';
+  if(st==='CANDIDATE')return 'الإعداد مرشح وينتظر دخول السعر داخل منطقة التنفيذ';
+  return raw?.contextBias&&raw.contextBias!=='NEUTRAL'?'ينتظر اكتمال شروط ICT':'بانتظار اتجاه HTF واضح';
+ }
+ async function refresh(){
+  try{
+   const r=await fetch('/api/auto-trade/signal?observe=1&_='+Date.now(),{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const raw=await r.json();
+   const ict=raw?.ict||{},side=['BUY','SELL'].includes(raw?.candidateAction)?raw.candidateAction:(['BUY','SELL'].includes(raw?.contextBias)?raw.contextBias:null),sign=side==='BUY'?1:side==='SELL'?-1:0;
+   const checks=[['HTF',Boolean(sign&&ict.dir4===sign&&ict.dir1===sign)],['15m',Boolean(sign&&ict.dir15===sign)],['FVG',Boolean(ict.fvg)],['Displacement',Boolean(ict.displacement||ict.mss)],['Timing',Boolean(ict.sweep||ict.mss||raw?.oneMinuteConfirmed)],['RR≥1.5',Number.isFinite(Number(raw?.riskReward))&&Number(raw.riskReward)>=1.5]];
+   const done=checks.filter(x=>x[1]).length,status=String(raw?.status||'').toUpperCase(),active=Boolean(raw?.signalId)&&['ACTIVE','MANAGING'].includes(status),collecting=status==='COLLECTING';
+   const progress=active?100:collecting?Math.min(15,Math.max(1,Math.round((Number(raw?.sampleCount)||0)/120*15))):Math.round(done/checks.length*100);
+   set('goldSetupProgress',progress+'%');set('goldSetupSteps',checks.map(x=>x[0]+' '+(x[1]?'✓':'—')).join(' • '));set('goldMissingCondition',missing(raw));
+   const conf=Math.max(0,Math.min(100,Number(raw?.signalConfidence??raw?.confidence)||0)),min=Math.max(0,Number(raw?.minConfidence)||82);set('goldConfidence',active?'التأكيد '+Math.round(conf)+'%':(conf>0?'درجة الإعداد '+Math.round(conf)+'% • المطلوب '+Math.round(min)+'%':'لم يبدأ حساب الثقة بعد'));
+   const lot=raw?.lotSizing||{};set('goldLotSize',Number(lot.recommendedLot)>0?Number(lot.recommendedLot).toFixed(2)+' lot':'—');set('goldLotRisk',Number.isFinite(Number(lot.actualRiskUsd))?'Risk USD '+Number(lot.actualRiskUsd).toFixed(2)+' • SL '+Number(lot.stopDistance||0).toFixed(2):'يظهر بعد اعتماد SL');
+   set('goldIctDraw',ict.drawOnLiquidity||raw?.targetLabels?.[0]||(ict.fvg?'FVG موجود • الهدف قيد التحديد':'—'));set('goldIctBias','HTF: 4H'+dir(ict.dir4)+' / 1H'+dir(ict.dir1)+' / 15m'+dir(ict.dir15)+' • '+(ict.session||'—'));
+  }catch(e){set('goldMissingCondition','تعذر قراءة محرك الذهب الآن');}
+ }
+ (async function loop(){await refresh();setTimeout(loop,2000)})();
+})();
+</script>\`;
+  if(!source.includes('goldLiveProgressPoller')) source=source.replace('</body>', liveProgressScript+'</body>');
   // Server lifecycle is authoritative; never revive a browser-local trade.
   source = source.replace('function lockGoldPlan(plan,price){', 'function lockGoldPlan(plan,price){if(plan?.serverOwned)return plan;');
   return source;
