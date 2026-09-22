@@ -10,7 +10,8 @@ const cache = { expiresAt: 0, events: [], error: null, updatedAt: null };
 let calendarLoadPromise = null;
 let riskCache = { expiresAt: 0, value: null };
 
-const MAJOR_RE = /(fomc|federal funds rate|interest rate decision|fed chair|fed press conference|cpi|consumer price index|core pce|pce price|non[- ]farm|employment situation|unemployment rate|average hourly earnings|payrolls)/i;
+const MAJOR_RE = /(fomc statement|fomc minutes|federal funds rate|interest rate decision|fed press conference|cpi|consumer price index|core pce|pce price|non[- ]farm|employment situation|unemployment rate|average hourly earnings|payrolls)/i;
+const FED_SPEECH_RE = /(speaks|speech|remarks|fireside|panel|interview)/i;
 const IMPORTANT_RE = /(jobless claims|unemployment claims|retail sales|gdp|ism|jolts|ppi|producer price|consumer confidence|durable goods|adp|treasury|powell|warsh|federal reserve)/i;
 
 function riyadhDayKey(ms) {
@@ -82,6 +83,11 @@ async function loadCalendar() {
 }
 
 function windowsFor(event) {
+  // Ordinary Fed/FOMC member speeches should not hard-block entries.
+  // Keep blackout windows for actual policy decisions, press conferences, and major macro releases.
+  if (FED_SPEECH_RE.test(event.title) && !/press conference/i.test(event.title)) {
+    return { beforeMin: 0, afterMin: 0, severity: 'NORMAL' };
+  }
   const major = MAJOR_RE.test(event.title);
   const important = IMPORTANT_RE.test(event.title);
   if (major) return { beforeMin: 120, afterMin: 180, severity: 'EXTREME' };
