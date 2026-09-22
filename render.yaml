@@ -8,7 +8,7 @@ services:
       - key: MASSIVE_API_KEY
         sync: false
       - key: MIN_CONFIDENCE
-        value: "82"
+        value: "72"
       - key: GOLD_MAX_DAILY_SIGNALS
         value: "10"
       - key: GOLD_REQUIRE_NEWS_FEED
@@ -48,21 +48,21 @@ services:
       - key: TELEGRAM_CHAT_ID
         sync: false
       - key: TELEGRAM_MIN_CONFIDENCE
-        value: "82"
+        value: "72"
       - key: GOLD_TELEGRAM_MIN_CONFIDENCE
-        value: "82"
+        value: "72"
       - key: GOLD_TELEGRAM_MIN_RR
-        value: "2.00"
+        value: "1.50"
       - key: TELEGRAM_CONFIRM_ON_5M_CLOSE
         value: "false"
       - key: GOLD_MIN_LIVE_TP1_R
-        value: "2.00"
+        value: "1.50"
       - key: GOLD_SL_COOLDOWN_MS
-        value: "900000"
+        value: "300000"
       - key: GOLD_SAME_SIDE_REENTRY_MS
-        value: "900000"
+        value: "300000"
       - key: GOLD_M5_ENTRY_WINDOW_MS
-        value: "90000"
+        value: "150000"
       - key: XAU_ACCOUNT_BALANCE_USD
         value: "155"
       - key: XAU_SAFE_RISK_USD
@@ -84,17 +84,17 @@ services:
       - key: BTC_MAX_RISK_USD
         value: "10"
       - key: TELEGRAM_EARLY_MIN_CONFIDENCE
-        value: "82"
+        value: "72"
       - key: TELEGRAM_CANDIDATE_MIN_CONFIDENCE
-        value: "82"
+        value: "72"
       - key: TELEGRAM_MIN_RR
-        value: "2"
+        value: "1.50"
       - key: MAX_TELEGRAM_SIGNALS_PER_DAY
         value: "10"
       - key: TELEGRAM_COOLDOWN_MINUTES
-        value: "20"
+        value: "5"
       - key: TELEGRAM_SCAN_INTERVAL_SECONDS
-        value: "120"
+        value: "60"
       - key: TELEGRAM_CANDIDATE_LIMIT
         value: "6"
       - key: TELEGRAM_MARKET_ONLY
