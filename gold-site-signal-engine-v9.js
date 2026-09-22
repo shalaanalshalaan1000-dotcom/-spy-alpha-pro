@@ -12,7 +12,7 @@ const replacements = [
   ],
   [
     "const MIN_CONFIDENCE=Number(process.env.MIN_CONFIDENCE||72);",
-    "const MIN_CONFIDENCE=Math.max(70,Math.min(90,Number(process.env.MIN_CONFIDENCE||72)));"
+    "const MIN_CONFIDENCE=Math.max(82,Math.min(90,Number(process.env.MIN_CONFIDENCE||82)));"
   ],
   [
     "const BASE_MIN_TP1_R=Math.max(.9,Number(process.env.GOLD_MIN_LIVE_TP1_R||1.20));",
@@ -24,7 +24,7 @@ const replacements = [
   ],
   [
     "const BUILD='site-signal-noai-v19-trade-management';",
-    "const BUILD='site-signal-noai-v33-ict-balanced-entry';"
+    "const BUILD='site-signal-noai-v34-ict-relaxed-gates-high-confidence';"
   ],
   [
     "const state={samples:[],signal:null,lastTerminal:null,trades:[],cooldownUntil:0,sameSideBlockUntil:0,lastLossSide:null,quote:null,lastError:null,ws:null,wsConnected:false,lastTvAt:0,lastLpAt:0,loggedQuote:false,loggedLp:false,lastEntryGuard:null};",
