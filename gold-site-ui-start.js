@@ -13,8 +13,8 @@ function patchSiteSignalUi(source) {
   const collecting=!stale&&status==='COLLECTING',reason=String(raw?.reason||''),cooldown=/COOLDOWN/i.test(reason),recovering=/DATA_RECOVERING|ENGINE_UNAVAILABLE/i.test(reason);
   const confidence=Math.max(0,Math.min(100,Number(raw?.signalConfidence??raw?.confidence)||0)),minConfidence=Math.max(0,Number(raw?.minConfidence)||82);
   const candidateSide=['BUY','SELL'].includes(raw?.candidateAction)?raw.candidateAction:(['BUY','SELL'].includes(raw?.contextBias)?raw.contextBias:null),candidate=!stale&&!active&&status==='CANDIDATE'&&['BUY','SELL'].includes(candidateSide);
-  const momentum=raw?.momentum||raw?.prediction||{},wr=Number(momentum?.williamsR5??raw?.prediction?.williamsR5),expansion=Number(momentum?.volatilityExpansion??raw?.prediction?.volatilityExpansion),structure5=Number(momentum?.structure5m??raw?.prediction?.structure5m??0);
-  const trendReady=['BUY','SELL'].includes(raw?.contextBias),volatilityReady=candidate||active||(Number.isFinite(expansion)&&expansion>=.35),wrReady=!Number.isFinite(wr)?candidate:(candidateSide==='BUY'?wr>-55:candidateSide==='SELL'?wr<-45:false),entryReady=active||candidate;
+  const momentum=raw?.williams||raw?.momentum||raw?.prediction||{},wr=Number(momentum?.williamsR5??raw?.prediction?.williamsR5),expansion=Number(momentum?.volatilityExpansion?.ratio??momentum?.volatilityExpansion??raw?.prediction?.volatilityExpansion),structure5=Number(momentum?.structure5m??raw?.prediction?.structure5m??0);
+  const trendReady=['BUY','SELL'].includes(raw?.contextBias),volatilityReady=candidate||active||Boolean(momentum?.volatilityExpansion?.ready)||(Number.isFinite(expansion)&&expansion>=1.15),wrReady=!Number.isFinite(wr)?candidate:(candidateSide==='BUY'?wr>-72:candidateSide==='SELL'?wr<-28:false),entryReady=active||candidate;
   const checks=[['15m Trend',trendReady],['Volatility',volatilityReady],['Williams %R',wrReady],['Entry Zone',entryReady]],done=checks.filter(x=>x[1]).length,setupProgress=active?100:collecting?Math.min(15,Math.round((Number(raw?.sampleCount)||0)/120*15)):Math.round(done/checks.length*100),setupSteps=checks.map(x=>x[0]+' '+(x[1]?'✓':'—')).join(' • ');
   const reasonUpper=reason.toUpperCase();let missingCondition='بانتظار اتجاه + توسع تقلب حسب Williams';
   if(recovering)missingCondition='استعادة بيانات السعر الحي';else if(cooldown)missingCondition='فترة حماية بعد الصفقة السابقة';else if(confidence>0&&confidence<minConfidence)missingCondition='الثقة '+Math.round(confidence)+'% أقل من المطلوب '+Math.round(minConfidence)+'%';else if(/NO CHASE/.test(reasonUpper))missingCondition='السعر ابتعد عن منطقة الدخول؛ ننتظر فرصة جديدة';else if(/STOP_TOO_|INVALID_MOMENTUM_STOP|MIN_LOT_EXCEEDS/.test(reasonUpper))missingCondition='وقف الخسارة أو حجم المخاطرة غير مناسب';else if(/MAIN_TARGET_BELOW_MIN_R|TP1_TOO_CLOSE/.test(reasonUpper))missingCondition='المسافة إلى الهدف الأول غير كافية';else if(/USD_NEWS_BLACKOUT|NEWS RISK/.test(reasonUpper))missingCondition='فلتر الأخبار يمنع الدخول مؤقتًا';else if(status==='CANDIDATE')missingCondition='إعداد Williams جاهز وينتظر دخول السعر داخل منطقة التنفيذ';
@@ -31,7 +31,7 @@ function patchSiteSignalUi(source) {
   source = source.replaceAll('const d=goldBrowserReading(raw);', 'const d=goldSignalReading(raw);');
   source = source.replace(
     'توقع الذهب — نموذج 5 دقائق',
-    'Larry Williams XAUUSD — Trend + Volatility'
+    'Larry Williams XAUUSD — Trend + Volatility Breakout + %R'
   );
   source = source.replace(
     "symbol:'OANDA:XAUUSD',interval:'15'",
@@ -84,8 +84,8 @@ function patchSiteSignalUi(source) {
   try{
    const r=await fetch('/api/auto-trade/signal?observe=1&_='+Date.now(),{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const raw=await r.json();
    const status=String(raw?.status||'').toUpperCase(),active=Boolean(raw?.signalId)&&['ACTIVE','MANAGING'].includes(status),collecting=status==='COLLECTING',side=['BUY','SELL'].includes(raw?.candidateAction)?raw.candidateAction:(['BUY','SELL'].includes(raw?.contextBias)?raw.contextBias:null);
-   const mom=raw?.momentum||raw?.prediction||{},wr=Number(mom?.williamsR5??raw?.prediction?.williamsR5),expansion=Number(mom?.volatilityExpansion??raw?.prediction?.volatilityExpansion),structure5=Number(mom?.structure5m??raw?.prediction?.structure5m??0);
-   const trendReady=['BUY','SELL'].includes(raw?.contextBias),volatilityReady=active||status==='CANDIDATE'||(Number.isFinite(expansion)&&expansion>=.35),wrReady=!Number.isFinite(wr)?status==='CANDIDATE':(side==='BUY'?wr>-55:side==='SELL'?wr<-45:false),entryReady=active||status==='CANDIDATE';
+   const mom=raw?.williams||raw?.momentum||raw?.prediction||{},wr=Number(mom?.williamsR5??raw?.prediction?.williamsR5),expansion=Number(mom?.volatilityExpansion?.ratio??mom?.volatilityExpansion??raw?.prediction?.volatilityExpansion),structure5=Number(mom?.structure5m??raw?.prediction?.structure5m??0);
+   const trendReady=['BUY','SELL'].includes(raw?.contextBias),volatilityReady=active||status==='CANDIDATE'||Boolean(mom?.volatilityExpansion?.ready)||(Number.isFinite(expansion)&&expansion>=1.15),wrReady=!Number.isFinite(wr)?status==='CANDIDATE':(side==='BUY'?wr>-72:side==='SELL'?wr<-28:false),entryReady=active||status==='CANDIDATE';
    const checks=[['15m Trend',trendReady],['Volatility',volatilityReady],['Williams %R',wrReady],['Entry Zone',entryReady]],done=checks.filter(x=>x[1]).length;
    const progress=active?100:collecting?Math.min(15,Math.max(1,Math.round((Number(raw?.sampleCount)||0)/120*15))):Math.round(done/checks.length*100);
    const conf=Math.max(0,Math.min(100,Number(raw?.signalConfidence??raw?.confidence)||0)),min=Math.max(0,Number(raw?.minConfidence)||82);
