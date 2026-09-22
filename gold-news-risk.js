@@ -2,6 +2,7 @@ const CALENDAR_URL = String(process.env.GOLD_ECON_CALENDAR_URL || 'https://nfs.f
 const CACHE_MS = Math.max(60_000, Number(process.env.GOLD_NEWS_CACHE_MS || 300_000));
 const RISK_CACHE_MS = Math.max(1_000, Number(process.env.GOLD_NEWS_RISK_CACHE_MS || 5_000));
 const REQUIRE_NEWS_FEED = String(process.env.GOLD_REQUIRE_NEWS_FEED || 'true').toLowerCase() !== 'false';
+const BLOCK_NEWS_ENTRIES = String(process.env.GOLD_NEWS_BLOCK_ENTRIES || 'true').toLowerCase() !== 'false';
 const RIYADH_DAY_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit'
 });
@@ -116,7 +117,7 @@ export async function getGoldNewsRisk(now = Date.now()) {
       available: false,
       dayHasHighImpactUsd: null,
       level: 'UNKNOWN',
-      blockEntries: true,
+      blockEntries: BLOCK_NEWS_ENTRIES,
       reason: 'NEWS_FEED_UNAVAILABLE — new XAUUSD entries paused until the USD calendar recovers',
       activeEvent: null,
       nextEvent: null,
@@ -144,10 +145,10 @@ export async function getGoldNewsRisk(now = Date.now()) {
   const future = usdToday.filter(e => e.atMs > now);
   const nextEvent = future.length ? future[0] : null;
   const dayHasHighImpactUsd = highImpactToday.length > 0;
-  const blockEntries = Boolean(activeEvent);
+  const blockEntries = BLOCK_NEWS_ENTRIES && Boolean(activeEvent);
   const level = activeWindow?.severity || (dayHasHighImpactUsd ? 'NEWS_DAY' : 'NORMAL');
   const reason = activeEvent
-    ? `${level}: ${activeEvent.title} — XAUUSD entries blocked from ${activeWindow.beforeMin}m before until ${activeWindow.afterMin}m after the USD release`
+    ? (BLOCK_NEWS_ENTRIES ? `${level}: ${activeEvent.title} — XAUUSD entries blocked from ${activeWindow.beforeMin}m before until ${activeWindow.afterMin}m after the USD release` : `${level}: ${activeEvent.title} — advisory only; entries are not blocked`)
     : dayHasHighImpactUsd
       ? `NEWS_DAY: ${highImpactToday.length} high-impact USD event(s) can move gold; entries allowed only outside blackout windows`
       : 'NORMAL: no high-impact USD event detected for today';
