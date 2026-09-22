@@ -63,7 +63,7 @@ function patchSiteSignalUi(source) {
   );
   source = source.replaceAll("$('#mode').textContent=cfg.mode+' / '+cfg.provider;", "$('#mode').textContent='XAUUSD / SIGNALS';");
   source = source.replaceAll("$('#mode').textContent=d.mode+' / '+d.provider;", "$('#mode').textContent='XAUUSD / SIGNALS';");
-  const liveProgressScript = \`<script id="goldLiveProgressPoller">
+  const liveProgressScript = `<script id="goldLiveProgressPoller">
 (function(){
  const el=id=>document.getElementById(id),set=(id,v)=>{const n=el(id);if(n)n.textContent=v;};
  const dir=(v)=>v===1?'↑':v===-1?'↓':'—';
@@ -97,7 +97,7 @@ function patchSiteSignalUi(source) {
  }
  (async function loop(){await refresh();setTimeout(loop,2000)})();
 })();
-</script>\`;
+</script>`;
   if(!source.includes('goldLiveProgressPoller')) source=source.replace('</body>', liveProgressScript+'</body>');
   // Server lifecycle is authoritative; never revive a browser-local trade.
   source = source.replace('function lockGoldPlan(plan,price){', 'function lockGoldPlan(plan,price){if(plan?.serverOwned)return plan;');
