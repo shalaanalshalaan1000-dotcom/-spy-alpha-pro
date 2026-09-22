@@ -146,45 +146,41 @@ function targetPlan(side,entry,stop,levels,h1,h4){
 export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const price=n(rawPrice),m1all=minuteBars(samples),m5all=aggregate(m1all,5),m15all=aggregate(m1all,15),h1all=aggregate(m1all,60),h4all=aggregate(m1all,240);
   const m1=closed(m1all,1,now),m5=closed(m5all,5,now),m15=closed(m15all,15,now),h1=closed(h1all,60,now),h4=closed(h4all,240,now);
-  const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'ICT_TOP_DOWN',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',ict:null,sampleCount:samples.length,modelTimeframes:{bias:'4H + 1H',context:'15m',execution:'5m',timing:'1m'},updatedAt:new Date(now).toISOString(),reason:'ICT engine is collecting enough HTF history'};
+  const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'ICT_TOP_DOWN',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',ict:null,sampleCount:samples.length,modelTimeframes:{context:'4H',bias:'1H',setup:'15m',execution:'5m',timing:'1m optional'},updatedAt:new Date(now).toISOString(),reason:'ICT engine is collecting enough HTF history'};
   if(price==null||m1.length<120||m5.length<30||m15.length<20||h1.length<12||h4.length<3)return base;
 
   const levels=sessionLevels(m15,now),session=activeSession(now),dir4=structureDirection(h4),dir1=structureDirection(h1),dir15=structureDirection(m15);
-  let biasScore=dir4*3+dir1*2;
-  if(Number.isFinite(levels.dayOpen))biasScore+=price>=levels.dayOpen?1:-1;
-  let bias=biasScore>=3?'BUY':biasScore<=-3?'SELL':'NEUTRAL';
-  const htfConflict=dir4!==0&&dir1!==0&&dir4!==dir1;
-  if(bias==='NEUTRAL'&&!htfConflict){
-    const fallback=dir1!==0&&dir1===dir15?dir1:(dir4!==0&&dir4===dir15?dir4:0);
-    if(fallback===1)bias='BUY'; else if(fallback===-1)bias='SELL';
-  }
   const rangeRows=h1.slice(-24),rangeHigh=hi(rangeRows),rangeLow=lo(rangeRows),equilibrium=Number.isFinite(rangeHigh)&&Number.isFinite(rangeLow)?(rangeHigh+rangeLow)/2:null;
   const location=equilibrium==null?'UNKNOWN':price<=equilibrium?'DISCOUNT':'PREMIUM';
   const atr5=atr(m5,14)||1,atr15=atr(m15,14)||2;
   const offSession=session==='OFF_KILLZONE';
+  const biasScore=dir1*3+dir15*2+(dir4===dir1&&dir1!==0?1:0);
+  let side=dir1===1?'BUY':dir1===-1?'SELL':dir15===1?'BUY':dir15===-1?'SELL':'NEUTRAL';
+  if(side==='NEUTRAL')return{...base,status:'WAIT',contextBias:'NEUTRAL',ict:{biasScore,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession},reason:'ICT WAIT: 1H bias is neutral and 15m has no usable direction'};
 
-  if(bias==='NEUTRAL')return{...base,status:'WAIT',contextBias:'NEUTRAL',ict:{biasScore,dir4,dir1,dir15,htfConflict,levels,session,location,equilibrium:round(equilibrium)},reason:htfConflict?'ICT WAIT: 4H and 1H are in direct conflict':'ICT WAIT: no HTF + 15m directional consensus yet'};
-
-  const side=bias,fvg=latestFvg(m5,side),sweep=localSweep(m5,side,levels),dm=displacementAndMss(m5,side,atr5);
-  const locationOk=side==='BUY'?location==='DISCOUNT':location==='PREMIUM';
   const trendSign=side==='BUY'?1:-1;
+  const contextAligned=dir4===trendSign;
+  const biasAligned=dir1===0||dir1===trendSign;
+  const setupAligned=dir15===trendSign;
+  const locationOk=side==='BUY'?location==='DISCOUNT':location==='PREMIUM';
   const oneMinuteConfirmed=oneMinuteConfirm(m1,side);
-  const htfAligned=dir4===trendSign&&dir1===trendSign&&dir15===trendSign;
-  const reversal=Boolean(sweep&&(dm.displacement||dm.mss)&&fvg&&(!offSession||oneMinuteConfirmed));
-  const regularContinuation=Boolean(!sweep&&dir15===trendSign&&dm.displacement&&fvg&&(locationOk||htfAligned));
-  const offSessionContinuation=Boolean(!sweep&&offSession&&htfAligned&&dm.displacement&&fvg&&(dm.mss||oneMinuteConfirmed));
-  const continuation=offSession?offSessionContinuation:regularContinuation;
-  if(!reversal&&!continuation){
-    const waitReason=offSession
-      ? 'ICT WAIT: off-killzone setup requires HTF alignment + displacement + FVG + MSS or 1m confirmation'
-      : 'ICT WAIT: no complete liquidity sweep/displacement/FVG setup';
-    return{...base,status:'WAIT',candidateAction:'WAIT',confidence:0,contextBias:bias,oneMinuteConfirmed,ict:{biasScore,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),sweep,displacement:dm.displacement,mss:dm.mss,fvg,offSession,htfAligned},reason:waitReason};
-  }
+  const fvg15=latestFvg(m15,side),sweep15=localSweep(m15,side,levels),dm15=displacementAndMss(m15,side,atr15);
+  const fvg5=latestFvg(m5,side),sweep5=localSweep(m5,side,levels),dm5=displacementAndMss(m5,side,atr5);
+  const setupVotes=[Boolean(sweep15),Boolean(fvg15),Boolean(dm15.displacement||dm15.mss)].filter(Boolean).length;
+  const setupReady=Boolean(setupAligned&&setupVotes>=2);
+  const executionReady=Boolean(fvg5&&(dm5.displacement||dm5.mss||oneMinuteConfirmed));
+  const reversal=Boolean(setupReady&&executionReady&&(sweep15||sweep5)&&(dm15.mss||dm5.mss));
+  const continuation=Boolean(setupReady&&executionReady&&!reversal);
 
-  const setupType=reversal?'ICT_LIQUIDITY_REVERSAL':'ICT_HTF_CONTINUATION';
-  const entry=fvg.mid,entryLow=Math.min(fvg.low,fvg.high),entryHigh=Math.max(fvg.low,fvg.high);
+  if(!setupAligned)return{...base,status:'WAIT',candidateAction:'WAIT',confidence:0,contextBias:side,oneMinuteConfirmed,ict:{biasScore,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,contextAligned,biasAligned,setupAligned,setupVotes,fvg15,sweep15,dm15,fvg5,sweep5,dm5},reason:'ICT WAIT: 1H bias and 15m setup are not aligned'};
+  if(!setupReady)return{...base,status:'WAIT',candidateAction:'WAIT',confidence:0,contextBias:side,oneMinuteConfirmed,ict:{biasScore,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,contextAligned,biasAligned,setupAligned,setupVotes,fvg15,sweep15,dm15,fvg5,sweep5,dm5},reason:'ICT WAIT: 15m setup needs two of liquidity sweep / FVG / displacement-MSS'};
+  if(!executionReady)return{...base,status:'WAIT',candidateAction:'WAIT',confidence:0,contextBias:side,oneMinuteConfirmed,ict:{biasScore,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,contextAligned,biasAligned,setupAligned,setupVotes,fvg15,sweep15,dm15,fvg5,sweep5,dm5},reason:'ICT WAIT: 15m setup ready; waiting for 5m FVG + displacement/MSS entry'};
+
+  const setupType=reversal?'ICT_15M_LIQUIDITY_REVERSAL':'ICT_1H_15M_CONTINUATION';
+  const fvg=fvg5,entry=fvg.mid,entryLow=Math.min(fvg.low,fvg.high),entryHigh=Math.max(fvg.low,fvg.high);
   const buffer=clamp(atr5*.18,.25,.85);
   const recent=m5.slice(-8),fallbackExtreme=side==='BUY'?lo(recent):hi(recent);
+  const sweep=sweep5??sweep15;
   const anchor=sweep?.extreme??fallbackExtreme;
   const stop=side==='BUY'?anchor-buffer:anchor+buffer;
   const risk=Math.abs(entry-stop);
@@ -192,21 +188,24 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
 
   const plan=targetPlan(side,entry,stop,levels,h1,h4);
   if(!plan)return{...base,status:'WAIT',candidateAction:'WAIT',contextBias:bias,oneMinuteConfirmed,ict:{biasScore,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),sweep,fvg,offSession,htfAligned},reason:'ICT WAIT: no opposing liquidity target offers at least 1.5R'};
-  let confidence=54;
-  if(dir4===(side==='BUY'?1:-1))confidence+=10;
-  if(dir1===(side==='BUY'?1:-1))confidence+=8;
-  if(dir15===(side==='BUY'?1:-1))confidence+=6;
-  if(session==='LONDON_KILLZONE'||session==='NEW_YORK_AM_KILLZONE')confidence+=6;
-  if(offSession&&continuation&&htfAligned&&dm.mss&&oneMinuteConfirmed)confidence+=4;
-  if(sweep)confidence+=10;
-  if(dm.mss)confidence+=5;
-  if(dm.displacement)confidence+=5;
-  if(fvg)confidence+=4;
-  if(locationOk)confidence+=3;
-  if(oneMinuteConfirmed)confidence+=3;
+  let confidence=56;
+  if(dir1===trendSign)confidence+=12;
+  if(dir15===trendSign)confidence+=10;
+  if(contextAligned)confidence+=4;
+  if(session==='LONDON_KILLZONE'||session==='NEW_YORK_AM_KILLZONE')confidence+=4;
+  if(sweep15)confidence+=8;
+  if(fvg15)confidence+=5;
+  if(dm15.mss)confidence+=6;
+  if(dm15.displacement)confidence+=5;
+  if(sweep5)confidence+=4;
+  if(dm5.mss)confidence+=5;
+  if(dm5.displacement)confidence+=5;
+  if(fvg5)confidence+=5;
+  if(locationOk)confidence+=2;
+  if(oneMinuteConfirmed)confidence+=2;
   confidence=Math.min(95,confidence);
   const targets=plan.targets.map(x=>round(x.price));
   const labels=plan.targets.map(x=>x.label);
   const drawOnLiquidity=labels[0]||'OPPOSING_LIQUIDITY';
-  return{...base,status:'CANDIDATE',candidateAction:side,side,strategy:setupType,confidence,contextBias:bias,oneMinuteConfirmed,setupId:[side,setupType,sweep?.t??fvg.t,round(entry),round(stop),drawOnLiquidity].join('|'),entry:round(entry),entryLow:round(entryLow),entryHigh:round(entryHigh),stopLoss:round(stop),target1:targets[0]??null,target2:targets[1]??null,target3:targets[2]??null,target4:targets[3]??null,targetLabels:labels,riskReward:round(plan.rr,2),ict:{setupType,biasScore,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),dealingRangeHigh:round(rangeHigh),dealingRangeLow:round(rangeLow),sweep,displacement:dm.displacement,mss:dm.mss,fvg:{...fvg,low:round(fvg.low),high:round(fvg.high),mid:round(fvg.mid)},drawOnLiquidity,atr5:round(atr5),atr15:round(atr15),stopBuffer:round(buffer),offSession,htfAligned},reason:'ICT '+setupType+' | '+session+' | draw on '+drawOnLiquidity+' | main target '+round(targets[0])+' | '+round(plan.rr,2)+'R'};
+  return{...base,status:'CANDIDATE',candidateAction:side,side,strategy:setupType,confidence,contextBias:bias,oneMinuteConfirmed,setupId:[side,setupType,sweep?.t??fvg.t,round(entry),round(stop),drawOnLiquidity].join('|'),entry:round(entry),entryLow:round(entryLow),entryHigh:round(entryHigh),stopLoss:round(stop),target1:targets[0]??null,target2:targets[1]??null,target3:targets[2]??null,target4:targets[3]??null,targetLabels:labels,riskReward:round(plan.rr,2),ict:{setupType,biasScore,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),dealingRangeHigh:round(rangeHigh),dealingRangeLow:round(rangeLow),contextAligned,biasAligned,setupAligned,setupReady,executionReady,setupVotes,sweep:sweep15??sweep5,sweep15,sweep5,displacement:Boolean(dm15.displacement||dm5.displacement),mss:Boolean(dm15.mss||dm5.mss),dm15,dm5,fvg:{...fvg,low:round(fvg.low),high:round(fvg.high),mid:round(fvg.mid)},fvg15,fvg5:{...fvg5,low:round(fvg5.low),high:round(fvg5.high),mid:round(fvg5.mid)},drawOnLiquidity,atr5:round(atr5),atr15:round(atr15),stopBuffer:round(buffer),offSession},reason:'ICT '+setupType+' | 4H context '+(dir4===1?'UP':dir4===-1?'DOWN':'NEUTRAL')+' | 1H bias '+side+' | 15m setup confirmed | 5m entry confirmed | draw on '+drawOnLiquidity+' | '+round(plan.rr,2)+'R'};
 }
