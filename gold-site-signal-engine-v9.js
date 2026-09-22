@@ -15,6 +15,10 @@ const replacements = [
     "const MIN_CONFIDENCE=Math.max(82,Math.min(90,Number(process.env.MIN_CONFIDENCE||82)));"
   ],
   [
+    "const REQUIRE_1M_CONFIRM=String(process.env.GOLD_REQUIRE_1M_CONFIRM||'true').toLowerCase()!=='false';",
+    "const REQUIRE_1M_CONFIRM=false;"
+  ],
+  [
     "const BASE_MIN_TP1_R=Math.max(.9,Number(process.env.GOLD_MIN_LIVE_TP1_R||1.20));",
     "const BASE_MIN_TP1_R=Math.max(1.10,Math.min(1.60,Number(process.env.GOLD_MIN_LIVE_TP1_R||1.50)));\nconst MAX_DAILY_SIGNALS=Math.max(1,Math.min(20,Number(process.env.GOLD_MAX_DAILY_SIGNALS||20)));\nconst POST_TRADE_COOLDOWN_MS=Math.max(300000,Number(process.env.GOLD_POST_TRADE_COOLDOWN_MS||300000));\nconst M5_ENTRY_WINDOW_MS=Math.max(60000,Math.min(180000,Number(process.env.GOLD_M5_ENTRY_WINDOW_MS||150000)));"
   ],
@@ -24,7 +28,7 @@ const replacements = [
   ],
   [
     "const BUILD='site-signal-noai-v19-trade-management';",
-    "const BUILD='site-signal-noai-v34-ict-relaxed-gates-high-confidence';"
+    "const BUILD='site-signal-noai-v35-ict-relaxed-observable';"
   ],
   [
     "const state={samples:[],signal:null,lastTerminal:null,trades:[],cooldownUntil:0,sameSideBlockUntil:0,lastLossSide:null,quote:null,lastError:null,ws:null,wsConnected:false,lastTvAt:0,lastLpAt:0,loggedQuote:false,loggedLp:false,lastEntryGuard:null};",
@@ -76,7 +80,7 @@ const replacements = [
   ],
   [
     " const model=analyzeGoldSignal(state.samples,q.price,now);\n if(!state.signal)maybeCreate(model,q,now);",
-    " const model=analyzeGoldSignal(state.samples,q.price,now);\n if(!state.signal){if(newsRisk.blockEntries){state.lastEntryGuard={atMs:now,reason:'USD_NEWS_BLACKOUT',newsLevel:newsRisk.level,newsReason:newsRisk.reason,activeEvent:newsRisk.activeEvent};}else maybeCreate(model,q,now);}"
+    " const model=analyzeGoldSignal(state.samples,q.price,now);\n if(now-(state.lastDiagAt||0)>=60000){state.lastDiagAt=now;console.log(\`[xau-state] status=\${model.status} conf=\${Number(model.confidence)||0} bias=\${model.contextBias||'NA'} samples=\${state.samples.length} fresh=\${freshQuote(q,now)} reason=\${String(model.reason||'').slice(0,220)}\`);}\n if(!state.signal){if(newsRisk.blockEntries){state.lastEntryGuard={atMs:now,reason:'USD_NEWS_BLACKOUT',newsLevel:newsRisk.level,newsReason:newsRisk.reason,activeEvent:newsRisk.activeEvent};}else maybeCreate(model,q,now);}"
   ],
   [
     "signalConfidence:Number(state.signal?.confidence??model.confidence??0),minConfidence:MIN_CONFIDENCE,volatilityPolicy:policy,",
