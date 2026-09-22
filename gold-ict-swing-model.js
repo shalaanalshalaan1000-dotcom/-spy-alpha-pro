@@ -149,19 +149,24 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'ICT_TOP_DOWN',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',ict:null,sampleCount:samples.length,modelTimeframes:{bias:'4H + 1H',context:'15m',execution:'5m',timing:'1m'},updatedAt:new Date(now).toISOString(),reason:'ICT engine is collecting enough HTF history'};
   if(price==null||m1.length<120||m5.length<30||m15.length<20||h1.length<12||h4.length<3)return base;
 
-  const levels=sessionLevels(m15,now),session=activeSession(now),dir4=structureDirection(h4),dir1=structureDirection(h1);
+  const levels=sessionLevels(m15,now),session=activeSession(now),dir4=structureDirection(h4),dir1=structureDirection(h1),dir15=structureDirection(m15);
   let biasScore=dir4*3+dir1*2;
   if(Number.isFinite(levels.dayOpen))biasScore+=price>=levels.dayOpen?1:-1;
-  const bias=biasScore>=3?'BUY':biasScore<=-3?'SELL':'NEUTRAL';
+  let bias=biasScore>=3?'BUY':biasScore<=-3?'SELL':'NEUTRAL';
+  const htfConflict=dir4!==0&&dir1!==0&&dir4!==dir1;
+  if(bias==='NEUTRAL'&&!htfConflict){
+    const fallback=dir1!==0&&dir1===dir15?dir1:(dir4!==0&&dir4===dir15?dir4:0);
+    if(fallback===1)bias='BUY'; else if(fallback===-1)bias='SELL';
+  }
   const rangeRows=h1.slice(-24),rangeHigh=hi(rangeRows),rangeLow=lo(rangeRows),equilibrium=Number.isFinite(rangeHigh)&&Number.isFinite(rangeLow)?(rangeHigh+rangeLow)/2:null;
   const location=equilibrium==null?'UNKNOWN':price<=equilibrium?'DISCOUNT':'PREMIUM';
   const atr5=atr(m5,14)||1,atr15=atr(m15,14)||2;
   const offSession=session==='OFF_KILLZONE';
 
-  if(bias==='NEUTRAL')return{...base,status:'WAIT',contextBias:'NEUTRAL',ict:{biasScore,dir4,dir1,levels,session,location,equilibrium:round(equilibrium)},reason:'ICT WAIT: 4H/1H bias is not aligned'};
+  if(bias==='NEUTRAL')return{...base,status:'WAIT',contextBias:'NEUTRAL',ict:{biasScore,dir4,dir1,dir15,htfConflict,levels,session,location,equilibrium:round(equilibrium)},reason:htfConflict?'ICT WAIT: 4H and 1H are in direct conflict':'ICT WAIT: no HTF + 15m directional consensus yet'};
 
   const side=bias,fvg=latestFvg(m5,side),sweep=localSweep(m5,side,levels),dm=displacementAndMss(m5,side,atr5);
-  const dir15=structureDirection(m15),locationOk=side==='BUY'?location==='DISCOUNT':location==='PREMIUM';
+  const locationOk=side==='BUY'?location==='DISCOUNT':location==='PREMIUM';
   const trendSign=side==='BUY'?1:-1;
   const oneMinuteConfirmed=oneMinuteConfirm(m1,side);
   const htfAligned=dir4===trendSign&&dir1===trendSign&&dir15===trendSign;
