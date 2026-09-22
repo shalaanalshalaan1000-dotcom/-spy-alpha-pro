@@ -12,7 +12,7 @@ const replacements = [
   ],
   [
     "const FIVE_MIN_MS=300_000;",
-    "const FIVE_MIN_MS=300_000;\nconst MIN_CONFIDENCE=Math.max(0,Number(process.env.GOLD_TELEGRAM_MIN_CONFIDENCE||process.env.TELEGRAM_MIN_CONFIDENCE||72));\nconst MIN_LIVE_RR=Math.max(.65,Math.min(.90,Number(process.env.GOLD_TELEGRAM_MIN_RR||.90)));"
+    "const FIVE_MIN_MS=300_000;\nconst MIN_CONFIDENCE=Math.max(0,Number(process.env.GOLD_TELEGRAM_MIN_CONFIDENCE||process.env.TELEGRAM_MIN_CONFIDENCE||82));\nconst MIN_LIVE_RR=Math.max(.65,Math.min(.90,Number(process.env.GOLD_TELEGRAM_MIN_RR||.90)));"
   ],
   [
     "if(!isConfirmedActive(s)||!valid(p)||!valid(entry)||!stopValid(side,entry,sl))return false;",

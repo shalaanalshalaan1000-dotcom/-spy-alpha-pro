@@ -11,7 +11,7 @@ function patchSiteSignalUi(source) {
   const presentTargets=targets.filter(v=>v!=null),ordered=entry!=null&&presentTargets.length>=1&&presentTargets.every((v,i)=>side==='BUY'?v>(i?presentTargets[i-1]:entry):v<(i?presentTargets[i-1]:entry));
   const active=!stale&&Boolean(raw?.signalId)&&['ACTIVE','MANAGING'].includes(status)&&raw?.entered===true&&raw?.triggered===true&&['BUY','SELL'].includes(side)&&ordered&&stop!=null;
   const collecting=!stale&&status==='COLLECTING',reason=String(raw?.reason||''),cooldown=/COOLDOWN/i.test(reason),recovering=/DATA_RECOVERING|ENGINE_UNAVAILABLE/i.test(reason);
-  const confidence=Math.max(0,Math.min(100,Number(raw?.signalConfidence??raw?.confidence)||0)),minConfidence=Math.max(0,Number(raw?.minConfidence)||70);
+  const confidence=Math.max(0,Math.min(100,Number(raw?.signalConfidence??raw?.confidence)||0)),minConfidence=Math.max(0,Number(raw?.minConfidence)||82);
   const candidateSide=['BUY','SELL'].includes(raw?.candidateAction)?raw.candidateAction:(['BUY','SELL'].includes(raw?.contextBias)?raw.contextBias:null),candidate=!stale&&!active&&status==='CANDIDATE'&&['BUY','SELL'].includes(candidateSide);
   const momentum=raw?.momentum||raw?.prediction||{},gap=Number(momentum?.scoreGap??raw?.prediction?.scoreGap??0),rsi5=Number(momentum?.rsi5),structure5=Number(momentum?.structure5m??raw?.prediction?.structure5m??0),pressure5=Number(momentum?.pressure5m??raw?.prediction?.pressure5m??0);
   const trendReady=['BUY','SELL'].includes(raw?.contextBias)||Math.abs(gap)>=5,momentumReady=Math.abs(gap)>=7||Math.abs(structure5)>=2||Math.abs(pressure5)>=1,rsiReady=!Number.isFinite(rsi5)?momentumReady:(candidateSide==='BUY'?rsi5>=48:candidateSide==='SELL'?rsi5<=52:false),entryReady=active||candidate;
@@ -88,7 +88,7 @@ function patchSiteSignalUi(source) {
    const trendReady=['BUY','SELL'].includes(raw?.contextBias)||Math.abs(gap)>=5,momentumReady=Math.abs(gap)>=7||Math.abs(structure5)>=2||Math.abs(pressure5)>=1,rsiReady=!Number.isFinite(rsi)?momentumReady:(side==='BUY'?rsi>=48:side==='SELL'?rsi<=52:false),entryReady=active||status==='CANDIDATE';
    const checks=[['15m Trend',trendReady],['5m Momentum',momentumReady],['RSI',rsiReady],['Entry Zone',entryReady]],done=checks.filter(x=>x[1]).length;
    const progress=active?100:collecting?Math.min(15,Math.max(1,Math.round((Number(raw?.sampleCount)||0)/120*15))):Math.round(done/checks.length*100);
-   const conf=Math.max(0,Math.min(100,Number(raw?.signalConfidence??raw?.confidence)||0)),min=Math.max(0,Number(raw?.minConfidence)||70);
+   const conf=Math.max(0,Math.min(100,Number(raw?.signalConfidence??raw?.confidence)||0)),min=Math.max(0,Number(raw?.minConfidence)||82);
    set('goldSetupProgress',progress+'%');set('goldSetupSteps',checks.map(x=>x[0]+' '+(x[1]?'✓':'—')).join(' • '));set('goldMissingCondition',missing(raw,conf,min));
    set('goldConfidence',active?'التأكيد '+Math.round(conf)+'%':(conf>0?'درجة الإعداد '+Math.round(conf)+'% • المطلوب '+Math.round(min)+'%':'لم يبدأ حساب الثقة بعد'));
    const lot=raw?.lotSizing||{};set('goldLotSize',Number(lot.recommendedLot)>0?Number(lot.recommendedLot).toFixed(2)+' lot':'—');set('goldLotRisk',Number.isFinite(Number(lot.actualRiskUsd))?'Risk USD '+Number(lot.actualRiskUsd).toFixed(2)+' • SL '+Number(lot.stopDistance||0).toFixed(2):'يظهر بعد اعتماد SL');

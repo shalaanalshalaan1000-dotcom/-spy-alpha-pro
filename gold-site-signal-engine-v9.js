@@ -12,7 +12,7 @@ const replacements = [
   ],
   [
     "const MIN_CONFIDENCE=Number(process.env.MIN_CONFIDENCE||72);",
-    "const MIN_CONFIDENCE=Math.max(70,Math.min(90,Number(process.env.MIN_CONFIDENCE||72)));"
+    "const MIN_CONFIDENCE=Math.max(82,Math.min(90,Number(process.env.MIN_CONFIDENCE||82)));"
   ],
   [
     "const REQUIRE_1M_CONFIRM=String(process.env.GOLD_REQUIRE_1M_CONFIRM||'true').toLowerCase()!=='false';",
