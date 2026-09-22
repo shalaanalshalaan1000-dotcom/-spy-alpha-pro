@@ -7,6 +7,10 @@ let source = fs.readFileSync(sourceUrl, 'utf8');
 
 const replacements = [
   [
+    "const CONFIRM_ON_5M_CLOSE=String(process.env.TELEGRAM_CONFIRM_ON_5M_CLOSE||'true').toLowerCase()!=='false';",
+    "const CONFIRM_ON_5M_CLOSE=false;"
+  ],
+  [
     "const FIVE_MIN_MS=300_000;",
     "const FIVE_MIN_MS=300_000;\nconst MIN_CONFIDENCE=Math.max(0,Number(process.env.GOLD_TELEGRAM_MIN_CONFIDENCE||process.env.TELEGRAM_MIN_CONFIDENCE||75));\nconst MIN_LIVE_RR=Math.max(1.20,Number(process.env.GOLD_TELEGRAM_MIN_RR||1.30));"
   ],
@@ -16,11 +20,11 @@ const replacements = [
   ],
   [
     "if(side==='BUY'?p<=sl:p>=sl)return false;",
-    "if(CONFIRM_ON_5M_CLOSE&&!fiveMinuteCloseConfirmed(s,now))return false;\n  const entryLow=num(s?.entryLow)??entry,entryHigh=num(s?.entryHigh)??entry;\n  if(!valid(entryLow)||!valid(entryHigh)||p<Math.min(entryLow,entryHigh)||p>Math.max(entryLow,entryHigh))return false;\n  if(tp1AlreadyGone(s,side,p,t[0]))return false;\n  const liveRisk=side==='BUY'?p-sl:sl-p,liveReward=side==='BUY'?t[0]-p:p-t[0];\n  if(!(liveRisk>0)||!(liveReward>0)||liveReward/liveRisk<MIN_LIVE_RR)return false;\n  if(side==='BUY'?p<=sl:p>=sl)return false;"
+    "if(CONFIRM_ON_5M_CLOSE&&!fiveMinuteCloseConfirmed(s,now))return false;\n  if(tp1AlreadyGone(s,side,p,t[0]))return false;\n  const liveRisk=side==='BUY'?p-sl:sl-p,liveReward=side==='BUY'?t[0]-p:p-t[0];\n  if(!(liveRisk>0)||!(liveReward>0)||liveReward/liveRisk<MIN_LIVE_RR)return false;\n  if(side==='BUY'?p<=sl:p>=sl)return false;"
   ],
   [
     "console.log(`[telegram-xau-confirmed] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} one-active-trade lock; site-mirror=on; confidence-filter=off; TP/SL lifecycle alerts=on`);",
-    "console.log(`[telegram-xau-confirmed] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} one-active-trade lock; site-mirror=on; confidence>=${MIN_CONFIDENCE}%; 5m-close=${CONFIRM_ON_5M_CLOSE?'required':'off'}; live-entry-range guard=on; min-live-RR=${MIN_LIVE_RR}; TP1-chase guard=on; TP/SL lifecycle alerts=on`);"
+    "console.log(`[telegram-xau-confirmed] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} one-active-trade lock; site-mirror=on; confidence>=${MIN_CONFIDENCE}%; 5m-close=engine-confirmed; live-entry-range guard=engine-owned; min-live-RR=${MIN_LIVE_RR}; TP1-chase guard=on; TP/SL lifecycle alerts=on`);"
   ]
 ];
 
