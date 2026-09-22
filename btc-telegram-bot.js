@@ -81,23 +81,27 @@ function startTracking(signal, key, announcedAtMs = Date.now()) {
     side: signal.action,
     announcedAtMs,
     entry: Number(signal.entry),
+    originalStopLoss: Number(signal.stopLoss),
     stopLoss: Number(signal.stopLoss),
+    managementStage: 0,
     targets: [signal.target1, signal.target2, signal.target3, signal.target4].map(Number),
     sentTargets: [false, false, false, false]
   };
 }
 
-function tpHitMessage(index, target, livePrice) {
+function tpHitMessage(index, target, livePrice, newStop = null) {
   return `✅ BTCUSD — TP${index + 1} HIT / تم ضرب الهدف ${index + 1}\n` +
     `🎯 TP${index + 1}: ${n(target)}\n` +
-    `💵 BTC: ${n(livePrice)}`;
+    `💵 BTC: ${n(livePrice)}\n` +
+    (validNumber(newStop) ? `🔒 ارفع وقف الخسارة إلى: ${n(newStop)}` : '');
 }
 
 function stopHitMessage(trade) {
-  return `🔴 BTCUSD — SL HIT / تم ضرب وقف الخسارة\n` +
+  const managed = Number(trade.managementStage || 0) > 0;
+  return `${managed ? '🟢 BTCUSD — MANAGED STOP / وقف حماية' : '🔴 BTCUSD — SL HIT / تم ضرب وقف الخسارة'}\n` +
     `الاتجاه: ${trade.side}\n📍 الدخول: ${n(trade.entry)}\n` +
-    `🛑 SL: ${n(trade.stopLoss)}\n💵 BTC عند الرصد: ${n(trade.stopHitPrice)}\n` +
-    'انتهت متابعة الصفقة — لا تُحتسب أهداف لاحقة لها.';
+    `🛑 SL الحالي: ${n(trade.stopLoss)}${managed ? ` • بعد TP${trade.managementStage}` : ''}\n💵 BTC عند الرصد: ${n(trade.stopHitPrice)}\n` +
+    (managed ? 'انتهت الصفقة على وقف مُدار بعد تحقيق هدف سابق.' : 'انتهت متابعة الصفقة — لا تُحتسب أهداف لاحقة لها.');
 }
 
 async function sendTrackedTargetHits(signal, send = telegram) {
@@ -123,13 +127,15 @@ async function sendTrackedTargetHits(signal, send = telegram) {
   for (let i = 0; i < trackedTrade.targets.length; i++) {
     const target = trackedTrade.targets[i];
     if (!trackedTrade.sentTargets[i] && reached(trackedTrade.side, livePrice, target)) {
+      trackedTrade.sentTargets[i] = true;
+      trackedTrade.managementStage = Math.max(trackedTrade.managementStage || 0, i + 1);
+      trackedTrade.stopLoss = Number(target);
       await send('sendMessage', {
         chat_id: CHAT_ID,
-        text: tpHitMessage(i, target, livePrice),
+        text: tpHitMessage(i, target, livePrice, trackedTrade.stopLoss),
         disable_web_page_preview: true
       });
-      trackedTrade.sentTargets[i] = true;
-      console.log(`[btc-telegram] TP${i + 1} hit key=${trackedTrade.key} target=${n(target)} live=${n(livePrice)}`);
+      console.log(`[btc-telegram] TP${i + 1} hit key=${trackedTrade.key} target=${n(target)} live=${n(livePrice)} managedSL=${n(trackedTrade.stopLoss)}`);
     }
   }
 
