@@ -12,19 +12,19 @@ const replacements = [
   ],
   [
     "const MIN_CONFIDENCE=Number(process.env.MIN_CONFIDENCE||72);",
-    "const MIN_CONFIDENCE=Math.max(80,Math.min(90,Number(process.env.MIN_CONFIDENCE||80)));"
+    "const MIN_CONFIDENCE=Math.max(70,Math.min(90,Number(process.env.MIN_CONFIDENCE||72)));"
   ],
   [
     "const BASE_MIN_TP1_R=Math.max(.9,Number(process.env.GOLD_MIN_LIVE_TP1_R||1.20));",
-    "const BASE_MIN_TP1_R=Math.max(1.25,Math.min(1.60,Number(process.env.GOLD_MIN_LIVE_TP1_R||1.30)));\nconst MAX_DAILY_SIGNALS=Math.max(1,Math.min(20,Number(process.env.GOLD_MAX_DAILY_SIGNALS||20)));\nconst POST_TRADE_COOLDOWN_MS=Math.max(300000,Number(process.env.GOLD_POST_TRADE_COOLDOWN_MS||300000));\nconst M5_ENTRY_WINDOW_MS=Math.max(60000,Math.min(120000,Number(process.env.GOLD_M5_ENTRY_WINDOW_MS||90000)));"
+    "const BASE_MIN_TP1_R=Math.max(1.10,Math.min(1.60,Number(process.env.GOLD_MIN_LIVE_TP1_R||1.50)));\nconst MAX_DAILY_SIGNALS=Math.max(1,Math.min(20,Number(process.env.GOLD_MAX_DAILY_SIGNALS||20)));\nconst POST_TRADE_COOLDOWN_MS=Math.max(300000,Number(process.env.GOLD_POST_TRADE_COOLDOWN_MS||300000));\nconst M5_ENTRY_WINDOW_MS=Math.max(60000,Math.min(180000,Number(process.env.GOLD_M5_ENTRY_WINDOW_MS||150000)));"
   ],
   [
     "const SL_COOLDOWN_MS=Math.max(120000,Number(process.env.GOLD_SL_COOLDOWN_MS||300000));",
-    "const SL_COOLDOWN_MS=Math.max(900000,Number(process.env.GOLD_SL_COOLDOWN_MS||900000));"
+    "const SL_COOLDOWN_MS=Math.max(300000,Number(process.env.GOLD_SL_COOLDOWN_MS||300000));"
   ],
   [
     "const BUILD='site-signal-noai-v19-trade-management';",
-    "const BUILD='site-signal-noai-v32-ict-topdown-liquidity';"
+    "const BUILD='site-signal-noai-v33-ict-balanced-entry';"
   ],
   [
     "const state={samples:[],signal:null,lastTerminal:null,trades:[],cooldownUntil:0,sameSideBlockUntil:0,lastLossSide:null,quote:null,lastError:null,ws:null,wsConnected:false,lastTvAt:0,lastLpAt:0,loggedQuote:false,loggedLp:false,lastEntryGuard:null};",
@@ -131,7 +131,7 @@ for (const [from, to] of replacements) {
 
   source=source.replace("if(risk>policy.maxRisk)return{ok:false,reason:'STOP_TOO_WIDE_FOR_VOLATILITY',risk,reward,rr,policy};","");
 
-  const m5Anchor="const M5_ENTRY_WINDOW_MS=Math.max(60000,Math.min(120000,Number(process.env.GOLD_M5_ENTRY_WINDOW_MS||90000)));";
+  const m5Anchor="const M5_ENTRY_WINDOW_MS=Math.max(60000,Math.min(180000,Number(process.env.GOLD_M5_ENTRY_WINDOW_MS||150000)));";
   if(!source.includes(m5Anchor))throw new Error('ICT patch: config anchor missing');
   source=source.replace(m5Anchor,m5Anchor+"\nconst XAU_CONTRACT_SIZE=Math.max(1,Number(process.env.XAU_CONTRACT_SIZE||100));\nconst XAU_LOT_STEP=Math.max(.001,Number(process.env.XAU_LOT_STEP||.01));\nconst XAU_ACCOUNT_BALANCE_USD=Math.max(1,Number(process.env.XAU_ACCOUNT_BALANCE_USD||155));\nconst XAU_SAFE_RISK_USD=Math.max(1,Number(process.env.XAU_SAFE_RISK_USD||5));\nconst XAU_MAX_RISK_USD=Math.max(XAU_SAFE_RISK_USD,Number(process.env.XAU_MAX_RISK_USD||10));");
 
@@ -142,7 +142,7 @@ for (const [from, to] of replacements) {
   source=source.slice(0,dayAt)+lotFn+source.slice(dayAt);
 
   const oldTargets="const policyForTargets=volatilityPolicy(now),liveRisk=Math.abs(p-sl),direction=side==='BUY'?1:-1;\n const tp1=round(p+direction*Math.max(1.75,liveRisk*1.35,(policyForTargets.atr1||1)*1.80),3);\n const tp2=round(p+direction*Math.max(3.50,liveRisk*2.00,(policyForTargets.atr1||1)*3.00),3);\n const tp3=round(p+direction*Math.max(5.50,liveRisk*2.80,(policyForTargets.atr1||1)*4.50),3);\n const tp4=round(p+direction*Math.max(8.50,liveRisk*3.80,(policyForTargets.atr1||1)*6.50),3);";
-  const newTargets="const tp1=n(m.target1),tp2=n(m.target2),tp3=n(m.target3),tp4=n(m.target4),liquidityRisk=Math.abs(p-sl),liquidityReward=side==='BUY'?tp1-p:p-tp1,liquidityRR=liquidityRisk>0?liquidityReward/liquidityRisk:0;\n if(tp1==null||!(liquidityReward>0)||liquidityRR<2){state.lastEntryGuard={atMs:now,reason:'ICT_MAIN_TARGET_BELOW_2R',side,price:round(p,3),stop:round(sl,3),target1:round(tp1,3),liveRR:round(liquidityRR,2)};return;}\n const lotSizing=goldLotSizing(p,sl);\n if(!lotSizing.allowed){state.lastEntryGuard={atMs:now,reason:'ICT_MIN_LOT_EXCEEDS_MAX_RISK',side,price:round(p,3),stop:round(sl,3),lotSizing};return;}";
+  const newTargets="const tp1=n(m.target1),tp2=n(m.target2),tp3=n(m.target3),tp4=n(m.target4),liquidityRisk=Math.abs(p-sl),liquidityReward=side==='BUY'?tp1-p:p-tp1,liquidityRR=liquidityRisk>0?liquidityReward/liquidityRisk:0;\n if(tp1==null||!(liquidityReward>0)||liquidityRR<1.5){state.lastEntryGuard={atMs:now,reason:'ICT_MAIN_TARGET_BELOW_1_5R',side,price:round(p,3),stop:round(sl,3),target1:round(tp1,3),liveRR:round(liquidityRR,2)};return;}\n const lotSizing=goldLotSizing(p,sl);\n if(!lotSizing.allowed){state.lastEntryGuard={atMs:now,reason:'ICT_MIN_LOT_EXCEEDS_MAX_RISK',side,price:round(p,3),stop:round(sl,3),lotSizing};return;}";
   if(!source.includes(oldTargets))throw new Error('ICT patch: target generator anchor missing');
   source=source.replace(oldTargets,newTargets);
 
