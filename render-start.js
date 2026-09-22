@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 
 const PORT = Number(process.env.PORT || 10000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_SITE_INNER_PORT || 3200);
-const BUILD = 'gold-alpha-btc-addon-v1';
+const BUILD = 'gold-alpha-btc-williams-v2';
 let stopping = false;
 
 const child = spawn(process.execPath, ['site-indicator-start.js'], {
@@ -106,70 +106,122 @@ function atr(candles, period = 14) {
 
 const round = (value, digits = 2) => Number.isFinite(Number(value)) ? Number(Number(value).toFixed(digits)) : null;
 
-function buildBtcSignal(one, five, ticker) {
-  const price = Number(ticker?.price ?? one.at(-1)?.close);
-  if (!Number.isFinite(price) || one.length < 40 || five.length < 60) throw new Error('BTC history incomplete');
-
-  const closes5 = five.map(c => c.close);
-  const e20 = ema(closes5, 20), e50 = ema(closes5, 50), rsi5 = rsi(closes5, 14);
-  const last = five.at(-1);
-  const previous5 = five.slice(-9, -1);
-  const recentHigh = Math.max(...previous5.map(c => c.high));
-  const recentLow = Math.min(...previous5.map(c => c.low));
-  const previous1 = one.slice(-8, -1);
-  const oneHigh = Math.max(...previous1.map(c => c.high));
-  const oneLow = Math.min(...previous1.map(c => c.low));
-
-  const trendUp = Number.isFinite(e20) && Number.isFinite(e50) && e20 > e50;
-  const trendDown = Number.isFinite(e20) && Number.isFinite(e50) && e20 < e50;
-  const sweepLow = last.low < recentLow && last.close > recentLow;
-  const sweepHigh = last.high > recentHigh && last.close < recentHigh;
-  const mssBull = one.at(-1).close > oneHigh;
-  const mssBear = one.at(-1).close < oneLow;
-
-  const continuationBuy = trendUp && last.close > recentHigh && (rsi5 ?? 50) >= 52;
-  const continuationSell = trendDown && last.close < recentLow && (rsi5 ?? 50) <= 48;
-  const reversalBuy = sweepLow && mssBull && (rsi5 ?? 50) >= 45;
-  const reversalSell = sweepHigh && mssBear && (rsi5 ?? 50) <= 55;
-
-  let side = null, strategy = 'WAIT', confidence = 0;
-  if (reversalBuy && !reversalSell) {
-    side = 'BUY'; strategy = 'ICT REVERSAL'; confidence = 70 + (trendUp ? 8 : 0) + ((rsi5 ?? 0) > 50 ? 5 : 0) + 7;
-  } else if (reversalSell && !reversalBuy) {
-    side = 'SELL'; strategy = 'ICT REVERSAL'; confidence = 70 + (trendDown ? 8 : 0) + ((rsi5 ?? 100) < 50 ? 5 : 0) + 7;
-  } else if (continuationBuy && !continuationSell) {
-    side = 'BUY'; strategy = 'TREND CONTINUATION'; confidence = 70 + ((rsi5 ?? 0) >= 55 ? 8 : 4) + (mssBull ? 7 : 0) + 8;
-  } else if (continuationSell && !continuationBuy) {
-    side = 'SELL'; strategy = 'TREND CONTINUATION'; confidence = 70 + ((rsi5 ?? 100) <= 45 ? 8 : 4) + (mssBear ? 7 : 0) + 8;
+function btcWilliamsR(candles,period=14){
+  const xs=candles.slice(-period);if(xs.length<3)return -50;
+  const hh=Math.max(...xs.map(c=>c.high)),ll=Math.min(...xs.map(c=>c.low)),close=xs.at(-1).close;
+  return hh>ll?-100*(hh-close)/(hh-ll):-50;
+}
+function btcSlope(values=[]){return values.length>1?(values.at(-1)-values[0])/Math.max(1,values.length-1):0;}
+function btcStructure(candles=[]){
+  const xs=candles.slice(-8);let score=0;
+  for(let i=1;i<xs.length;i++){
+    if(xs[i].high>xs[i-1].high&&xs[i].low>=xs[i-1].low)score++;
+    if(xs[i].low<xs[i-1].low&&xs[i].high<=xs[i-1].high)score--;
   }
-  confidence = Math.min(92, Math.max(0, confidence));
+  return score;
+}
+function btcTrend15(fifteen,price){
+  const xs=fifteen.slice(-24),closes=xs.map(c=>c.close);
+  const fast=ema(closes,5),slow=ema(closes,10),a15=atr(xs,10)||price*.003,sl=btcSlope(closes.slice(-6)),structure=btcStructure(xs);
+  const up=Number.isFinite(fast)&&Number.isFinite(slow)&&fast>slow&&sl>0&&structure>=0&&price>=fast-a15*.20;
+  const down=Number.isFinite(fast)&&Number.isFinite(slow)&&fast<slow&&sl<0&&structure<=0&&price<=fast+a15*.20;
+  const side=up&&!down?'BUY':down&&!up?'SELL':null;
+  const separation=side?Math.abs(fast-slow)/Math.max(a15,.01):0;
+  return{side,strength:side?Math.min(22,Math.round(8+separation*10+Math.abs(structure)*1.5)):0,emaFast:round(fast,2),emaSlow:round(slow,2),atr15:round(a15,2),structure,slope:round(sl,2)};
+}
+function btcVolatilityExplosion(five,side){
+  const xs=five.slice(-12);if(xs.length<8)return{ready:false,ratio:0,breakLevel:null,bodyShare:0};
+  const current=xs.at(-1),prior=xs.slice(-7,-1),trs=[];
+  for(let i=0;i<prior.length;i++){const p=prior[i-1]?.close??xs.at(-8)?.close;trs.push(Math.max(prior[i].high-prior[i].low,Math.abs(prior[i].high-p),Math.abs(prior[i].low-p)));}
+  const base=trs.reduce((a,b)=>a+b,0)/Math.max(1,trs.length);
+  const prev=xs.at(-2)?.close,currentTR=Math.max(current.high-current.low,Math.abs(current.high-prev),Math.abs(current.low-prev));
+  const ratio=currentTR/Math.max(base,.01),range=Math.max(.01,current.high-current.low),bodyShare=Math.abs(current.close-current.open)/range;
+  const priorHigh=Math.max(...prior.map(c=>c.high)),priorLow=Math.min(...prior.map(c=>c.low));
+  const directional=side==='BUY'?current.close>current.open:current.close<current.open;
+  const breakout=side==='BUY'?current.close>priorHigh:current.close<priorLow;
+  return{ready:ratio>=1.15&&bodyShare>=.48&&directional&&breakout,ratio:round(ratio,2),breakLevel:round(side==='BUY'?priorHigh:priorLow,2),bodyShare:round(bodyShare,2)};
+}
+function btcTiming1m(one,side){
+  const xs=one.slice(-10),wpr=btcWilliamsR(xs,7),structure=btcStructure(xs),impulse=btcSlope(xs.slice(-4).map(c=>c.close));
+  const ready=side==='BUY'?(wpr>-72&&structure>=0&&impulse>=0):(wpr<-28&&structure<=0&&impulse<=0);
+  return{ready,williamsR:round(wpr,1),structure,impulse:round(impulse,2)};
+}
+function btcSwingLevels(candles,side,price){
+  const xs=candles.slice(-48),out=[];
+  for(let i=2;i<xs.length-2;i++){
+    const c=xs[i];
+    if(side==='BUY'&&c.high>=xs[i-1].high&&c.high>=xs[i-2].high&&c.high>xs[i+1].high&&c.high>=xs[i+2].high&&c.high>price)out.push(c.high);
+    if(side==='SELL'&&c.low<=xs[i-1].low&&c.low<=xs[i-2].low&&c.low<xs[i+1].low&&c.low<=xs[i+2].low&&c.low<price)out.push(c.low);
+  }
+  return [...new Set(out.map(v=>round(v,2)))].sort((a,b)=>side==='BUY'?a-b:b-a);
+}
+function btcSnapTarget(raw,levels,side,a5){
+  const tol=Math.max(25,a5*.45),near=levels.filter(v=>Math.abs(v-raw)<=tol);
+  if(!near.length)return raw;
+  return near.sort((a,b)=>Math.abs(a-raw)-Math.abs(b-raw))[0];
+}
+function buildBtcSignal(one,five,fifteen,ticker){
+  const price=Number(ticker?.price??one.at(-1)?.close);
+  if(!Number.isFinite(price)||one.length<40||five.length<60||fifteen.length<24)throw new Error('BTC history incomplete');
 
-  const a5 = atr(five, 14) || price * 0.003;
-  const risk = Math.max(a5 * 0.85, price * 0.0015);
-  const direction = side === 'BUY' ? 1 : side === 'SELL' ? -1 : 0;
-  const active = Boolean(side && confidence >= 70);
-  const entry = active ? price : null;
-  const stopLoss = active ? price - direction * risk : null;
+  const trend=btcTrend15(fifteen,price);
+  if(!trend.side){
+    return{symbol:'BTCUSD',source:'COINBASE_SPOT',status:'WAIT',action:'WAIT',side:null,strategy:'LARRY_WILLIAMS_WAIT',confidence:52,minConfidence:82,executable:false,executionMode:'SIGNALS_ONLY',timeframe:'15m trend / 5m volatility / 1m timing',price:round(price,2),entry:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,trend:'NEUTRAL',williams:{trend},reason:'WAIT: no clear 15m trend in Larry Williams framework.',updatedAt:new Date().toISOString()};
+  }
 
-  const reason = active
-    ? `${strategy}: ${side} confirmed with 5m structure + 1m timing; RSI5=${round(rsi5, 1)}; signals only, no automatic execution.`
-    : `WAIT: no complete 70%+ BTC setup; trend=${trendUp ? 'UP' : trendDown ? 'DOWN' : 'NEUTRAL'}, RSI5=${round(rsi5, 1)}.`;
+  const side=trend.side,explosion=btcVolatilityExplosion(five,side),timing=btcTiming1m(one,side),a5=atr(five,14)||price*.003,wpr5=btcWilliamsR(five,14),structure5=btcStructure(five);
+  let confidence=58+trend.strength;
+  if(explosion.ratio>=1.15)confidence+=6;
+  if(explosion.ready)confidence+=9;
+  if(timing.ready)confidence+=5;
+  if(side==='BUY'&&wpr5>-80&&wpr5<-5)confidence+=3;
+  if(side==='SELL'&&wpr5<-20&&wpr5>-95)confidence+=3;
+  if(side==='BUY'&&structure5>=2)confidence+=3;
+  if(side==='SELL'&&structure5<=-2)confidence+=3;
+  confidence=Math.min(94,Math.max(0,Math.round(confidence)));
 
-  return {
-    symbol: 'BTCUSD', source: 'COINBASE_SPOT', status: active ? 'ACTIVE' : 'WAIT',
-    action: active ? side : 'WAIT', side: active ? side : null, strategy,
-    confidence: round(confidence, 0), minConfidence: 70, executable: false,
-    executionMode: 'SIGNALS_ONLY', timeframe: '5m setup / 1m timing', price: round(price, 2),
-    entry: round(entry, 2), stopLoss: round(stopLoss, 2),
-    target1: round(active ? price + direction * risk * 1.1 : null, 2),
-    target2: round(active ? price + direction * risk * 1.8 : null, 2),
-    target3: round(active ? price + direction * risk * 2.7 : null, 2),
-    target4: round(active ? price + direction * risk * 3.8 : null, 2),
-    rsi5: round(rsi5, 1), trend: trendUp ? 'BULLISH' : trendDown ? 'BEARISH' : 'NEUTRAL',
-    reason, updatedAt: new Date().toISOString()
+  const williams={trend,volatilityExpansion:explosion,timing,williamsR5:round(wpr5,1),atr5:round(a5,2),structure5m:structure5};
+  if(!explosion.ready){
+    return{symbol:'BTCUSD',source:'COINBASE_SPOT',status:'WAIT',action:'WAIT',side:null,strategy:'LARRY_WILLIAMS_WAIT',confidence,minConfidence:82,executable:false,executionMode:'SIGNALS_ONLY',timeframe:'15m trend / 5m volatility / 1m timing',price:round(price,2),entry:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,trend:side==='BUY'?'BULLISH':'BEARISH',williams,reason:'WAIT: 15m trend exists, but no confirmed 5m volatility breakout.',updatedAt:new Date().toISOString()};
+  }
+
+  const breakLevel=Number(explosion.breakLevel),chase=Math.abs(price-breakLevel),maxChase=Math.max(35,a5*.65);
+  if(chase>maxChase){
+    return{symbol:'BTCUSD',source:'COINBASE_SPOT',status:'WAIT',action:'WAIT',side:null,strategy:'LARRY_WILLIAMS_NO_CHASE',confidence,minConfidence:82,executable:false,executionMode:'SIGNALS_ONLY',timeframe:'15m trend / 5m volatility / 1m timing',price:round(price,2),entry:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,trend:side==='BUY'?'BULLISH':'BEARISH',williams,reason:'NO CHASE: breakout moved too far from the Williams entry level.',updatedAt:new Date().toISOString()};
+  }
+
+  const recent5=five.slice(-7),swing=side==='BUY'?Math.min(...recent5.map(c=>c.low)):Math.max(...recent5.map(c=>c.high)),buffer=Math.max(18,a5*.18);
+  let stop=side==='BUY'?swing-buffer:swing+buffer;
+  const minRisk=Math.max(30,a5*.35),maxRisk=Math.max(160,a5*2.2);
+  let risk=Math.abs(price-stop);
+  if(risk<minRisk)stop=side==='BUY'?price-minRisk:price+minRisk;
+  risk=Math.abs(price-stop);
+  if(risk>maxRisk){
+    return{symbol:'BTCUSD',source:'COINBASE_SPOT',status:'WAIT',action:'WAIT',side:null,strategy:'LARRY_WILLIAMS_RISK_GUARD',confidence,minConfidence:82,executable:false,executionMode:'SIGNALS_ONLY',timeframe:'15m trend / 5m volatility / 1m timing',price:round(price,2),entry:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,trend:side==='BUY'?'BULLISH':'BEARISH',williams,reason:'WAIT: structural BTC stop is too wide for this setup.',updatedAt:new Date().toISOString()};
+  }
+
+  const direction=side==='BUY'?1:-1,levels=btcSwingLevels(fifteen.concat(five),side,price);
+  const raw=[price+direction*Math.max(risk*1.2,a5*.95),price+direction*Math.max(risk*2,a5*1.65),price+direction*Math.max(risk*3,a5*2.45),price+direction*Math.max(risk*4,a5*3.3)];
+  const targets=[];let prev=price;
+  for(const x of raw){
+    let t=btcSnapTarget(x,levels,side,a5),step=Math.max(20,a5*.18);
+    if(side==='BUY'&&t<=prev+step)t=x>prev+step?x:prev+step;
+    if(side==='SELL'&&t>=prev-step)t=x<prev-step?x:prev-step;
+    t=round(t,2);targets.push(t);prev=t;
+  }
+
+  const active=confidence>=82,entry=active?breakLevel:null;
+  return{
+    symbol:'BTCUSD',source:'COINBASE_SPOT',status:active?'ACTIVE':'WAIT',action:active?side:'WAIT',side:active?side:null,
+    strategy:'LARRY_WILLIAMS_VOLATILITY_BREAKOUT',confidence,minConfidence:82,executable:false,executionMode:'SIGNALS_ONLY',
+    timeframe:'15m trend / 5m volatility breakout / 1m + Williams %R timing',price:round(price,2),entry:round(entry,2),
+    stopLoss:round(active?stop:null,2),target1:round(active?targets[0]:null,2),target2:round(active?targets[1]:null,2),target3:round(active?targets[2]:null,2),target4:round(active?targets[3]:null,2),
+    riskReward:active?round(Math.abs(targets[3]-price)/risk,2):null,trend:side==='BUY'?'BULLISH':'BEARISH',williams,
+    targetLabels:['Williams 1.2R / structure','Williams 2R / structure','Williams 3R / structure','Williams 4R / expansion'],
+    reason:active?`LARRY WILLIAMS CONFIRMED: 15m trend + 5m volatility breakout + Williams %R timing; expansion ${explosion.ratio}x; %R ${round(wpr5,1)}.`:`WAIT: Williams setup score ${confidence}% is below 82%.`,
+    updatedAt:new Date().toISOString()
   };
 }
-
 async function getBtcSignal() {
   const now = Date.now();
   if (btcCache.value && btcCache.expiresAt > now) return btcCache.value;
