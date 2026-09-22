@@ -79,7 +79,7 @@ function activeSession(now){
   return'OFF_KILLZONE';
 }
 function latestFvg(bars,side){
-  const x=bars.slice(-10);
+  const x=bars.slice(-18);
   for(let i=x.length-1;i>=2;i--){
     const a=x[i-2],c=x[i];
     if(side==='BUY'&&c.low>a.high)return{low:a.high,high:c.low,mid:(a.high+c.low)/2,t:c.t,type:'BULL_FVG'};
@@ -106,7 +106,7 @@ function displacementAndMss(bars,side,atr5){
   const x=bars.slice(-8),last=x.at(-1); if(x.length<5||!last)return{displacement:false,mss:false};
   const body=Math.abs(last.close-last.open),range=Math.max(.0001,last.high-last.low),prior=x.slice(-5,-1);
   const priorHigh=hi(prior),priorLow=lo(prior);
-  const displacement=body>=Math.max((atr5||1)*.55,.55)&&(side==='BUY'?last.close>=last.low+range*.72:last.close<=last.high-range*.72);
+  const displacement=body>=Math.max((atr5||1)*.45,.45)&&(side==='BUY'?last.close>=last.low+range*.72:last.close<=last.high-range*.72);
   const mss=side==='BUY'?last.close>priorHigh:last.close<priorLow;
   return{displacement,mss,body:round(body),priorHigh:round(priorHigh),priorLow:round(priorLow)};
 }
@@ -136,7 +136,7 @@ function targetPlan(side,entry,stop,levels,h1,h4){
   const risk=Math.abs(entry-stop); if(!(risk>0))return null;
   const candidates=dedupePools(pools,side,entry);
   if(!candidates.length)return null;
-  const mainIndex=candidates.findIndex(x=>Math.abs(x.price-entry)/risk>=2);
+  const mainIndex=candidates.findIndex(x=>Math.abs(x.price-entry)/risk>=1.5);
   if(mainIndex<0)return null;
   const picked=candidates.slice(mainIndex,mainIndex+4);
   const rr=Math.abs(picked[0].price-entry)/risk;
@@ -165,13 +165,13 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const trendSign=side==='BUY'?1:-1;
   const oneMinuteConfirmed=oneMinuteConfirm(m1,side);
   const htfAligned=dir4===trendSign&&dir1===trendSign&&dir15===trendSign;
-  const reversal=Boolean(!offSession&&sweep&&(dm.displacement||dm.mss)&&fvg);
-  const regularContinuation=Boolean(!sweep&&dir15===trendSign&&dm.displacement&&fvg&&locationOk);
-  const offSessionContinuation=Boolean(!sweep&&offSession&&htfAligned&&dm.displacement&&dm.mss&&fvg&&oneMinuteConfirmed);
+  const reversal=Boolean(sweep&&(dm.displacement||dm.mss)&&fvg&&(!offSession||oneMinuteConfirmed));
+  const regularContinuation=Boolean(!sweep&&dir15===trendSign&&dm.displacement&&fvg&&(locationOk||htfAligned));
+  const offSessionContinuation=Boolean(!sweep&&offSession&&htfAligned&&dm.displacement&&fvg&&(dm.mss||oneMinuteConfirmed));
   const continuation=offSession?offSessionContinuation:regularContinuation;
   if(!reversal&&!continuation){
     const waitReason=offSession
-      ? 'ICT WAIT: off-killzone continuation requires aligned 4H/1H/15m + displacement + MSS + FVG + 1m confirmation'
+      ? 'ICT WAIT: off-killzone setup requires HTF alignment + displacement + FVG + MSS or 1m confirmation'
       : 'ICT WAIT: no complete liquidity sweep/displacement/FVG setup';
     return{...base,status:'WAIT',candidateAction:'WAIT',confidence:0,contextBias:bias,oneMinuteConfirmed,ict:{biasScore,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),sweep,displacement:dm.displacement,mss:dm.mss,fvg,offSession,htfAligned},reason:waitReason};
   }
@@ -186,7 +186,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   if(!(risk>=.50))return{...base,status:'WAIT',candidateAction:'WAIT',contextBias:bias,ict:{biasScore,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),sweep,fvg},reason:'ICT WAIT: structural invalidation is too close to entry'};
 
   const plan=targetPlan(side,entry,stop,levels,h1,h4);
-  if(!plan)return{...base,status:'WAIT',candidateAction:'WAIT',contextBias:bias,oneMinuteConfirmed,ict:{biasScore,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),sweep,fvg,offSession,htfAligned},reason:'ICT WAIT: no opposing liquidity target offers at least 2R'};
+  if(!plan)return{...base,status:'WAIT',candidateAction:'WAIT',contextBias:bias,oneMinuteConfirmed,ict:{biasScore,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),sweep,fvg,offSession,htfAligned},reason:'ICT WAIT: no opposing liquidity target offers at least 1.5R'};
   let confidence=54;
   if(dir4===(side==='BUY'?1:-1))confidence+=10;
   if(dir1===(side==='BUY'?1:-1))confidence+=8;
