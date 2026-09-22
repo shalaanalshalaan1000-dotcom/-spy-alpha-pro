@@ -7,20 +7,22 @@ function barsFromSamples(samples = [], timeframeMinutes = 1) {
   const buckets = new Map();
   for (const sample of samples) {
     const time = Number(sample?.t);
-    const price = Number(sample?.p ?? sample?.price);
-    if (!Number.isFinite(time) || !Number.isFinite(price) || price <= 0) continue;
+    const close = Number(sample?.close ?? sample?.p ?? sample?.price);
+    if (!Number.isFinite(time) || !Number.isFinite(close) || close <= 0) continue;
+    const open = Number.isFinite(Number(sample?.open)) ? Number(sample.open) : close;
+    const high = Number.isFinite(Number(sample?.high)) ? Number(sample.high) : close;
+    const low = Number.isFinite(Number(sample?.low)) ? Number(sample.low) : close;
     const key = Math.floor(time / span) * span;
     const bar = buckets.get(key);
-    if (!bar) buckets.set(key, {t:key, open:price, high:price, low:price, close:price});
+    if (!bar) buckets.set(key, {t:key, open, high, low, close});
     else {
-      bar.high = Math.max(bar.high, price);
-      bar.low = Math.min(bar.low, price);
-      bar.close = price;
+      bar.high = Math.max(bar.high, high);
+      bar.low = Math.min(bar.low, low);
+      bar.close = close;
     }
   }
   return [...buckets.values()].sort((a, b) => a.t - b.t);
 }
-
 export function bars1m(samples = []) { return barsFromSamples(samples, 1); }
 export function bars5m(samples = []) { return barsFromSamples(samples, 5); }
 export function bars15m(samples = []) { return barsFromSamples(samples, 15); }
@@ -170,6 +172,94 @@ function predictiveRead({closed1, usable5, closed15, price, atr5, contextBias}) 
   };
 }
 
+function trueRangeAverageWilliams(bars = [], period = 14, fallback = 1) {
+  const recent = bars.slice(-(period + 1));
+  if (!recent.length) return fallback;
+  const ranges = recent.map((bar, i) => {
+    const prevClose = i > 0 ? recent[i - 1].close : bar.open;
+    return Math.max(bar.high - bar.low, Math.abs(bar.high - prevClose), Math.abs(bar.low - prevClose));
+  }).slice(-period);
+  return Math.max(.01, ranges.length ? ranges.reduce((a,b)=>a+b,0)/ranges.length : fallback);
+}
+
+function williamsRValue(bars = [], period = 14) {
+  const recent = bars.slice(-period);
+  if (recent.length < 2) return -50;
+  const highest = Math.max(...recent.map(b=>b.high));
+  const lowest = Math.min(...recent.map(b=>b.low));
+  if (!(highest > lowest)) return -50;
+  return ((highest - recent.at(-1).close) / (highest - lowest)) * -100;
+}
+
+function sessionProfileWilliams(now = Date.now()) {
+  const hour = new Date(now).getUTCHours();
+  if (hour >= 12 && hour < 17) return {name:'NEW_YORK',boost:3};
+  if (hour >= 7 && hour < 12) return {name:'LONDON',boost:2};
+  if (hour >= 0 && hour < 7) return {name:'ASIA',boost:0};
+  return {name:'AFTER_HOURS',boost:0};
+}
+
+function trendContextWilliams(closed15 = [], price) {
+  const recent = closed15.slice(-12);
+  const atr15 = trueRangeAverageWilliams(recent,10,Math.max(1,price*.0003));
+  if (recent.length < 4) return {bias:'NEUTRAL',strength:0,atr15,structure:0,normalizedSlope:0};
+  const closes = recent.map(b=>b.close);
+  const s = slope(closes.slice(-8));
+  const normalizedSlope = s / Math.max(.01,atr15);
+  const structure = structureScore(recent);
+  const high = Math.max(...recent.map(b=>b.high));
+  const low = Math.min(...recent.map(b=>b.low));
+  const position = high>low ? (price-low)/(high-low) : .5;
+  let bull=0,bear=0;
+  if(normalizedSlope>.035)bull+=4;
+  if(normalizedSlope<-.035)bear+=4;
+  if(structure>=2)bull+=Math.min(5,structure);
+  if(structure<=-2)bear+=Math.min(5,-structure);
+  if(position>=.58)bull+=3;
+  if(position<=.42)bear+=3;
+  if(closes.at(-1)>closes.at(-4))bull+=2;
+  if(closes.at(-1)<closes.at(-4))bear+=2;
+  const diff=bull-bear;
+  return {bias:diff>=3?'BUY':diff<=-3?'SELL':'NEUTRAL',strength:Math.min(14,Math.abs(diff)),atr15,structure,normalizedSlope:round(normalizedSlope,3),rangeHigh:round(high),rangeLow:round(low),rangePosition:round(position,2)};
+}
+
+function oneMinuteImpulseWilliams(closed1 = [], side) {
+  const recent=closed1.slice(-5);
+  if(recent.length<3)return{aligned:false,move:0};
+  const move=recent.at(-1).close-recent[0].open;
+  const up=recent.filter(b=>b.close>b.open).length,down=recent.filter(b=>b.close<b.open).length;
+  return{aligned:side==='BUY'?move>0&&up>=3:move<0&&down>=3,move:round(move,3)};
+}
+
+function directionalLevelsWilliams(side,entry,closed5=[],closed15=[],tolerance=.35){
+  const raw=[];
+  for(const b of [...closed5.slice(-36),...closed15.slice(-20)])raw.push(side==='BUY'?b.high:b.low);
+  const vals=raw.filter(v=>Number.isFinite(v)&&(side==='BUY'?v>entry:v<entry)).sort((a,b)=>side==='BUY'?a-b:b-a);
+  const out=[];
+  for(const v of vals)if(!out.length||Math.abs(v-out.at(-1))>=tolerance)out.push(v);
+  return out;
+}
+
+function buildTargetsWilliams(side,entry,stop,atr5,atr15,closed5,closed15,expansionRatio){
+  const risk=Math.max(.01,Math.abs(entry-stop)),dir=side==='BUY'?1:-1,expansion=Math.max(.75,Math.min(1.75,Number(expansionRatio)||1));
+  const floors=[
+    Math.max(1.25,risk*.95,atr5*(.72+expansion*.08)),
+    Math.max(2.25,risk*1.55,atr5*(1.30+expansion*.12)),
+    Math.max(3.75,risk*2.25,atr5*(2.00+expansion*.15)),
+    Math.max(5.50,risk*3.15,atr5*(2.90+expansion*.20))
+  ];
+  for(let i=1;i<floors.length;i++)floors[i]=Math.max(floors[i],floors[i-1]+Math.max(.75,atr5*.35));
+  const levels=directionalLevelsWilliams(side,entry,closed5,closed15,Math.max(.25,atr5*.12)),rewards=[],labels=[];
+  let previous=0;
+  floors.forEach((floor,index)=>{
+    const minReward=Math.max(floor,previous+Math.max(.50,atr5*.20)),maxExtra=index<2?atr15*.65:atr15*1.15;
+    const structural=levels.find(level=>{const reward=Math.abs(level-entry);return reward>=minReward&&reward<=minReward+maxExtra;});
+    const reward=structural?Math.abs(structural-entry):minReward;
+    rewards.push(reward);labels.push(structural?'مستوى سعري + تمدد تقلب':'تمدد تقلب محسوب');previous=reward;
+  });
+  return{targets:rewards.map(r=>round(entry+dir*r,3)),labels,finalR:round(rewards.at(-1)/risk,2)};
+}
+
 function normalizeSampleClock(samples = [], now = Date.now()) {
   const valid = samples.filter(s => Number.isFinite(Number(s?.t)) && Number.isFinite(Number(s?.p ?? s?.price)));
   if (!valid.length) return samples;
@@ -183,151 +273,33 @@ function normalizeSampleClock(samples = [], now = Date.now()) {
 }
 
 export function analyzeGoldSignal(samples, rawPrice, now = Date.now()) {
-  const price = Number(rawPrice);
-  const alignedSamples = normalizeSampleClock(samples, now);
-  const all1 = bars1m(alignedSamples);
-  const all5 = bars5m(alignedSamples);
-  const all15 = bars15m(alignedSamples);
-  const closed1 = closedBars(all1, 1, now);
-  const closed5 = closedBars(all5, 5, now);
-  const closed15 = closedBars(all15, 15, now);
-
-  const current5Key = Math.floor(now / 300_000) * 300_000;
-  const completed5 = all5.filter(bar => bar.t < current5Key);
-  const usable5 = closed5.length ? closed5 : completed5;
-  const ready5 = usable5.length >= 1;
-  const ready1 = closed1.length >= 2;
-  const ready = ready5 && ready1;
-  const completeness5 = Math.min(1, usable5.length);
-  const completeness1 = Math.min(1, closed1.length / 2);
-  const completeness = Math.round(Math.min(completeness5, completeness1) * 100);
-
-  const base = {
-    status: ready ? 'WAIT' : 'COLLECTING',
-    action:'WAIT', candidateAction:'WAIT', side:null,
-    strategy:'READING', confidence:0, readingCompleteness:completeness,
-    barCount:closed1.length, barCount5m:usable5.length, barCount15m:closed15.length,
-    historyWindow:{m1:Math.min(30,closed1.length),m5:Math.min(18,usable5.length),m15:Math.min(12,closed15.length)},
-    modelTimeframes:{context:'15m predictive', execution:'5m predictive', confirmation:'1m predictive'},
-    sampleCount:alignedSamples.length, price:round(price),
-    entry:null, entryLow:null, entryHigh:null, stopLoss:null,
-    target1:null,target2:null,target3:null,target4:null,riskReward:null,
-    contextBias:'NEUTRAL', prediction:null,
-    reason: !ready5
-      ? `جمع شمعة M5 الحقيقية: ${usable5.length}/1`
-      : !ready1
-        ? `جمع تأكيد M1 السريع: ${closed1.length}/2`
-        : 'القراءة مكتملة — يتم تقدير الحركة التالية من الشموع السابقة',
-    updatedAt:new Date(now).toISOString()
-  };
-
-  if (!Number.isFinite(price) || price <= 0 || !ready) return base;
-
-  const ctx = context15m(closed15, price);
-  const contextBias = ctx.bias;
-  const contextStrength = ctx.strength;
-  const recent5 = usable5.slice(-18);
-  const atr5 = Math.max(.01, averageRange(recent5.slice(-8), Math.max(.75, price * .00018)));
-  const reference = recent5.slice(-Math.min(5,recent5.length));
-  const hi3 = Math.max(...reference.slice(-3).map(bar => bar.high));
-  const lo3 = Math.min(...reference.slice(-3).map(bar => bar.low));
-  const execCloses = recent5.map(bar => bar.close);
-  const rsi5 = rsi(execCloses, 14);
-  const execBias = execCloses.at(-1) - execCloses[0];
-  const liveFromExec = price - execCloses[0];
-  const prediction = predictiveRead({closed1,usable5,closed15,price,atr5,contextBias});
-
-  let side = null;
-  let strategy = null;
-  let confidence = 0;
-  let stop = null;
-  let entryBase = null;
-  let structureAt = null;
-
-  const breakoutUp = price >= hi3 - atr5 * .12 && liveFromExec > atr5 * .30 && execBias >= -atr5 * .35;
-  const breakoutDown = price <= lo3 + atr5 * .12 && liveFromExec < -atr5 * .30 && execBias <= atr5 * .35;
-  if (breakoutUp && contextBias !== 'SELL') {
-    side = 'BUY'; strategy = 'TREND_MOMENTUM'; confidence = 60 + contextStrength + Math.min(12, Math.round(Math.abs(liveFromExec) / Math.max(atr5, .01) * 5));
-    stop = Math.min(...reference.map(bar => bar.low)) - .25; entryBase = Math.min(price,hi3); structureAt = reference.at(-1)?.t ?? current5Key;
-  } else if (breakoutDown && contextBias !== 'BUY') {
-    side = 'SELL'; strategy = 'TREND_MOMENTUM'; confidence = 60 + contextStrength + Math.min(12, Math.round(Math.abs(liveFromExec) / Math.max(atr5, .01) * 5));
-    stop = Math.max(...reference.map(bar => bar.high)) + .25; entryBase = Math.max(price,lo3); structureAt = reference.at(-1)?.t ?? current5Key;
-  }
-
-  if (!side && recent5.length >= 4) {
-    for (let index = Math.max(3, recent5.length - 4); index < recent5.length; index += 1) {
-      const prior = recent5.slice(Math.max(0, index - 3), index);
-      const sweep = recent5[index];
-      if (prior.length < 3) continue;
-      const priorHigh = Math.max(...prior.map(bar => bar.high));
-      const priorLow = Math.min(...prior.map(bar => bar.low));
-      const bullBreak = Math.max(...prior.slice(-2).map(bar => bar.high));
-      const bearBreak = Math.min(...prior.slice(-2).map(bar => bar.low));
-      const bullSweep = sweep.low < priorLow && sweep.close >= priorLow - atr5 * .08;
-      const bearSweep = sweep.high > priorHigh && sweep.close <= priorHigh + atr5 * .08;
-      const bullMss = bullSweep && price >= bullBreak - atr5 * .12;
-      const bearMss = bearSweep && price <= bearBreak + atr5 * .12;
-      if (bullMss && contextBias !== 'SELL') { side='BUY'; strategy='SWEEP_REVERSAL'; confidence=64+contextStrength; stop=sweep.low-.25; entryBase=Math.min(price,bullBreak); structureAt=sweep.t; break; }
-      if (bearMss && contextBias !== 'BUY') { side='SELL'; strategy='SWEEP_REVERSAL'; confidence=64+contextStrength; stop=sweep.high+.25; entryBase=Math.max(price,bearBreak); structureAt=sweep.t; break; }
-    }
-  }
-
-  if (!side && prediction.side && prediction.confidence >= 60) {
-    side = prediction.side;
-    strategy = 'MOMENTUM_CONTINUATION';
-    confidence = prediction.confidence;
-    entryBase = price;
-    const local = closed1.slice(-10);
-    const localLow = local.length ? Math.min(...local.map(b => b.low)) : Math.min(...reference.map(b => b.low));
-    const localHigh = local.length ? Math.max(...local.map(b => b.high)) : Math.max(...reference.map(b => b.high));
-    stop = side === 'BUY'
-      ? Math.max(price - Math.max(.7,atr5*.7), localLow - .20)
-      : Math.min(price + Math.max(.7,atr5*.7), localHigh + .20);
-    structureAt = closed1.at(-1)?.t ?? reference.at(-1)?.t ?? current5Key;
-  }
-
-  if (!side && Math.abs(liveFromExec) >= atr5 * .22) {
-    const fallback = liveFromExec > 0 ? 'BUY' : 'SELL';
-    if ((fallback === 'BUY' && contextBias !== 'SELL') || (fallback === 'SELL' && contextBias !== 'BUY') || contextBias === 'NEUTRAL') {
-      side=fallback; strategy='MOMENTUM_CONTINUATION';
-      confidence=58 + contextStrength + Math.min(8,Math.round(Math.abs(liveFromExec)/Math.max(atr5,.01)*4));
-      entryBase=price;
-      stop=side==='BUY' ? Math.min(...reference.map(bar=>bar.low))-.25 : Math.max(...reference.map(bar=>bar.high))+.25;
-      structureAt=reference.at(-1)?.t ?? current5Key;
-    }
-  }
-
-  if (!side) {
-    return {...base,status:'WAIT',confidence:prediction.confidence,contextBias,prediction,
-      reason:`توقع الشمعة القادمة غير حاسم — BUY ${prediction.buyScore} / SELL ${prediction.sellScore}`};
-  }
-
-  const confirm1 = oneMinuteConfirmation(closed1, side, price);
-  confidence = Math.min(92, confidence + confirm1.score);
-  const chaseDistance = Math.abs(price - entryBase);
-  const maxChase = Math.max(2.0, atr5 * .90);
-  if (chaseDistance > maxChase) return {...base,status:'WAIT',candidateAction:'WAIT',confidence,strategy,contextBias,prediction,reason:'NO CHASE: السعر ابتعد كثيرًا عن منطقة الدخول'};
-
-  const risk = Math.abs(entryBase - stop), maxStopUsd = 5;
-  if (risk < .35 || risk > maxStopUsd) return {...base,status:'WAIT',candidateAction:side,confidence,strategy,contextBias,prediction,reason:risk<.35?'وقف الخسارة قريب جدًا':`وقف الخسارة أوسع من ${maxStopUsd}$`};
-
-  const direction = side === 'BUY' ? 1 : -1;
-  const halfBase = confirm1.aligned ? atr5 * .22 : atr5 * .30;
-  const half = Math.min(1.35, Math.max(.40, halfBase));
-  // Fast-scalp ladder: secure the first objectives sooner while preserving a positive final R multiple.
-  const distance1 = Math.max(1.00, risk * .90);
-  const distance2 = Math.max(1.75, risk * 1.40);
-  const distance3 = Math.max(2.75, risk * 2.00);
-  const distance4 = Math.max(4.00, risk * 2.80);
-  const setupId = [side,strategy,structureAt,contextBias,round(entryBase),round(stop)].join('|');
-  const predictive = strategy==='MOMENTUM_CONTINUATION' && prediction.side===side && prediction.confidence>=60;
-  const momentum={rsi5:round(rsi5,1),scoreGap:prediction.scoreGap,structure1m:prediction.structure1m,structure5m:prediction.structure5m,pressure1m:prediction.pressure1m,pressure5m:prediction.pressure5m,expansion:prediction.expansion,contextBias};
-  return {...base,status:'CANDIDATE',candidateAction:side,side,strategy,confidence,contextBias,oneMinuteConfirmed:confirm1.aligned,setupId,structureAt,prediction,momentum,
-    entry:round(entryBase),entryLow:round(entryBase-half),entryHigh:round(entryBase+half),stopLoss:round(stop),
-    target1:round(entryBase+direction*distance1),target2:round(entryBase+direction*distance2),target3:round(entryBase+direction*distance3),target4:round(entryBase+direction*distance4),riskReward:round(distance4/risk,2),
-    reason:predictive
-      ? `توقع مبكر ${side} من 30×1m + 18×5m + 12×15m${confirm1.aligned?' + تأكيد 1m':''}`
-      : strategy==='SWEEP_REVERSAL'
-        ? `انعكاس سعري بعد sweep على 5m${confirm1.aligned?' + تأكيد 1m':''}`
-        : `Trend/Momentum 5m${confirm1.aligned?' + تأكيد 1m':''}`};
+  const price=Number(rawPrice),alignedSamples=normalizeSampleClock(samples,now);
+  const all1=bars1m(alignedSamples),all5=bars5m(alignedSamples),all15=bars15m(alignedSamples);
+  const closed1=closedBars(all1,1,now),closed5=closedBars(all5,5,now),closed15=closedBars(all15,15,now);
+  const current5Key=Math.floor(now/300_000)*300_000,current5=all5.find(b=>b.t===current5Key)||{t:current5Key,open:price,high:price,low:price,close:price};
+  const ready=closed1.length>=8&&closed5.length>=8&&closed15.length>=4,completeness=Math.min(100,Math.round(Math.min(closed1.length/8,closed5.length/8,closed15.length/4)*100));
+  const base={status:ready?'WAIT':'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'LARRY_WILLIAMS_FRAMEWORK',confidence:0,readingCompleteness:completeness,barCount:closed1.length,barCount5m:closed5.length,barCount15m:closed15.length,historyWindow:{m1:Math.min(30,closed1.length),m5:Math.min(36,closed5.length),m15:Math.min(20,closed15.length)},modelTimeframes:{context:'15m trend',execution:'5m volatility breakout',confirmation:'1m timing + Williams %R'},sampleCount:alignedSamples.length,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,contextBias:'NEUTRAL',prediction:null,momentum:null,reason:ready?'Williams framework scanning trend + volatility expansion + timing':`جمع بيانات Williams: 1m ${closed1.length}/8 • 5m ${closed5.length}/8 • 15m ${closed15.length}/4`,updatedAt:new Date(now).toISOString()};
+  if(!Number.isFinite(price)||price<=0||!ready)return base;
+  const ctx=trendContextWilliams(closed15,price),recent5=closed5.slice(-20),recent1=closed1.slice(-30),atr5=trueRangeAverageWilliams(recent5,14,Math.max(.8,price*.0002)),atr15=ctx.atr15;
+  const lastRange=Math.max(.01,recent5.at(-1).high-recent5.at(-1).low),baselineRange=Math.max(.01,averageRange(recent5.slice(-8),atr5)),liveMove=price-current5.open,expansionRatio=Math.abs(liveMove)/baselineRange;
+  const ref=recent5.slice(-5),breakoutHigh=Math.max(...ref.map(b=>b.high)),breakoutLow=Math.min(...ref.map(b=>b.low)),triggerDistance=Math.max(atr5*.42,lastRange*.38),upTrigger=current5.open+triggerDistance,downTrigger=current5.open-triggerDistance;
+  const wr5=williamsRValue(recent5,14),wr5Prev=williamsRValue(recent5.slice(0,-1),14),struct5=structureScore(recent5),session=sessionProfileWilliams(now);
+  const breakoutUp=price>=Math.max(breakoutHigh+atr5*.03,upTrigger)&&ctx.bias!=='SELL',breakoutDown=price<=Math.min(breakoutLow-atr5*.03,downTrigger)&&ctx.bias!=='BUY';
+  const wrBull=wr5>-55&&wr5>=wr5Prev,wrBear=wr5<-45&&wr5<=wr5Prev,wrCrossBull=wr5Prev<=-50&&wr5>-50,wrCrossBear=wr5Prev>=-50&&wr5<-50;
+  const trendResumeBuy=ctx.bias==='BUY'&&struct5>=1&&wrCrossBull&&price>=current5.open,trendResumeSell=ctx.bias==='SELL'&&struct5<=-1&&wrCrossBear&&price<=current5.open;
+  let side=null,strategy=null,entryBase=null;
+  if(breakoutUp&&wrBull){side='BUY';strategy='WILLIAMS_VOLATILITY_BREAKOUT';entryBase=Math.max(breakoutHigh,upTrigger);}
+  else if(breakoutDown&&wrBear){side='SELL';strategy='WILLIAMS_VOLATILITY_BREAKOUT';entryBase=Math.min(breakoutLow,downTrigger);}
+  else if(trendResumeBuy){side='BUY';strategy='WILLIAMS_TREND_RESUMPTION';entryBase=Math.max(current5.open,recent5.at(-1).close);}
+  else if(trendResumeSell){side='SELL';strategy='WILLIAMS_TREND_RESUMPTION';entryBase=Math.min(current5.open,recent5.at(-1).close);}
+  const directionalEdge=round((ctx.bias==='BUY'?ctx.strength:ctx.bias==='SELL'?-ctx.strength:0)+struct5+(wr5+50)/10+Math.sign(liveMove)*Math.min(8,expansionRatio*4),1);
+  const prediction={side,directionalEdge,williamsR5:round(wr5,1),williamsRPrev5:round(wr5Prev,1),volatilityExpansion:round(expansionRatio,2),atr5:round(atr5,3),atr15:round(atr15,3),structure5m:struct5,session:session.name};
+  if(!side)return{...base,contextBias:ctx.bias,prediction,momentum:prediction,confidence:Math.min(78,55+ctx.strength+Math.min(8,Math.round(expansionRatio*4))),reason:`Williams WAIT — 15m ${ctx.bias}; %R ${round(wr5,1)}; expansion ${round(expansionRatio,2)}×; no confirmed volatility breakout/resumption`};
+  const oneM=oneMinuteImpulseWilliams(recent1,side);let score=52;score+=Math.min(14,5+ctx.strength);score+=strategy==='WILLIAMS_VOLATILITY_BREAKOUT'?Math.min(14,5+Math.round(expansionRatio*6)):6;score+=side==='BUY'?(wrBull?8:0):(wrBear?8:0);if(side==='BUY'?wrCrossBull:wrCrossBear)score+=4;score+=Math.min(6,Math.abs(struct5));if(oneM.aligned)score+=4;score+=session.boost;const confidence=Math.min(94,Math.round(score));
+  const chaseDistance=Math.abs(price-entryBase),maxChase=Math.max(1.25,atr5*.62);
+  if(chaseDistance>maxChase)return{...base,status:'WAIT',candidateAction:'WAIT',side:null,strategy,confidence,contextBias:ctx.bias,prediction,momentum:prediction,reason:`NO CHASE — Williams entry passed by ${round(chaseDistance,2)}; max ${round(maxChase,2)}. Waiting for a new setup.`};
+  const buffer=Math.max(.30,atr5*.12),swingWindow=recent5.slice(-4);let stop=side==='BUY'?Math.min(...swingWindow.map(b=>b.low))-buffer:Math.max(...swingWindow.map(b=>b.high))+buffer;const minimumStop=Math.max(.55,atr5*.38);if(side==='BUY'&&entryBase-stop<minimumStop)stop=entryBase-minimumStop;if(side==='SELL'&&stop-entryBase<minimumStop)stop=entryBase+minimumStop;const risk=Math.abs(entryBase-stop);
+  if(!(risk>.44))return{...base,status:'WAIT',candidateAction:side,confidence,strategy,contextBias:ctx.bias,prediction,momentum:prediction,reason:'Williams setup rejected: structural stop too tight'};
+  const targetPlan=buildTargetsWilliams(side,entryBase,stop,atr5,atr15,closed5,closed15,expansionRatio),half=Math.max(.20,Math.min(1.00,atr5*.18,risk*.35)),[t1,t2,t3,t4]=targetPlan.targets,setupId=[side,strategy,round(entryBase),round(stop),round(breakoutHigh),round(breakoutLow),round(wr5,1)].join('|'),momentum={...prediction,oneMinuteAligned:oneM.aligned,liveMove:round(liveMove,3),current5Open:round(current5.open,3),breakoutHigh:round(breakoutHigh,3),breakoutLow:round(breakoutLow,3)};
+  return{...base,status:'CANDIDATE',candidateAction:side,side,strategy,confidence,contextBias:ctx.bias,oneMinuteConfirmed:oneM.aligned,setupId,prediction,momentum,entry:round(entryBase,3),entryLow:round(entryBase-half,3),entryHigh:round(entryBase+half,3),stopLoss:round(stop,3),target1:t1,target2:t2,target3:t3,target4:t4,targetLabels:targetPlan.labels,riskReward:targetPlan.finalR,reason:`Larry Williams ${strategy==='WILLIAMS_VOLATILITY_BREAKOUT'?'volatility breakout':'trend resumption'} — 15m ${ctx.bias}; %R ${round(wr5,1)}; expansion ${round(expansionRatio,2)}×; setup score ${confidence}`};
 }
