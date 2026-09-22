@@ -8,7 +8,7 @@ services:
       - key: MASSIVE_API_KEY
         sync: false
       - key: MIN_CONFIDENCE
-        value: "72"
+        value: "82"
       - key: GOLD_MAX_DAILY_SIGNALS
         value: "10"
       - key: GOLD_REQUIRE_NEWS_FEED
@@ -48,9 +48,9 @@ services:
       - key: TELEGRAM_CHAT_ID
         sync: false
       - key: TELEGRAM_MIN_CONFIDENCE
-        value: "72"
+        value: "82"
       - key: GOLD_TELEGRAM_MIN_CONFIDENCE
-        value: "72"
+        value: "82"
       - key: GOLD_TELEGRAM_MIN_RR
         value: "1.50"
       - key: TELEGRAM_CONFIRM_ON_5M_CLOSE
@@ -84,9 +84,9 @@ services:
       - key: BTC_MAX_RISK_USD
         value: "10"
       - key: TELEGRAM_EARLY_MIN_CONFIDENCE
-        value: "72"
+        value: "82"
       - key: TELEGRAM_CANDIDATE_MIN_CONFIDENCE
-        value: "72"
+        value: "82"
       - key: TELEGRAM_MIN_RR
         value: "1.50"
       - key: MAX_TELEGRAM_SIGNALS_PER_DAY
