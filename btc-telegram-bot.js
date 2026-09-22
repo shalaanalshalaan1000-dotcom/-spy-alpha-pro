@@ -2,7 +2,7 @@ const SIGNAL_URL = String(process.env.BTC_TELEGRAM_SIGNAL_URL || 'https://spy-al
 const BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
 const CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || '').trim();
 const POLL_MS = Math.max(5000, Number(process.env.BTC_TELEGRAM_POLL_MS || 5000));
-const MIN_CONFIDENCE = Math.max(70, Number(process.env.BTC_TELEGRAM_MIN_CONFIDENCE || 70));
+const MIN_CONFIDENCE = Math.max(82, Number(process.env.BTC_TELEGRAM_MIN_CONFIDENCE || 82));
 const BTC_ACCOUNT_BALANCE_USD = Math.max(1, Number(process.env.BTC_ACCOUNT_BALANCE_USD || 155));
 const BTC_CONTRACT_SIZE = Math.max(0.000001, Number(process.env.EXNESS_BTC_CONTRACT_SIZE || 1));
 const BTC_LOT_STEP = Math.max(0.001, Number(process.env.EXNESS_BTC_LOT_STEP || 0.01));
@@ -155,17 +155,22 @@ async function telegram(method, body) {
 
 function message(signal) {
   const icon = signal.action === 'BUY' ? '🟢' : '🔴';
-  const strategy = signal.strategy || 'BTC SETUP';
+  const strategy = signal.strategy || 'LARRY_WILLIAMS';
   const trend = signal.trend || '—';
+  const w = signal.williams || {};
+  const expansion = Number(w?.volatilityExpansion?.ratio);
+  const wr = Number(w?.williamsR5);
   const stamp = new Intl.DateTimeFormat('ar-SA', {
     timeZone: 'Asia/Riyadh', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
   }).format(new Date());
 
   const sizing = lotSizingLines(signal.entry, signal.stopLoss);
-  return `${icon} BTCUSD — CONFIRMED ${signal.action}\n` +
+  return `${icon} BTCUSD — LARRY WILLIAMS CONFIRMED ${signal.action}\n` +
     `🧠 Strategy: ${strategy}\n` +
-    `📊 Confidence: ${Math.round(Number(signal.confidence) || 0)}%\n` +
-    `📈 Trend: ${trend}\n` +
+    `📊 Setup score: ${Math.round(Number(signal.confidence) || 0)}%\n` +
+    `📈 15m Trend: ${trend}\n` +
+    `⚡ 5m Volatility expansion: ${Number.isFinite(expansion) ? expansion.toFixed(2)+'×' : '—'}\n` +
+    `📉 Williams %R: ${Number.isFinite(wr) ? wr.toFixed(1) : '—'}\n` +
     `💵 Price: ${n(signal.price)}\n` +
     `📍 Entry: ${n(signal.entry)}\n` +
     `🛑 SL: ${n(signal.stopLoss)}\n` +
@@ -174,7 +179,7 @@ function message(signal) {
     `🎯 TP3: ${n(signal.target3)}\n` +
     `🎯 TP4: ${n(signal.target4)}\n\n` +
     `${sizing.join('\\n')}\n` +
-    `⏱️ 5m setup / 1m timing\n` +
+    `⏱️ 15m trend / 5m volatility breakout / 1m + %R timing\n` +
     `🕒 ${stamp} بتوقيت السعودية\n` +
     `⚪ إشارات فقط — لا تداول آلي`;
 }
