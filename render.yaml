@@ -66,7 +66,7 @@ services:
       - key: GOLD_M5_ENTRY_WINDOW_MS
         value: "150000"
       - key: XAU_ACCOUNT_BALANCE_USD
-        value: "155"
+        value: "178"
       - key: XAU_SAFE_RISK_USD
         value: "5"
       - key: XAU_MAX_RISK_USD
@@ -76,7 +76,7 @@ services:
       - key: XAU_LOT_STEP
         value: "0.01"
       - key: BTC_ACCOUNT_BALANCE_USD
-        value: "155"
+        value: "178"
       - key: EXNESS_BTC_CONTRACT_SIZE
         value: "1"
       - key: EXNESS_BTC_LOT_STEP
