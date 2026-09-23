@@ -12,7 +12,7 @@ const replacements = [
   ],
   [
     "const MIN_CONFIDENCE=Number(process.env.MIN_CONFIDENCE||72);",
-    "const MIN_CONFIDENCE=Math.max(82,Math.min(90,Number(process.env.MIN_CONFIDENCE||82)));"
+    "const MIN_CONFIDENCE=82;"
   ],
   [
     "const REQUIRE_1M_CONFIRM=String(process.env.GOLD_REQUIRE_1M_CONFIRM||'true').toLowerCase()!=='false';",
@@ -20,7 +20,7 @@ const replacements = [
   ],
   [
     "const BASE_MIN_TP1_R=Math.max(.9,Number(process.env.GOLD_MIN_LIVE_TP1_R||1.20));",
-    "const BASE_MIN_TP1_R=Math.max(.65,Math.min(.90,Number(process.env.GOLD_MIN_LIVE_TP1_R||.90)));\nconst MAX_DAILY_SIGNALS=Math.max(1,Math.min(20,Number(process.env.GOLD_MAX_DAILY_SIGNALS||20)));\nconst POST_TRADE_COOLDOWN_MS=Math.max(300000,Number(process.env.GOLD_POST_TRADE_COOLDOWN_MS||300000));\nconst M5_ENTRY_WINDOW_MS=Math.max(60000,Math.min(180000,Number(process.env.GOLD_M5_ENTRY_WINDOW_MS||150000)));"
+    "const BASE_MIN_TP1_R=Math.max(.65,Math.min(.90,Number(process.env.GOLD_MIN_LIVE_TP1_R||.90)));\nconst MAX_DAILY_SIGNALS=Math.max(1,Math.min(20,Number(process.env.GOLD_MAX_DAILY_SIGNALS||20)));\nconst POST_TRADE_COOLDOWN_MS=Math.max(60000,Math.min(180000,Number(process.env.GOLD_POST_TRADE_COOLDOWN_MS||60000)));\nconst M5_ENTRY_WINDOW_MS=Math.max(60000,Math.min(180000,Number(process.env.GOLD_M5_ENTRY_WINDOW_MS||150000)));"
   ],
   [
     "const SL_COOLDOWN_MS=Math.max(120000,Number(process.env.GOLD_SL_COOLDOWN_MS||300000));",
@@ -28,7 +28,7 @@ const replacements = [
   ],
   [
     "const BUILD='site-signal-noai-v19-trade-management';",
-    "const BUILD='site-signal-noai-v39-zone-scenario';"
+    "const BUILD='site-signal-noai-v40-zone-scenario-gates';"
   ],
   [
     "const state={samples:[],signal:null,lastTerminal:null,trades:[],cooldownUntil:0,sameSideBlockUntil:0,lastLossSide:null,quote:null,lastError:null,ws:null,wsConnected:false,lastTvAt:0,lastLpAt:0,loggedQuote:false,loggedLp:false,lastEntryGuard:null};",
