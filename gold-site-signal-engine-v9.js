@@ -8,7 +8,7 @@ let source = fs.readFileSync(sourceUrl, 'utf8');
 const replacements = [
   [
     "import { analyzeGoldSignal } from './gold-signal-model.js';",
-    "import { analyzeGoldSignal } from './gold-murphy-model.js';\nimport { getGoldNewsRisk } from './gold-news-risk.js';"
+    "import { analyzeGoldSignal } from './gold-scenario-model.js';\nimport { getGoldNewsRisk } from './gold-news-risk.js';"
   ],
   [
     "const MIN_CONFIDENCE=Number(process.env.MIN_CONFIDENCE||72);",
@@ -28,7 +28,7 @@ const replacements = [
   ],
   [
     "const BUILD='site-signal-noai-v19-trade-management';",
-    "const BUILD='site-signal-noai-v38-murphy';"
+    "const BUILD='site-signal-noai-v39-zone-scenario';"
   ],
   [
     "const state={samples:[],signal:null,lastTerminal:null,trades:[],cooldownUntil:0,sameSideBlockUntil:0,lastLossSide:null,quote:null,lastError:null,ws:null,wsConnected:false,lastTvAt:0,lastLpAt:0,loggedQuote:false,loggedLp:false,lastEntryGuard:null};",
@@ -64,7 +64,7 @@ const replacements = [
   ],
   [
     "source:'GOLD_ALPHA_SITE',executionMode:'SIGNAL_ONLY_TELEGRAM',executable:false,entered:true,triggered:true,triggerPrice:p,priceProvider:q.provider,lockedTargets:true,",
-    "source:'GOLD_ALPHA_SITE',executionMode:'SIGNAL_ONLY_TELEGRAM',executable:false,entered:true,triggered:true,triggerPrice:p,priceProvider:q.provider,lockedTargets:true,tradeStyle:'MURPHY_TECHNICAL_ANALYSIS',maxDailySignals:MAX_DAILY_SIGNALS,dailySignalNumber:state.dailySignalCount+1,newsRiskAtEntry:state.lastNewsRisk,"
+    "source:'GOLD_ALPHA_SITE',executionMode:'SIGNAL_ONLY_TELEGRAM',executable:false,entered:true,triggered:true,triggerPrice:p,priceProvider:q.provider,lockedTargets:true,tradeStyle:'ZONE_SCENARIO_STRUCTURE',maxDailySignals:MAX_DAILY_SIGNALS,dailySignalNumber:state.dailySignalCount+1,newsRiskAtEntry:state.lastNewsRisk,"
   ],
   [
     "reason:`CONFIRMED BY SITE ENGINE ON FRESH ${q.provider} PRICE — 1m confirm + volatility guard passed (${round(viability.rr,2)}R to TP1, risk ${round(viability.risk,2)}$, ATR1 ${viability.policy.atr1}$); managed stop active; Telegram only, AI off`",
@@ -84,7 +84,7 @@ const replacements = [
   ],
   [
     "signalConfidence:Number(state.signal?.confidence??model.confidence??0),minConfidence:MIN_CONFIDENCE,volatilityPolicy:policy,",
-    "signalConfidence:Number(state.signal?.confidence??model.confidence??0),minConfidence:MIN_CONFIDENCE,dailySignalCount:state.dailySignalCount,maxDailySignals:MAX_DAILY_SIGNALS,tradeStyle:'MURPHY_TECHNICAL_ANALYSIS',newsRisk,volatilityPolicy:policy,"
+    "signalConfidence:Number(state.signal?.confidence??model.confidence??0),minConfidence:MIN_CONFIDENCE,dailySignalCount:state.dailySignalCount,maxDailySignals:MAX_DAILY_SIGNALS,tradeStyle:'ZONE_SCENARIO_STRUCTURE',newsRisk,volatilityPolicy:policy,"
   ],
   [
     "if(state.lastEntryGuard?.atMs===now)return{...base,status:'WAIT',action:'WAIT',candidateAction:'WAIT',reason:`ENTRY_GUARD: ${state.lastEntryGuard.reason} — no Telegram entry sent`};",
@@ -130,7 +130,7 @@ for (const [from, to] of replacements) {
 
   const stopStart=source.indexOf("function structuralStop("),stopEnd=source.indexOf("\nfunction maybeCreate",stopStart);
   if(stopStart<0||stopEnd<0)throw new Error('Murphy patch: structuralStop anchor missing');
-  const stopFn="function structuralStop(side,entry,modelStop,now=Date.now()){const policy=volatilityPolicy(now),stop=n(modelStop);if(stop==null||!Number.isFinite(entry))return{ok:false,reason:'INVALID_MOMENTUM_STOP',policy};if(side==='BUY'&&stop>=entry)return{ok:false,reason:'INVALID_MOMENTUM_STOP_SIDE',policy};if(side==='SELL'&&stop<=entry)return{ok:false,reason:'INVALID_MOMENTUM_STOP_SIDE',policy};const risk=Math.abs(entry-stop);if(risk<.45)return{ok:false,reason:'MOMENTUM_STOP_TOO_TIGHT',stop:round(stop,3),risk:round(risk,3),policy};return{ok:true,stop:round(stop,3),risk:round(risk,3),swing:null,buffer:0,minDistance:0,policy,source:'MURPHY_MODEL'};}";
+  const stopFn="function structuralStop(side,entry,modelStop,now=Date.now()){const policy=volatilityPolicy(now),stop=n(modelStop);if(stop==null||!Number.isFinite(entry))return{ok:false,reason:'INVALID_MOMENTUM_STOP',policy};if(side==='BUY'&&stop>=entry)return{ok:false,reason:'INVALID_MOMENTUM_STOP_SIDE',policy};if(side==='SELL'&&stop<=entry)return{ok:false,reason:'INVALID_MOMENTUM_STOP_SIDE',policy};const risk=Math.abs(entry-stop);if(risk<.45)return{ok:false,reason:'MOMENTUM_STOP_TOO_TIGHT',stop:round(stop,3),risk:round(risk,3),policy};return{ok:true,stop:round(stop,3),risk:round(risk,3),swing:null,buffer:0,minDistance:0,policy,source:'ZONE_SCENARIO_MODEL'};}";
   source=source.slice(0,stopStart)+stopFn+source.slice(stopEnd);
 
   source=source.replace("if(risk>policy.maxRisk)return{ok:false,reason:'STOP_TOO_WIDE_FOR_VOLATILITY',risk,reward,rr,policy};","");
@@ -150,7 +150,7 @@ for (const [from, to] of replacements) {
   if(!source.includes(oldTargets))throw new Error('Murphy patch: target generator anchor missing');
   source=source.replace(oldTargets,newTargets);
 
-  source=source.replace("originalStopLoss:sl,stopLoss:sl,managedStopLoss:sl,structuralStopPlan:stopPlan,target1:tp1,target2:tp2,target3:tp3,target4:tp4,","originalStopLoss:sl,stopLoss:sl,managedStopLoss:sl,structuralStopPlan:stopPlan,lotSizing,murphy:m.murphy||null,momentum:m.momentum||m.murphy||m.prediction||null,targetLabels:m.targetLabels||[],target1:tp1,target2:tp2,target3:tp3,target4:tp4,");
+  source=source.replace("originalStopLoss:sl,stopLoss:sl,managedStopLoss:sl,structuralStopPlan:stopPlan,target1:tp1,target2:tp2,target3:tp3,target4:tp4,","originalStopLoss:sl,stopLoss:sl,managedStopLoss:sl,structuralStopPlan:stopPlan,lotSizing,scenarioPlan:m.scenarioPlan||null,momentum:m.momentum||m.prediction||null,targetLabels:m.targetLabels||[],target1:tp1,target2:tp2,target3:tp3,target4:tp4,");
   source=source.replace("reason:\`CONFIRMED GOLD SETUP — \${Number(m.confidence)||0}% confidence; 5m structure stop + \${round(stopPlan.buffer,2)}$ buffer; 5m execution + 15m context with 1m used only for timing; USD news guard clear; \${round(viability.rr,2)}R to TP1, risk \${round(viability.risk,2)}$, ATR1 \${viability.policy.atr1}$; max \${MAX_DAILY_SIGNALS}/day; Telegram only, AI off\`","reason:\`MURPHY CONFIRMED — \${m.strategy||'TREND'}; 60m primary trend + 15m confirmation + closed 5m breakout/resumption + RSI/support-resistance; setup score \${Number(m.confidence)||0}/100 (not win probability); live RR \${round(liquidityRR,2)}R; SL \${round(sl,2)}; lot \${lotSizing.recommendedLot||0}\`");
 
   source=source.replace("const result=outcome==='TP4'?'WIN':realizedR>0.05?'WIN':realizedR>=-.05?'BREAKEVEN':'LOSS';","const result=String(outcome).startsWith('TP')?'WIN':realizedR>0.05?'WIN':realizedR>=-.05?'BREAKEVEN':'LOSS';");
