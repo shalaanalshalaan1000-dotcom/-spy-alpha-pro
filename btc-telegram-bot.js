@@ -161,22 +161,24 @@ async function telegram(method, body) {
 
 function message(signal) {
   const icon = signal.action === 'BUY' ? '🟢' : '🔴';
-  const strategy = signal.strategy || 'LARRY_WILLIAMS';
+  const strategy = signal.strategy || 'MURPHY_FRAMEWORK';
   const trend = signal.trend || '—';
-  const w = signal.williams || {};
-  const expansion = Number(w?.volatilityExpansion?.ratio);
-  const wr = Number(w?.williamsR5);
+  const m = signal.murphy || {};
+  const rsi5 = Number(m?.rsi5);
+  const volumeRatio = Number(m?.volume5Ratio ?? m?.trigger?.volumeRatio);
+  const trigger = String(m?.trigger?.type || '5m');
   const stamp = new Intl.DateTimeFormat('ar-SA', {
     timeZone: 'Asia/Riyadh', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
   }).format(new Date());
 
   const sizing = lotSizingLines(signal.entry, signal.stopLoss);
-  return `${icon} BTCUSD — LARRY WILLIAMS CONFIRMED ${signal.action}\n` +
+  return `${icon} BTCUSD — MURPHY CONFIRMED ${signal.action}\n` +
     `🧠 Strategy: ${strategy}\n` +
-    `📊 Setup score: ${Math.round(Number(signal.confidence) || 0)}%\n` +
-    `📈 15m Trend: ${trend}\n` +
-    `⚡ 5m Volatility expansion: ${Number.isFinite(expansion) ? expansion.toFixed(2)+'×' : '—'}\n` +
-    `📉 Williams %R: ${Number.isFinite(wr) ? wr.toFixed(1) : '—'}\n` +
+    `📊 Setup score: ${Math.round(Number(signal.confidence) || 0)}/100\n` +
+    `📈 1h/15m Trend: ${trend}\n` +
+    `⚡ 5m Trigger: ${trigger}\n` +
+    `📉 RSI5: ${Number.isFinite(rsi5) ? rsi5.toFixed(1) : '—'}\n` +
+    `📦 Volume ratio: ${Number.isFinite(volumeRatio) ? volumeRatio.toFixed(2)+'×' : '—'}\n` +
     `💵 Price: ${n(signal.price)}\n` +
     `📍 Entry: ${n(signal.entry)}\n` +
     `🛑 SL: ${n(signal.stopLoss)}\n` +
@@ -185,7 +187,7 @@ function message(signal) {
     `🎯 TP3: ${n(signal.target3)}\n` +
     `🎯 TP4: ${n(signal.target4)}\n\n` +
     `${sizing.join('\\n')}\n` +
-    `⏱️ 15m trend / 5m volatility breakout / 1m + %R timing\n` +
+    `⏱️ 1h trend / 15m confirmation / 5m closed-candle execution\n` +
     `🕒 ${stamp} بتوقيت السعودية\n` +
     `⚪ إشارات فقط — لا تداول آلي`;
 }
@@ -242,7 +244,7 @@ async function tick() {
   previousActive = true;
 }
 
-console.log(`[btc-telegram] ${BOT_TOKEN && CHAT_ID ? 'enabled' : 'disabled: token/chat id missing'}; source=${SIGNAL_URL}; min=${MIN_CONFIDENCE}%`);
+console.log(`[btc-telegram] ${BOT_TOKEN && CHAT_ID ? 'enabled' : 'disabled: token/chat id missing'}; source=${SIGNAL_URL}; min-score=${MIN_CONFIDENCE}/100`);
 
 if (process.env.NODE_ENV !== 'test' && BOT_TOKEN && CHAT_ID) {
   (async function loop() {
