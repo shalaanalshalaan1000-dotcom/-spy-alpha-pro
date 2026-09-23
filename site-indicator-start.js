@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 
 const PORT = Number(process.env.PORT || 3000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_INNER_PORT || 3100);
-const BUILD_TAG = 'site-indicator-v4-murphy';
+const BUILD_TAG = 'site-indicator-v5-zone-scenario';
 
 const app = spawn(process.execPath, ['gold-unified-start.js'], {
   env: { ...process.env, PORT: String(INNER_PORT) },
@@ -72,6 +72,7 @@ function mapIndicator(source = {}) {
   const blockedByNews = Boolean(newsRisk?.blockEntries);
   const signal = blockedByNews ? 'WAIT' : raw === 'BUY' ? 'BULL' : raw === 'SELL' ? 'BEAR' : 'WAIT';
   const confidence = Number(source.signalConfidence ?? source.confidence ?? 0);
+  const scenarioPlan = source.scenarioPlan || source.momentum?.scenarioPlan || null;
 
   return {
     signal,
@@ -82,6 +83,8 @@ function mapIndicator(source = {}) {
     timeframe: '60m trend / 15m confirmation / 5m closed-candle execution',
     provider: source.provider || null,
     status: blockedByNews ? 'NEWS_BLOCK' : (source.status || 'WAIT'),
+    scenarioPlan,
+    tradeStyle: source.tradeStyle || source.strategy || 'ZONE_SCENARIO_STRUCTURE',
     newsRisk,
     reason: blockedByNews ? (newsRisk.reason || 'USD news blackout') : (source.reason || 'بانتظار اكتمال شروط إشارة الموقع'),
     updatedAt: source.updatedAt || new Date().toISOString()
@@ -102,7 +105,7 @@ function injectIndicator(html) {
 @media(max-width:760px){.siteIndicatorMeta{grid-template-columns:1fr 1fr}}
 </style>`;
 
-  const panel = `<section id="siteOwnedIndicator"><h3>مؤشر الموقع — المصدر الوحيد للإشارة</h3><div id="siteSignalWord" class="siteWait">WAIT</div><div class="siteIndicatorMeta"><div><span>درجة الإعداد</span><strong id="siteSignalConfidence">0/100</strong></div><div><span>السعر</span><strong id="siteSignalPrice">—</strong></div><div><span>الحالة</span><strong id="siteSignalStatus">WAIT</strong></div><div><span>حالة الأخبار</span><strong id="siteNewsRisk">جارٍ الفحص…</strong></div><div><span>الخبر المؤثر</span><strong id="siteNewsEvent">—</strong></div><div><span>التنفيذ</span><strong id="siteSignalExecutable">غير تنفيذي</strong></div><div><span>المصدر</span><strong>Gold Alpha Site</strong></div><div><span>سبب القرار</span><strong id="siteSignalReason">—</strong></div></div></section>`;
+  const panel = `<section id="siteOwnedIndicator"><h3>مؤشر الموقع — المصدر الوحيد للإشارة</h3><div id="siteSignalWord" class="siteWait">WAIT</div><div class="siteIndicatorMeta"><div><span>درجة الإعداد</span><strong id="siteSignalConfidence">0/100</strong></div><div><span>السعر</span><strong id="siteSignalPrice">—</strong></div><div><span>الحالة</span><strong id="siteSignalStatus">WAIT</strong></div><div><span>Market Bias</span><strong id="siteMarketBias">—</strong></div><div><span>BUY Zone</span><strong id="siteBuyZone">—</strong></div><div><span>SELL Zone</span><strong id="siteSellZone">—</strong></div><div><span>5m Trigger</span><strong id="siteZoneTrigger">WAIT</strong></div><div><span>حالة الأخبار</span><strong id="siteNewsRisk">جارٍ الفحص…</strong></div><div><span>الخبر المؤثر</span><strong id="siteNewsEvent">—</strong></div><div><span>التنفيذ</span><strong id="siteSignalExecutable">غير تنفيذي</strong></div><div><span>المصدر</span><strong>Gold Alpha Site</strong></div><div><span>سبب القرار</span><strong id="siteSignalReason">—</strong></div></div></section>`;
 
   const js = `<script>
 (function(){
@@ -114,6 +117,13 @@ function injectIndicator(html) {
    document.getElementById('siteSignalConfidence').textContent=Math.round(Number(s.confidence)||0)+'/100';
    document.getElementById('siteSignalPrice').textContent=Number.isFinite(Number(s.price))?Number(s.price).toFixed(2):'—';
    document.getElementById('siteSignalStatus').textContent=s.status||'WAIT';
+   const sp=s.scenarioPlan||{},buy=sp.buy||{},sell=sp.sell||{};
+   const money=v=>Number.isFinite(Number(v))?Number(v).toFixed(2):'—';
+   document.getElementById('siteMarketBias').textContent=sp.bias||'RANGE';
+   document.getElementById('siteBuyZone').textContent=buy.zoneLow!=null?money(buy.zoneLow)+' – '+money(buy.zoneHigh):'—';
+   document.getElementById('siteSellZone').textContent=sell.zoneLow!=null?money(sell.zoneLow)+' – '+money(sell.zoneHigh):'—';
+   const inBuy=Boolean(buy.insideZone),inSell=Boolean(sell.insideZone),buyTrig=Boolean(buy?.trigger?.ready),sellTrig=Boolean(sell?.trigger?.ready);
+   document.getElementById('siteZoneTrigger').textContent=inBuy?(buyTrig?'BUY trigger ready':'داخل BUY zone — انتظر 5m'):inSell?(sellTrig?'SELL trigger ready':'داخل SELL zone — انتظر 5m'):'WAIT FOR ZONE';
    document.getElementById('siteSignalExecutable').textContent=s.executable?'تنفيذي':'قراءة فقط';
    const nr=s.newsRisk||{};
    const newsLabel=nr.blockEntries?'⛔ إيقاف صفقات — خبر مؤثر':nr.dayHasHighImpactUsd?'⚠️ يوم أخبار USD':'✅ أخبار طبيعية';
