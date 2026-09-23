@@ -15,7 +15,7 @@ const XAU_MAX_RISK_USD=Math.max(XAU_SAFE_RISK_USD,Number(process.env.XAU_MAX_RIS
 const BOOT_GRACE_MS=15_000;
 
 let ready=false;
-const sent={side:null,key:null,above:false,messageId:null,lastText:null,lastEditMs:0,announcedAtMs:0,targets:[false,false,false,false]};
+const sent={side:null,key:null,above:false,messageId:null,lastText:null,lastEditMs:0,announcedAtMs:0,targets:[false,false,false,false],managedStops:[false,false,false,false]};
 const tradeLock={active:false,key:null,side:null,startedAtMs:0};
 const recentKeys=new Map();
 
@@ -140,6 +140,9 @@ function targetMessage(s){
 function tpHitMessage(i,target){
   return `✅ XAUUSD — TP${i+1} HIT / تم ضرب الهدف ${i+1}\n🎯 TP${i+1}: ${n(target)}`;
 }
+function managedStopMessage(i,managed){
+  return `🔒 XAUUSD — بعد TP${i+1}\n⬆️ ارفع وقف الخسارة إلى: ${n(managed)}`;
+}
 function terminalMessage(t){
   const outcome=String(t?.outcome||'').toUpperCase();
   if(['SL','MANAGED_STOP'].includes(outcome)){
@@ -154,14 +157,21 @@ async function sendTargetHits(s,{includeTp4=true}={}){
   const hits=Array.isArray(s?.targetHits)?s.targetHits:[];
   const hitTimes=Array.isArray(s?.targetHitAt)?s.targetHitAt:[];
   const targets=targetsOf(s);
+  const managed=num(s?.managedStopLoss);
   const limit=includeTp4?4:3;
   for(let i=0;i<limit;i++){
     const hitAt=num(hitTimes[i]);
     const provenAfterAlert=hitAt!=null&&hitAt>=sent.announcedAtMs;
-    if(hits[i]&&!sent.targets[i]&&valid(targets[i])&&provenAfterAlert){
+    const hitProven=Boolean(hits[i]&&provenAfterAlert);
+    if(hitProven&&!sent.targets[i]&&valid(targets[i])){
       await send(tpHitMessage(i,targets[i]));
       sent.targets[i]=true;
       console.log(`[telegram-xau-confirmed] TP${i+1} hit key=${sent.key} target=${n(targets[i])}`);
+    }
+    if(i<3&&hitProven&&valid(managed)&&!sent.managedStops[i]){
+      await send(managedStopMessage(i,managed));
+      sent.managedStops[i]=true;
+      console.log(`[telegram-xau-confirmed] TP${i+1} managed-stop=${n(managed)} key=${sent.key}`);
     }
   }
 }
@@ -174,6 +184,7 @@ function resetSent(){
   sent.lastEditMs=0;
   sent.announcedAtMs=0;
   sent.targets=[false,false,false,false];
+  sent.managedStops=[false,false,false,false];
 }
 async function tick(){
   try{
@@ -212,6 +223,7 @@ async function tick(){
         sent.lastEditMs=now;
         sent.announcedAtMs=now;
         sent.targets=[false,false,false,false];
+  sent.managedStops=[false,false,false,false];
         recentKeys.set(key,now);
         console.log(`[telegram-xau-confirmed] sent+locked ${side} ${Math.round(confidence)}% entry=${n(entry)} SL=${n(sl)} key=${key} msg=${messageId||'na'}`);
       }else if(sameLockedTrade&&sent.above&&sent.key===key&&sent.messageId&&text!==sent.lastText&&now-sent.lastEditMs>=EDIT_MIN_MS){
