@@ -137,7 +137,7 @@ for (const [from, to] of replacements) {
 
   const m5Anchor="const M5_ENTRY_WINDOW_MS=Math.max(60000,Math.min(180000,Number(process.env.GOLD_M5_ENTRY_WINDOW_MS||150000)));";
   if(!source.includes(m5Anchor))throw new Error('Zone scenario patch: config anchor missing');
-  source=source.replace(m5Anchor,m5Anchor+"\nconst XAU_CONTRACT_SIZE=Math.max(1,Number(process.env.XAU_CONTRACT_SIZE||100));\nconst XAU_LOT_STEP=Math.max(.001,Number(process.env.XAU_LOT_STEP||.01));\nconst XAU_ACCOUNT_BALANCE_USD=Math.max(1,Number(process.env.XAU_ACCOUNT_BALANCE_USD||155));\nconst XAU_SAFE_RISK_USD=Math.max(1,Number(process.env.XAU_SAFE_RISK_USD||5));\nconst XAU_MAX_RISK_USD=Math.max(XAU_SAFE_RISK_USD,Number(process.env.XAU_MAX_RISK_USD||10));");
+  source=source.replace(m5Anchor,m5Anchor+"\nconst XAU_CONTRACT_SIZE=Math.max(1,Number(process.env.XAU_CONTRACT_SIZE||100));\nconst XAU_LOT_STEP=Math.max(.001,Number(process.env.XAU_LOT_STEP||.01));\nconst XAU_ACCOUNT_BALANCE_USD=Math.max(1,Number(process.env.XAU_ACCOUNT_BALANCE_USD||178));\nconst XAU_SAFE_RISK_USD=Math.max(1,Number(process.env.XAU_SAFE_RISK_USD||5));\nconst XAU_MAX_RISK_USD=Math.max(XAU_SAFE_RISK_USD,Number(process.env.XAU_MAX_RISK_USD||10));");
 
   const dayAnchor="const RIYADH_DAY_FORMATTER=";
   const dayAt=source.indexOf(dayAnchor);
