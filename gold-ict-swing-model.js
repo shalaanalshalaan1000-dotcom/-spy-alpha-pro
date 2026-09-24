@@ -121,38 +121,57 @@ function dedupePools(pools,side,entry){
   for(const p of filtered)if(!out.some(x=>Math.abs(x.price-p.price)<.20))out.push(p);
   return out;
 }
-function targetPlan(side,entry,stop,levels,h1,h4){
-  const p1=pivots(h1.slice(-72),2,2),p4=pivots(h4.slice(-30),1,1);
+function targetPlan(side,entry,stop,levels,m1,m5,m15,h1,h4,atr1,atr5){
+  const dir=side==='BUY'?1:-1,risk=Math.abs(entry-stop); if(!(risk>0))return null;
+  const p1=pivots(m1.slice(-90),2,2),p5=pivots(m5.slice(-72),2,2),p15=pivots(m15.slice(-48),2,2),pH1=pivots(h1.slice(-48),2,2);
   const pools=[
     {label:'PDH',price:levels.pdh},{label:'PDL',price:levels.pdl},
     {label:'ASIA_HIGH',price:levels.asiaHigh},{label:'ASIA_LOW',price:levels.asiaLow},
     {label:'LONDON_HIGH',price:levels.londonHigh},{label:'LONDON_LOW',price:levels.londonLow},
     {label:'NY_AM_HIGH',price:levels.nyHigh},{label:'NY_AM_LOW',price:levels.nyLow},
-    ...p1.highs.slice(-5).map(x=>({label:'H1_BUY_SIDE',price:x.price})),
-    ...p1.lows.slice(-5).map(x=>({label:'H1_SELL_SIDE',price:x.price})),
-    ...p4.highs.slice(-4).map(x=>({label:'H4_BUY_SIDE',price:x.price})),
-    ...p4.lows.slice(-4).map(x=>({label:'H4_SELL_SIDE',price:x.price}))
+    ...p1.highs.slice(-8).map(x=>({label:'M1_BUY_SIDE',price:x.price})),
+    ...p1.lows.slice(-8).map(x=>({label:'M1_SELL_SIDE',price:x.price})),
+    ...p5.highs.slice(-8).map(x=>({label:'M5_BUY_SIDE',price:x.price})),
+    ...p5.lows.slice(-8).map(x=>({label:'M5_SELL_SIDE',price:x.price})),
+    ...p15.highs.slice(-5).map(x=>({label:'M15_BUY_SIDE',price:x.price})),
+    ...p15.lows.slice(-5).map(x=>({label:'M15_SELL_SIDE',price:x.price})),
+    ...pH1.highs.slice(-3).map(x=>({label:'H1_BUY_SIDE',price:x.price})),
+    ...pH1.lows.slice(-3).map(x=>({label:'H1_SELL_SIDE',price:x.price}))
   ];
-  const risk=Math.abs(entry-stop); if(!(risk>0))return null;
   const candidates=dedupePools(pools,side,entry);
-  if(!candidates.length)return null;
-  const mainIndex=candidates.findIndex(x=>Math.abs(x.price-entry)/risk>=1.5);
-  if(mainIndex<0)return null;
-  const picked=candidates.slice(mainIndex,mainIndex+4);
-  const rr=Math.abs(picked[0].price-entry)/risk;
-  return{risk,rr,targets:picked};
+  const a1=Math.max(.12,Number(atr1)||Math.max(.12,(Number(atr5)||1)/5)),a5=Math.max(.40,Number(atr5)||1);
+  const distances=[
+    Math.max(.60,a1*1.35,risk*.60),
+    Math.max(1.10,a1*2.10,a5*.35,risk*.95),
+    Math.max(1.80,a1*3.10,a5*.60,risk*1.35),
+    Math.max(2.80,a1*4.40,a5*.90,risk*1.85)
+  ];
+  const targets=[];let prev=entry;
+  for(let i=0;i<distances.length;i++){
+    const minStep=i===0?.45:.55,desired=distances[i],minMove=desired*.72,maxMove=desired*1.45;
+    const liquidity=candidates.find(x=>{
+      const move=Math.abs(x.price-entry),step=Math.abs(x.price-prev);
+      return move>=minMove&&move<=maxMove&&step>=minStep&&(side==='BUY'?x.price>prev:x.price<prev);
+    });
+    const raw=liquidity?.price??entry+dir*desired;
+    const fixed=side==='BUY'?Math.max(raw,prev+minStep):Math.min(raw,prev-minStep);
+    targets.push({label:liquidity?.label??('ICT_SCALP_TP'+(i+1)),price:round(fixed)});
+    prev=fixed;
+  }
+  const rr=Math.abs(targets[0].price-entry)/risk;
+  return{risk,rr,targets,mode:'ICT_FAST_SCALP'};
 }
 
 export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const price=n(rawPrice),m1all=minuteBars(samples),m5all=aggregate(m1all,5),m15all=aggregate(m1all,15),h1all=aggregate(m1all,60),h4all=aggregate(m1all,240);
   const m1=closed(m1all,1,now),m5=closed(m5all,5,now),m15=closed(m15all,15,now),h1=closed(h1all,60,now),h4=closed(h4all,240,now);
-  const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'ICT_TOP_DOWN',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',ict:null,sampleCount:samples.length,modelTimeframes:{context:'4H',bias:'1H',setup:'15m',execution:'5m',timing:'1m optional'},updatedAt:new Date(now).toISOString(),reason:'ICT engine is collecting enough HTF history'};
+  const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'ICT_TOP_DOWN',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',ict:null,sampleCount:samples.length,modelTimeframes:{context:'4H/1H',bias:'15m',setup:'5m liquidity/FVG',execution:'1m/5m MSS/FVG',timing:'1m'},updatedAt:new Date(now).toISOString(),reason:'ICT engine is collecting enough HTF history'};
   if(price==null||m1.length<120||m5.length<30||m15.length<20||h1.length<12||h4.length<3)return base;
 
   const levels=sessionLevels(m15,now),session=activeSession(now),dir4=structureDirection(h4),dir1=structureDirection(h1),dir15=structureDirection(m15);
   const rangeRows=h1.slice(-24),rangeHigh=hi(rangeRows),rangeLow=lo(rangeRows),equilibrium=Number.isFinite(rangeHigh)&&Number.isFinite(rangeLow)?(rangeHigh+rangeLow)/2:null;
   const location=equilibrium==null?'UNKNOWN':price<=equilibrium?'DISCOUNT':'PREMIUM';
-  const atr5=atr(m5,14)||1,atr15=atr(m15,14)||2;
+  const atr1=atr(m1,14)||.25,atr5=atr(m5,14)||1,atr15=atr(m15,14)||2;
   const offSession=session==='OFF_KILLZONE';
   const build15=side=>{
     const sign=side==='BUY'?1:-1,fvg=latestFvg(m15,side),sweep=localSweep(m15,side,levels),dm=displacementAndMss(m15,side,atr15);
@@ -163,7 +182,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   };
   const buy15=build15('BUY'),sell15=build15('SELL');
   let setup15=buy15.tieScore>sell15.tieScore?buy15:sell15.tieScore>buy15.tieScore?sell15:(dir15===1?buy15:dir15===-1?sell15:dir1===1?buy15:dir1===-1?sell15:buy15);
-  if(setup15.coreVotes<2)return{...base,status:'WAIT',candidateAction:'WAIT',confidence:0,contextBias:dir1===1?'BUY':dir1===-1?'SELL':'NEUTRAL',ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,buy15:{coreVotes:buy15.coreVotes,structureAligned:buy15.structureAligned},sell15:{coreVotes:sell15.coreVotes,structureAligned:sell15.structureAligned}},reason:'ICT WAIT: 15m has no complete setup yet — need two of liquidity sweep / FVG / displacement-MSS'};
+  if(setup15.coreVotes<1&&dir15===0)return{...base,status:'WAIT',candidateAction:'WAIT',confidence:0,contextBias:dir1===1?'BUY':dir1===-1?'SELL':'NEUTRAL',ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,buy15:{coreVotes:buy15.coreVotes,structureAligned:buy15.structureAligned},sell15:{coreVotes:sell15.coreVotes,structureAligned:sell15.structureAligned}},reason:'ICT FAST WAIT: need 15m direction or one 15m ICT clue before 1m/5m execution'};
 
   const side=setup15.side,trendSign=setup15.sign;
   const contextAligned=dir4===trendSign,biasAligned=dir1===trendSign,setupAligned=dir15===trendSign;
@@ -171,32 +190,39 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const oneMinuteConfirmed=oneMinuteConfirm(m1,side);
   const fvg15=setup15.fvg,sweep15=setup15.sweep,dm15=setup15.dm,setupVotes=setup15.coreVotes,setupReady=setupVotes>=2;
   const fvg5=latestFvg(m5,side),sweep5=localSweep(m5,side,levels),dm5=displacementAndMss(m5,side,atr5);
-  const executionReady=Boolean(fvg5&&(dm5.displacement||dm5.mss||oneMinuteConfirmed));
-  const reversal=Boolean(setupReady&&executionReady&&(sweep15||sweep5)&&(dm15.mss||dm5.mss));
-  const continuation=Boolean(setupReady&&executionReady&&!reversal);
+  const fvg1=latestFvg(m1,side),sweep1=localSweep(m1,side,levels),dm1=displacementAndMss(m1,side,atr1);
+  const fast1m=Boolean(fvg1&&(dm1.displacement||dm1.mss||oneMinuteConfirmed));
+  const fast5m=Boolean(fvg5&&(dm5.displacement||dm5.mss||oneMinuteConfirmed));
+  const executionReady=Boolean(fast1m||fast5m||(sweep1&&dm1.mss));
+  const reversal=Boolean(executionReady&&(sweep15||sweep5||sweep1)&&(dm15.mss||dm5.mss||dm1.mss));
+  const continuation=Boolean(executionReady&&!reversal);
 
-  if(!executionReady)return{...base,status:'WAIT',candidateAction:side,confidence:0,contextBias:side,oneMinuteConfirmed,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,contextAligned,biasAligned,setupAligned,setupVotes,setupReady,fvg15,sweep15,dm15,fvg5,sweep5,dm5},reason:'ICT WAIT: 15m setup ready; waiting for 5m FVG + displacement/MSS entry'};
+  if(!executionReady)return{...base,status:'WAIT',candidateAction:side,confidence:0,contextBias:side,oneMinuteConfirmed,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,contextAligned,biasAligned,setupAligned,setupVotes,setupReady,fvg15,sweep15,dm15,fvg5,sweep5,dm5,fvg1,sweep1,dm1},reason:'ICT FAST WAIT: 15m context ready; waiting for 1m/5m FVG + MSS/displacement'};
 
-  const setupType=reversal?'ICT_15M_LIQUIDITY_REVERSAL':'ICT_15M_CONTINUATION';
-  const fvg=fvg5,entry=fvg.mid,entryLow=Math.min(fvg.low,fvg.high),entryHigh=Math.max(fvg.low,fvg.high);
-  const buffer=clamp(atr5*.18,.25,.85);
-  const recent=m5.slice(-8),fallbackExtreme=side==='BUY'?lo(recent):hi(recent);
-  const sweep=sweep5??sweep15;
+  const setupType=reversal?'ICT_FAST_LIQUIDITY_REVERSAL':'ICT_FAST_CONTINUATION';
+  const fvg=fvg1??fvg5,entry=fvg.mid,entryLow=Math.min(fvg.low,fvg.high),entryHigh=Math.max(fvg.low,fvg.high);
+  const buffer=clamp(atr1*.35,.15,.45);
+  const recent=m1.slice(-10),fallbackExtreme=side==='BUY'?lo(recent):hi(recent);
+  const sweep=sweep1??sweep5??sweep15;
   const anchor=sweep?.extreme??fallbackExtreme;
   const stop=side==='BUY'?anchor-buffer:anchor+buffer;
   const risk=Math.abs(entry-stop);
-  if(!(risk>=.50))return{...base,status:'WAIT',candidateAction:side,contextBias:side,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),sweep,fvg,setupVotes},reason:'ICT WAIT: structural invalidation is too close to entry'};
+  if(!(risk>=.30))return{...base,status:'WAIT',candidateAction:side,contextBias:side,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),sweep,fvg,setupVotes},reason:'ICT WAIT: structural invalidation is too close to entry'};
 
-  const plan=targetPlan(side,entry,stop,levels,h1,h4);
-  if(!plan)return{...base,status:'WAIT',candidateAction:side,contextBias:side,oneMinuteConfirmed,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),sweep,fvg,offSession,contextAligned,biasAligned,setupAligned,setupVotes,setupReady},reason:'ICT WAIT: no opposing liquidity target offers at least 1.5R'};
+  const plan=targetPlan(side,entry,stop,levels,m1,m5,m15,h1,h4,atr1,atr5);
+  if(!plan)return{...base,status:'WAIT',candidateAction:side,contextBias:side,oneMinuteConfirmed,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),sweep,fvg,offSession,contextAligned,biasAligned,setupAligned,setupVotes,setupReady},reason:'ICT FAST WAIT: unable to build ordered scalp targets'};
   let confidence=55;
   if(sweep15)confidence+=10;
   if(fvg15)confidence+=8;
   if(dm15.mss)confidence+=8;
   if(dm15.displacement)confidence+=7;
-  if(fvg5)confidence+=7;
-  if(dm5.mss)confidence+=7;
-  if(dm5.displacement)confidence+=6;
+  if(fvg5)confidence+=5;
+  if(dm5.mss)confidence+=6;
+  if(dm5.displacement)confidence+=5;
+  if(fvg1)confidence+=7;
+  if(sweep1)confidence+=5;
+  if(dm1.mss)confidence+=8;
+  if(dm1.displacement)confidence+=6;
   if(setupAligned)confidence+=5;
   if(biasAligned)confidence+=4;
   if(contextAligned)confidence+=2;
@@ -207,5 +233,5 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const targets=plan.targets.map(x=>round(x.price));
   const labels=plan.targets.map(x=>x.label);
   const drawOnLiquidity=labels[0]||'OPPOSING_LIQUIDITY';
-  return{...base,status:'CANDIDATE',candidateAction:side,side,strategy:setupType,confidence,contextBias:side,oneMinuteConfirmed,setupId:[side,setupType,sweep?.t??fvg.t,round(entry),round(stop),drawOnLiquidity].join('|'),entry:round(entry),entryLow:round(entryLow),entryHigh:round(entryHigh),stopLoss:round(stop),target1:targets[0]??null,target2:targets[1]??null,target3:targets[2]??null,target4:targets[3]??null,targetLabels:labels,riskReward:round(plan.rr,2),ict:{setupType,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),dealingRangeHigh:round(rangeHigh),dealingRangeLow:round(rangeLow),contextAligned,biasAligned,setupAligned,setupReady,executionReady,setupVotes,sweep:sweep15??sweep5,sweep15,sweep5,displacement:Boolean(dm15.displacement||dm5.displacement),mss:Boolean(dm15.mss||dm5.mss),dm15,dm5,fvg:{...fvg,low:round(fvg.low),high:round(fvg.high),mid:round(fvg.mid)},fvg15,fvg5:{...fvg5,low:round(fvg5.low),high:round(fvg5.high),mid:round(fvg5.mid)},drawOnLiquidity,atr5:round(atr5),atr15:round(atr15),stopBuffer:round(buffer),offSession},reason:'ICT '+setupType+' | 15m direction '+side+' | 1H '+(biasAligned?'aligned':'countertrend/neutral')+' | 4H context '+(contextAligned?'aligned':'different')+' | 5m entry confirmed | draw on '+drawOnLiquidity+' | '+round(plan.rr,2)+'R'};
+  return{...base,status:'CANDIDATE',candidateAction:side,side,strategy:setupType,confidence,contextBias:side,oneMinuteConfirmed,setupId:[side,setupType,sweep?.t??fvg.t,round(entry),round(stop),drawOnLiquidity].join('|'),entry:round(entry),entryLow:round(entryLow),entryHigh:round(entryHigh),stopLoss:round(stop),target1:targets[0]??null,target2:targets[1]??null,target3:targets[2]??null,target4:targets[3]??null,targetLabels:labels,riskReward:round(plan.rr,2),ict:{setupType,mode:'ICT_FAST_SCALP',dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),dealingRangeHigh:round(rangeHigh),dealingRangeLow:round(rangeLow),contextAligned,biasAligned,setupAligned,setupReady,executionReady,setupVotes,sweep:sweep1??sweep5??sweep15,sweep15,sweep5,sweep1,displacement:Boolean(dm15.displacement||dm5.displacement||dm1.displacement),mss:Boolean(dm15.mss||dm5.mss||dm1.mss),dm15,dm5,dm1,fvg:{...fvg,low:round(fvg.low),high:round(fvg.high),mid:round(fvg.mid)},fvg15,fvg5:fvg5?{...fvg5,low:round(fvg5.low),high:round(fvg5.high),mid:round(fvg5.mid)}:null,fvg1:fvg1?{...fvg1,low:round(fvg1.low),high:round(fvg1.high),mid:round(fvg1.mid)}:null,drawOnLiquidity,atr1:round(atr1),atr5:round(atr5),atr15:round(atr15),stopBuffer:round(buffer),offSession},reason:'ICT FAST '+setupType+' | 15m '+side+' context | 1m/5m execution confirmed | fast TP1 '+round(targets[0])+' | '+round(plan.rr,2)+'R'};
 }
