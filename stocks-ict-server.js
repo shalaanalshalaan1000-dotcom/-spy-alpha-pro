@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 const PORT = Number(process.env.PORT || 10000);
 const API_KEY = process.env.MASSIVE_API_KEY || '';
 const MIN_CONFIDENCE = Number(process.env.STOCKS_ICT_MIN_CONFIDENCE || 65);
-const UNIVERSE = (process.env.STOCK_UNIVERSE || 'SPY,QQQ,IWM,NVDA,TSLA,AMD,AAPL,MSFT,META,AMZN,NFLX,COIN,PLTR,AVGO').split(',').map(s=>s.trim().toUpperCase()).filter(Boolean);
+const UNIVERSE = (process.env.STOCK_UNIVERSE || 'IONQ,SOFI,MARA,RKLB,ASTS,RIVN,GME,SNAP,ACHR,JOBY,LCID,RIOT,OPEN,GRAB').split(',').map(s=>s.trim().toUpperCase()).filter(Boolean);
 const ETF = new Set(['SPY','QQQ','IWM']);
 const PAGE = readFileSync(new URL('./stocks-ict-page.html', import.meta.url), 'utf8');
 const cache = new Map();
@@ -147,16 +147,20 @@ async function bestOption(analysis){
   const candidates=rows.map(x=>{
     const d=x.details||{},g=x.greeks||{},mid=optionMid(x),spread=optionSpread(x),strike=Number(d.strike_price),delta=Math.abs(Number(g.delta||0));
     const expiry=d.expiration_date||'',dte=expiry?dayDiff(expiry,now):99,oi=Number(x.open_interest||0),vol=Number(x.day?.volume||0);
-    if(!mid||!strike||dte<0||dte>(ETF.has(symbol)?4:8)||Math.abs(strike-spot)/spot>0.04)return null;
-    if(delta&& (delta<.22||delta>.72))return null;
-    if(spread!=null&&spread>18)return null;
+    if(!mid||!strike||dte<0||dte>7||Math.abs(strike-spot)/spot>0.05)return null;
+    if(mid<.12||mid>3.50)return null;
+    if(delta&& (delta<.20||delta>.72))return null;
+    if(spread!=null&&spread>16)return null;
     let score=0;
     if(spread!=null){if(spread<=5)score+=28;else if(spread<=9)score+=20;else if(spread<=13)score+=10;else score-=8}
     if(oi>=5000)score+=20;else if(oi>=1500)score+=16;else if(oi>=500)score+=10;else if(oi>=100)score+=5;
     if(vol>=3000)score+=18;else if(vol>=1000)score+=14;else if(vol>=250)score+=9;else if(vol>=50)score+=4;
-    if(delta>=.38&&delta<=.60)score+=22;else if(delta>=.30&&delta<=.65)score+=14;else score+=5;
-    if(dte<=2)score+=ETF.has(symbol)?10:5;else if(dte<=5)score+=8;else score+=4;
-    if(Math.abs(strike-spot)/spot<=.012)score+=10;else if(Math.abs(strike-spot)/spot<=.025)score+=6;
+    if(delta>=.35&&delta<=.60)score+=22;else if(delta>=.25&&delta<=.65)score+=14;else score+=5;
+    if(mid>=.25&&mid<=1.50)score+=24;else if(mid>=.15&&mid<=2.25)score+=14;else score+=3;
+    const iv=Number(x.implied_volatility||0);
+    if(iv>=.55&&iv<=1.60)score+=10;else if(iv>.30)score+=5;
+    if(dte<=2)score+=12;else if(dte<=5)score+=9;else score+=5;
+    if(Math.abs(strike-spot)/spot<=.015)score+=10;else if(Math.abs(strike-spot)/spot<=.03)score+=6;
     return {raw:x,score,mid,spread,strike,delta,dte,oi,vol,expiry,type:String(d.contract_type||dir).toUpperCase(),ticker:d.ticker||x.ticker||''};
   }).filter(Boolean).sort((a,b)=>b.score-a.score);
   const c=candidates[0]; if(!c)return null;
@@ -184,10 +188,13 @@ async function scan(){
     const rows=await Promise.all(batch.map(async s=>{try{return await analyzeOne(s,false)}catch(e){return {symbol:s,state:'ERROR',confidence:0,error:e.message}}}));
     out.push(...rows); if(i+4<UNIVERSE.length)await sleep(120);
   }
-  out.sort((a,b)=>(['CALL','PUT'].includes(b.state)?1:0)-(['CALL','PUT'].includes(a.state)?1:0)||Number(b.confidence||0)-Number(a.confidence||0)||Number(b.liquidity?.todayDollarVolume||0)-Number(a.liquidity?.todayDollarVolume||0));
-  const top=out.filter(x=>['CALL','PUT'].includes(x.state)).slice(0,3);
+  out.sort((a,b)=>(['CALL','PUT'].includes(b.state)?1:0)-(['CALL','PUT'].includes(a.state)?1:0)||Number(b.confidence||0)-Number(a.confidence||0)||Number(b.liquidity?.atrPct||0)-Number(a.liquidity?.atrPct||0));
+  const top=out.filter(x=>['CALL','PUT'].includes(x.state)).slice(0,6);
   await Promise.all(top.map(async a=>{try{a.option=await bestOption(a)}catch(e){a.optionError=e.message}}));
-  const v={updatedAt:new Date().toISOString(),phase:marketPhase(),minConfidence:MIN_CONFIDENCE,universe:UNIVERSE,rows:out,best:out.find(x=>['CALL','PUT'].includes(x.state))||out[0]||null};
+  for(const a of out){if(a.option){a.tradeScore=Number(a.confidence||0)+Math.min(25,Number(a.option.quality||0)/5)+Math.min(10,Number(a.liquidity?.atrPct||0)*12)}else a.tradeScore=Number(a.confidence||0)-20}
+  out.sort((a,b)=>(b.option?1:0)-(a.option?1:0)||Number(b.tradeScore||0)-Number(a.tradeScore||0));
+  const best=out.find(x=>['CALL','PUT'].includes(x.state)&&x.option)||out.find(x=>['CALL','PUT'].includes(x.state))||out[0]||null;
+  const v={updatedAt:new Date().toISOString(),phase:marketPhase(),minConfidence:MIN_CONFIDENCE,universe:UNIVERSE,rows:out,best};
   cache.set(key,{t:Date.now(),v});return v;
 }
 function json(res,status,obj){res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});res.end(JSON.stringify(obj))}
