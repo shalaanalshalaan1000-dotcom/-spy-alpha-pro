@@ -193,7 +193,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const fvg1=latestFvg(m1,side),sweep1=localSweep(m1,side,levels),dm1=displacementAndMss(m1,side,atr1);
   const fast1m=Boolean(fvg1&&(dm1.displacement||dm1.mss||oneMinuteConfirmed));
   const fast5m=Boolean(fvg5&&(dm5.displacement||dm5.mss||oneMinuteConfirmed));
-  const executionReady=Boolean(fast1m||fast5m||(sweep1&&dm1.mss));
+  const executionReady=Boolean(fast1m||fast5m);
   const reversal=Boolean(executionReady&&(sweep15||sweep5||sweep1)&&(dm15.mss||dm5.mss||dm1.mss));
   const continuation=Boolean(executionReady&&!reversal);
 
