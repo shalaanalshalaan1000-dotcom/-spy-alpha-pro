@@ -2,7 +2,7 @@ const SIGNAL_URL = String(process.env.BTC_TELEGRAM_SIGNAL_URL || 'https://spy-al
 const BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
 const CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || '').trim();
 const POLL_MS = Math.max(5000, Number(process.env.BTC_TELEGRAM_POLL_MS || 5000));
-const MIN_CONFIDENCE = Math.max(82, Number(process.env.BTC_TELEGRAM_MIN_CONFIDENCE || 82));
+const MIN_CONFIDENCE = Math.max(65, Number(process.env.BTC_TELEGRAM_MIN_CONFIDENCE || 70));
 const BTC_ACCOUNT_BALANCE_USD = Math.max(1, Number(process.env.BTC_ACCOUNT_BALANCE_USD || 178));
 const BTC_CONTRACT_SIZE = Math.max(0.000001, Number(process.env.EXNESS_BTC_CONTRACT_SIZE || 1));
 const BTC_LOT_STEP = Math.max(0.001, Number(process.env.EXNESS_BTC_LOT_STEP || 0.01));
@@ -161,24 +161,24 @@ async function telegram(method, body) {
 
 function message(signal) {
   const icon = signal.action === 'BUY' ? '🟢' : '🔴';
-  const strategy = signal.strategy || 'MURPHY_FRAMEWORK';
+  const strategy = signal.strategy || 'ICT_FAST_SCALP';
   const trend = signal.trend || '—';
-  const m = signal.murphy || {};
-  const rsi5 = Number(m?.rsi5);
-  const volumeRatio = Number(m?.volume5Ratio ?? m?.trigger?.volumeRatio);
-  const trigger = String(m?.trigger?.type || '5m');
+  const ict = signal.ict || {};
+  const rsi5 = Number(ict?.rsi5);
+  const fvg = ict?.fvg1?.bull || ict?.fvg5?.bull ? 'Bull FVG' : ict?.fvg1?.bear || ict?.fvg5?.bear ? 'Bear FVG' : '—';
+  const trigger = (ict?.mss1?.bull||ict?.mss5?.bull||ict?.displacement1?.bull||ict?.displacement5?.bull)?'Bull MSS/Displacement':(ict?.mss1?.bear||ict?.mss5?.bear||ict?.displacement1?.bear||ict?.displacement5?.bear)?'Bear MSS/Displacement':'WAIT';
   const stamp = new Intl.DateTimeFormat('ar-SA', {
     timeZone: 'Asia/Riyadh', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
   }).format(new Date());
 
   const sizing = lotSizingLines(signal.entry, signal.stopLoss);
-  return `${icon} BTCUSD — MURPHY CONFIRMED ${signal.action}\n` +
+  return `${icon} BTCUSD — ICT FAST CONFIRMED ${signal.action}\n` +
     `🧠 Strategy: ${strategy}\n` +
     `📊 Setup score: ${Math.round(Number(signal.confidence) || 0)}/100\n` +
     `📈 1h/15m Trend: ${trend}\n` +
     `⚡ 5m Trigger: ${trigger}\n` +
     `📉 RSI5: ${Number.isFinite(rsi5) ? rsi5.toFixed(1) : '—'}\n` +
-    `📦 Volume ratio: ${Number.isFinite(volumeRatio) ? volumeRatio.toFixed(2)+'×' : '—'}\n` +
+    `🧩 FVG: ${fvg}\n` +
     `💵 Price: ${n(signal.price)}\n` +
     `📍 Entry: ${n(signal.entry)}\n` +
     `🛑 SL: ${n(signal.stopLoss)}\n` +
@@ -187,7 +187,7 @@ function message(signal) {
     `🎯 TP3: ${n(signal.target3)}\n` +
     `🎯 TP4: ${n(signal.target4)}\n\n` +
     `${sizing.join('\\n')}\n` +
-    `⏱️ 1h trend / 15m confirmation / 5m closed-candle execution\n` +
+    `⏱️ 15m context / 1m+5m ICT trigger\n` +
     `🕒 ${stamp} بتوقيت السعودية\n` +
     `⚪ إشارات فقط — لا تداول آلي`;
 }
