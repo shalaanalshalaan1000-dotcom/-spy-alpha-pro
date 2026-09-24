@@ -160,5 +160,36 @@ for (const [from, to] of replacements) {
   source=source.replace(oldManage,newManage);
 }
 
+
+// Opening-session control: trade only the first part of London and New York gold flow,
+// with at most two fresh signals per opening. Uses market-local time zones so DST is automatic.
+{
+  const stateAnchor="lastReconnectAttempt:0,dailySignalDate:null,dailySignalCount:0,lastSignalAtMs:0,lastNewsRisk:null};";
+  if(!source.includes(stateAnchor))throw new Error('opening-session patch: state anchor missing');
+  source=source.replace(stateAnchor,"lastReconnectAttempt:0,dailySignalDate:null,dailySignalCount:0,lastSignalAtMs:0,lastNewsRisk:null,openSessionKey:null,openSessionSignalCount:0};");
+
+  const configAnchor="const XAU_MAX_RISK_USD=Math.max(XAU_SAFE_RISK_USD,Number(process.env.XAU_MAX_RISK_USD||10));";
+  if(!source.includes(configAnchor))throw new Error('opening-session patch: config anchor missing');
+  source=source.replace(configAnchor,configAnchor+"\nconst OPENING_WINDOW_MIN=Math.max(30,Math.min(120,Number(process.env.GOLD_OPENING_WINDOW_MIN||90)));\nconst MAX_OPENING_SESSION_SIGNALS=Math.max(1,Math.min(2,Number(process.env.GOLD_MAX_SIGNALS_PER_OPEN||2)));");
+
+  const dayAnchor="const RIYADH_DAY_FORMATTER=";
+  const dayAt=source.indexOf(dayAnchor);
+  if(dayAt<0)throw new Error('opening-session patch: day anchor missing');
+  const openingFn="const GOLD_OPENING_SESSIONS=[{id:'LONDON',timeZone:'Europe/London',startMinute:8*60},{id:'NEW_YORK_GOLD',timeZone:'America/New_York',startMinute:8*60+20}];\nfunction marketClock(ms,timeZone){const parts=new Intl.DateTimeFormat('en-GB',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',weekday:'short',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(new Date(ms));const get=t=>parts.find(p=>p.type===t)?.value||'';return{date:get('year')+'-'+get('month')+'-'+get('day'),weekday:get('weekday'),minuteOfDay:Number(get('hour'))*60+Number(get('minute'))};}\nfunction refreshOpeningSession(now){for(const def of GOLD_OPENING_SESSIONS){const c=marketClock(now,def.timeZone);if(['Sat','Sun'].includes(c.weekday))continue;if(c.minuteOfDay>=def.startMinute&&c.minuteOfDay<def.startMinute+OPENING_WINDOW_MIN){const key=def.id+':'+c.date;if(state.openSessionKey!==key){state.openSessionKey=key;state.openSessionSignalCount=0;}return{id:def.id,key,timeZone:def.timeZone,startMinute:def.startMinute,windowMin:OPENING_WINDOW_MIN};}}return null;}\n";
+  source=source.slice(0,dayAt)+openingFn+source.slice(dayAt);
+
+  const maybeAnchor="function maybeCreate(m,q,now){\n refreshDailyQuota(now);\n state.lastEntryGuard=null;";
+  if(!source.includes(maybeAnchor))throw new Error('opening-session patch: maybeCreate anchor missing');
+  source=source.replace(maybeAnchor,"function maybeCreate(m,q,now){\n refreshDailyQuota(now);\n const openSession=refreshOpeningSession(now);\n state.lastEntryGuard=null;\n if(!openSession){state.lastEntryGuard={atMs:now,reason:'OUTSIDE_LONDON_NY_OPENING_WINDOWS',openingWindowMin:OPENING_WINDOW_MIN};return;}\n if(state.openSessionSignalCount>=MAX_OPENING_SESSION_SIGNALS){state.lastEntryGuard={atMs:now,reason:'OPENING_SESSION_2_SIGNAL_LIMIT_REACHED',openingSession:openSession.id,sessionSignalCount:state.openSessionSignalCount,maxSessionSignals:MAX_OPENING_SESSION_SIGNALS};return;}");
+
+  const signalAnchor="tradeStyle:'ICT_FAST_SCALP',maxDailySignals:MAX_DAILY_SIGNALS,dailySignalNumber:state.dailySignalCount+1,newsRiskAtEntry:state.lastNewsRisk,";
+  if(!source.includes(signalAnchor))throw new Error('opening-session patch: signal anchor missing');
+  source=source.replace(signalAnchor,"tradeStyle:'ICT_FAST_SCALP',openingSession:openSession.id,sessionSignalNumber:state.openSessionSignalCount+1,maxSessionSignals:MAX_OPENING_SESSION_SIGNALS,maxDailySignals:MAX_DAILY_SIGNALS,dailySignalNumber:state.dailySignalCount+1,newsRiskAtEntry:state.lastNewsRisk,");
+
+  const countAnchor="state.dailySignalCount+=1;state.lastSignalAtMs=now;";
+  if(!source.includes(countAnchor))throw new Error('opening-session patch: count anchor missing');
+  source=source.replace(countAnchor,"state.dailySignalCount+=1;state.openSessionSignalCount+=1;state.lastSignalAtMs=now;");
+}
+
 fs.writeFileSync(runtimeUrl, source, 'utf8');
 await import(`${runtimeUrl.href}?v=${Date.now()}`);
