@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
+import { getBtcSignal, injectBtcPanel } from './btc-ict-fast.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_INNER_PORT || 3100);
@@ -147,6 +148,26 @@ function injectIndicator(html) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
 
+  if (req.method === 'GET' && (url.pathname === '/api/btc-signal' || url.pathname === '/api/btc')) {
+    try {
+      const payload = await getBtcSignal(url.searchParams.get('force') === '1');
+      res.writeHead(200, {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+        'access-control-allow-origin': '*',
+        'x-gold-alpha-build': BUILD_TAG
+      });
+      return res.end(JSON.stringify(payload));
+    } catch (error) {
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+      return res.end(JSON.stringify({
+        status: 'WAIT', action: 'WAIT', confidence: 0, strategy: 'ICT_FAST_SCALP',
+        degraded: true, reason: 'BTC ICT engine unavailable: ' + String(error?.message || error),
+        updatedAt: new Date().toISOString()
+      }));
+    }
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/site-indicator') {
     try {
       const upstream = await getJson('/api/auto-trade/signal?observe=1');
@@ -173,7 +194,7 @@ const server = http.createServer(async (req, res) => {
     delete headers['content-length'];
 
     if (req.method === 'GET' && url.pathname === '/' && String(headers['content-type'] || '').includes('text/html')) {
-      const html = injectIndicator(out.body.toString('utf8'));
+      const html = injectBtcPanel(injectIndicator(out.body.toString('utf8')));
       headers['content-type'] = 'text/html; charset=utf-8';
       headers['cache-control'] = 'no-store';
       res.writeHead(out.status, headers);
