@@ -85,8 +85,10 @@ services:
         value: "5"
       - key: BTC_MAX_RISK_USD
         value: "10"
+      - key: BTC_MIN_CONFIDENCE
+        value: "70"
       - key: BTC_TELEGRAM_MIN_CONFIDENCE
-        value: "82"
+        value: "70"
       - key: TELEGRAM_EARLY_MIN_CONFIDENCE
         value: "82"
       - key: TELEGRAM_CANDIDATE_MIN_CONFIDENCE
