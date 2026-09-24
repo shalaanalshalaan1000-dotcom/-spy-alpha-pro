@@ -18,6 +18,27 @@ let ready=false;
 const sent={side:null,key:null,above:false,messageId:null,lastText:null,lastEditMs:0,announcedAtMs:0,targets:[false,false,false,false],managedStops:[false,false,false,false]};
 const tradeLock={active:false,key:null,side:null,startedAtMs:0};
 const recentKeys=new Map();
+const sessionAlertKeys=new Set();
+const SESSION_OPEN_ALERTS=[
+  {
+    id:'LONDON',
+    timeZone:'Europe/London',
+    hour:8,
+    minute:0,
+    label:'LONDON OPEN',
+    icon:'🇬🇧',
+    watch:'Asia High/Low sweep → displacement/MSS → 5m confirmation → FVG/OB retest'
+  },
+  {
+    id:'NEW_YORK_GOLD',
+    timeZone:'America/New_York',
+    hour:8,
+    minute:20,
+    label:'NEW YORK GOLD OPEN',
+    icon:'🇺🇸',
+    watch:'London High/Low sweep → displacement/MSS → 5m confirmation → FVG/OB retest'
+  }
+];
 
 function num(v){if(v==null||v===''||typeof v==='boolean')return null;const x=Number(v);return Number.isFinite(x)?x:null;}
 function valid(v){const x=num(v);return x!=null&&x>0;}
@@ -81,6 +102,45 @@ function clearTradeLock(){
   tradeLock.key=null;
   tradeLock.side=null;
   tradeLock.startedAtMs=0;
+}
+
+function zonedClock(now,timeZone){
+  const parts=new Intl.DateTimeFormat('en-GB',{
+    timeZone,year:'numeric',month:'2-digit',day:'2-digit',weekday:'short',
+    hour:'2-digit',minute:'2-digit',hour12:false
+  }).formatToParts(new Date(now));
+  const get=t=>parts.find(p=>p.type===t)?.value||'';
+  return {
+    date:`${get('year')}-${get('month')}-${get('day')}`,
+    weekday:get('weekday'),
+    hour:Number(get('hour')),
+    minute:Number(get('minute'))
+  };
+}
+function isTradingWeekday(day){return !['Sat','Sun'].includes(day);}
+function sessionOpenMessage(def,now){
+  const saudi=new Intl.DateTimeFormat('ar-SA',{
+    timeZone:'Asia/Riyadh',hour:'2-digit',minute:'2-digit',hour12:true
+  }).format(new Date(now));
+  return `🔔 XAUUSD — ${def.label}
+${def.icon} بدأ افتتاح الجلسة المهمة للذهب
+🕒 الآن: ${saudi} بتوقيت السعودية
+👀 نراقب: ${def.watch}
+✅ حد أقصى فرصتان إذا ظهر إعدادان مستقلان
+🚫 لا دخول لمجرد الافتتاح — الإشارة بعد تأكيد المحرك فقط`;
+}
+async function maybeSendSessionOpenAlert(now=Date.now()){
+  for(const def of SESSION_OPEN_ALERTS){
+    const clock=zonedClock(now,def.timeZone);
+    if(!isTradingWeekday(clock.weekday))continue;
+    const current=clock.hour*60+clock.minute,target=def.hour*60+def.minute;
+    if(current<target||current>=target+2)continue;
+    const key=`${def.id}:${clock.date}`;
+    if(sessionAlertKeys.has(key))continue;
+    await send(sessionOpenMessage(def,now));
+    sessionAlertKeys.add(key);
+    console.log(`[telegram-xau-confirmed] session-open alert sent ${key}`);
+  }
 }
 
 function canSendSignal(s,now=Date.now()){
@@ -189,6 +249,7 @@ function resetSent(){
 async function tick(){
   try{
     if(!(await startup()))return;
+    await maybeSendSessionOpenAlert(Date.now());
     const r=await fetch(AUTO_URL,{cache:'no-store',signal:AbortSignal.timeout(7000)});
     if(!r.ok)throw new Error(`signal ${r.status}`);
     const s=await r.json();
