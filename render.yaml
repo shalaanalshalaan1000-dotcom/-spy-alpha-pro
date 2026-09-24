@@ -54,11 +54,11 @@ services:
       - key: GOLD_TELEGRAM_MIN_CONFIDENCE
         value: "82"
       - key: GOLD_TELEGRAM_MIN_RR
-        value: "0.90"
+        value: "0.60"
       - key: TELEGRAM_CONFIRM_ON_5M_CLOSE
         value: "false"
       - key: GOLD_MIN_LIVE_TP1_R
-        value: "0.90"
+        value: "0.60"
       - key: GOLD_SL_COOLDOWN_MS
         value: "300000"
       - key: GOLD_SAME_SIDE_REENTRY_MS
