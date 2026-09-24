@@ -203,7 +203,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const fvg=fvg1??fvg5,entry=fvg.mid,entryLow=Math.min(fvg.low,fvg.high),entryHigh=Math.max(fvg.low,fvg.high);
   const buffer=clamp(atr1*.35,.15,.45);
   const recent=m1.slice(-10),fallbackExtreme=side==='BUY'?lo(recent):hi(recent);
-  const sweep=sweep1??sweep5??sweep15;
+  const sweep=sweep1??sweep5;
   const anchor=sweep?.extreme??fallbackExtreme;
   const stop=side==='BUY'?anchor-buffer:anchor+buffer;
   const risk=Math.abs(entry-stop);
