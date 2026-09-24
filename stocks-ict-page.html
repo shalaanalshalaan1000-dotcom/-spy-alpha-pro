@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ICT Stocks Scalper</title>
+<style>
+:root{--bg:#071018;--card:#0d1823;--card2:#111f2d;--line:#213244;--text:#eef5fb;--muted:#8ea2b6;--good:#22c55e;--bad:#ef4444;--watch:#f59e0b;--accent:#38bdf8}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#050b11,#09131d 45%,#061019);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Tahoma,Arial,sans-serif;min-height:100vh}
+.wrap{max-width:1400px;margin:auto;padding:18px}.top{display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap}.brand h1{font-size:24px;margin:0 0 4px}.brand p{margin:0;color:var(--muted);font-size:13px}.status{display:flex;gap:8px;flex-wrap:wrap}.pill{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:8px 11px;font-size:12px;color:var(--muted)}.pill b{color:var(--text)}
+.grid{display:grid;grid-template-columns:1.1fr 1.9fr;gap:14px;margin-top:14px}.card{background:rgba(13,24,35,.95);border:1px solid var(--line);border-radius:18px;padding:16px;box-shadow:0 12px 40px rgba(0,0,0,.2)}
+.card h2{font-size:16px;margin:0 0 12px}.hero{min-height:310px}.heroHead{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}.ticker{font-size:36px;font-weight:800;letter-spacing:.5px}.dir{font-size:22px;font-weight:800}.CALL{color:var(--good)}.PUT{color:var(--bad)}.WATCH{color:var(--watch)}.NO{color:var(--muted)}
+.conf{font-size:34px;font-weight:800}.label{font-size:11px;color:var(--muted);text-transform:uppercase}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}.metric{background:var(--card2);border:1px solid var(--line);border-radius:13px;padding:10px}.metric b{display:block;font-size:16px;margin-top:3px}
+.targets{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px}.target{border-radius:12px;padding:10px;background:#0b1520;border:1px solid var(--line)}.target span{font-size:11px;color:var(--muted)}.target b{display:block;margin-top:3px}
+.reasons{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}.tag{font-size:11px;border:1px solid var(--line);background:#0b1520;border-radius:999px;padding:6px 9px;color:#c8d5e0}
+.tableWrap{overflow:auto;border:1px solid var(--line);border-radius:14px}table{width:100%;border-collapse:collapse;min-width:980px}th,td{padding:10px 9px;border-bottom:1px solid #172536;text-align:right;font-size:12px;white-space:nowrap}th{position:sticky;top:0;background:#0c1722;color:var(--muted);font-weight:600;z-index:1}tbody tr{cursor:pointer}tbody tr:hover{background:#102131}.score{display:inline-flex;align-items:center;gap:6px}.bar{width:54px;height:5px;border-radius:5px;background:#233244;overflow:hidden}.bar i{display:block;height:100%;background:var(--accent)}
+.optionBox{margin-top:14px}.optionGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.empty{color:var(--muted);padding:18px;text-align:center}.error{color:#fecaca;background:#3b1217;border:1px solid #6d1b25;padding:10px;border-radius:10px}.btn{background:#13283a;color:white;border:1px solid #27425a;border-radius:11px;padding:9px 12px;font-weight:700;cursor:pointer}.btn:hover{background:#18344b}.muted{color:var(--muted)}.foot{color:var(--muted);font-size:11px;text-align:center;padding:18px 6px}
+.loader{animation:pulse 1s infinite}@keyframes pulse{50%{opacity:.45}}
+@media(max-width:900px){.grid{grid-template-columns:1fr}.ticker{font-size:30px}.metrics{grid-template-columns:repeat(2,1fr)}.optionGrid{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand"><h1>ICT Stocks & Options Scalper</h1><p>1m / 5m • Liquidity Sweep • MSS/BOS • FVG • VWAP • Options Liquidity</p></div>
+    <div class="status">
+      <div class="pill">السوق: <b id="phase">—</b></div>
+      <div class="pill">آخر تحديث: <b id="updated">—</b></div>
+      <button class="btn" id="refresh">تحديث الآن</button>
+    </div>
+  </div>
+
+  <div class="grid">
+    <section class="card hero">
+      <h2>أفضل فرصة الآن</h2>
+      <div id="best"><div class="empty loader">جاري فحص السوق...</div></div>
+    </section>
+    <section class="card">
+      <h2>رادار الأسهم والعقود</h2>
+      <div class="tableWrap">
+        <table>
+          <thead><tr><th>السهم</th><th>الحالة</th><th>الثقة</th><th>السعر</th><th>Entry</th><th>SL</th><th>TP1</th><th>TP2</th><th>TP3</th><th>العقد</th></tr></thead>
+          <tbody id="rows"><tr><td colspan="10" class="empty loader">جاري الفحص...</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <section class="card optionBox">
+    <h2>تفاصيل الفرصة والعقد المختار</h2>
+    <div id="detail" class="empty">اضغط على أي سهم لعرض تحليل ICT والعقد المقترح.</div>
+  </section>
+  <div class="foot">النظام أداة تحليل وفرز للفرص وليس تنفيذًا آليًا للأوامر. أهداف سعر العقد تقديرية وتعتمد على حركة الأصل وGreeks الحالية.</div>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const money=n=>Number.isFinite(Number(n))?'$'+Number(n).toFixed(Number(n)>=100?2:2):'—';
+const num=n=>Number.isFinite(Number(n))?Number(n).toFixed(2):'—';
+const stateClass=s=>s==='CALL'?'CALL':s==='PUT'?'PUT':s==='WATCH'?'WATCH':'NO';
+const safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let busy=false,lastScan=null;
+
+function setupHTML(a){
+  if(!a?.setup)return '<div class="empty">لا توجد صفقة مكتملة الآن</div>';
+  const reasons=(a.setup.reasons||[]).map(x=>'<span class="tag">'+safe(x)+'</span>').join('');
+  return '<div class="heroHead"><div><div class="ticker">'+safe(a.symbol)+'</div><div class="dir '+stateClass(a.state)+'">'+safe(a.state)+'</div></div><div style="text-align:left"><div class="label">ICT Confidence</div><div class="conf">'+(a.confidence||0)+'%</div></div></div>'+
+  '<div class="metrics"><div class="metric"><span class="label">Spot</span><b>'+money(a.spot)+'</b></div><div class="metric"><span class="label">Bias</span><b>'+safe(a.htfBias)+'</b></div><div class="metric"><span class="label">VWAP</span><b>'+money(a.vwap)+'</b></div></div>'+
+  '<div class="targets"><div class="target"><span>Entry Zone</span><b>'+money(a.setup.entryLow)+' → '+money(a.setup.entryHigh)+'</b></div><div class="target"><span>Stop</span><b class="PUT">'+money(a.setup.stop)+'</b></div><div class="target"><span>TP1</span><b class="CALL">'+money(a.setup.target1)+'</b></div><div class="target"><span>TP2 / TP3</span><b class="CALL">'+money(a.setup.target2)+' / '+money(a.setup.target3)+'</b></div></div>'+
+  '<div class="reasons">'+reasons+'</div>';
+}
+function optionCell(a){
+  const o=a?.option;if(!o)return '<span class="muted">—</span>';
+  return '<b>'+safe(o.type)+' '+num(o.strike)+'</b><br><span class="muted">'+safe(o.expiry)+'</span>';
+}
+function rowHTML(a){
+  const e=a.setup?money(a.setup.entryLow)+'–'+money(a.setup.entryHigh):'—';
+  return '<tr data-symbol="'+safe(a.symbol)+'"><td><b>'+safe(a.symbol)+'</b></td><td class="'+stateClass(a.state)+'"><b>'+safe(a.state)+'</b></td><td><span class="score"><b>'+Number(a.confidence||0)+'%</b><span class="bar"><i style="width:'+Math.min(100,Number(a.confidence||0))+'%"></i></span></span></td><td>'+money(a.spot)+'</td><td>'+e+'</td><td>'+money(a.setup?.stop)+'</td><td>'+money(a.setup?.target1)+'</td><td>'+money(a.setup?.target2)+'</td><td>'+money(a.setup?.target3)+'</td><td>'+optionCell(a)+'</td></tr>';
+}
+function renderScan(d){
+  lastScan=d;$('#phase').textContent=d.phase||'—';$('#updated').textContent=new Date(d.updatedAt).toLocaleTimeString('ar-SA',{timeZone:'Asia/Riyadh',hour:'2-digit',minute:'2-digit'});
+  $('#best').innerHTML=d.best?setupHTML(d.best):'<div class="empty">لا توجد بيانات</div>';
+  $('#rows').innerHTML=(d.rows||[]).map(rowHTML).join('')||'<tr><td colspan="10" class="empty">لا توجد نتائج</td></tr>';
+  document.querySelectorAll('tr[data-symbol]').forEach(tr=>tr.onclick=()=>loadDetail(tr.dataset.symbol));
+}
+function detailHTML(a){
+  const o=a.option;
+  const levels=a.levels||{},s=a.structure||{};
+  let option='<div class="empty">لم يتم العثور على عقد مناسب ضمن فلتر السيولة الحالي.</div>';
+  if(o) option='<div class="optionGrid">'+
+    '<div class="metric"><span class="label">Contract</span><b>'+safe(o.symbol||'—')+'</b></div>'+
+    '<div class="metric"><span class="label">Type / Strike</span><b class="'+stateClass(a.direction)+'">'+safe(o.type)+' '+num(o.strike)+'</b></div>'+
+    '<div class="metric"><span class="label">Expiry / DTE</span><b>'+safe(o.expiry)+' • '+o.dte+'d</b></div>'+
+    '<div class="metric"><span class="label">Premium</span><b>'+money(o.mid)+'</b></div>'+
+    '<div class="metric"><span class="label">Bid / Ask</span><b>'+money(o.bid)+' / '+money(o.ask)+'</b></div>'+
+    '<div class="metric"><span class="label">Spread</span><b>'+num(o.spreadPct)+'%</b></div>'+
+    '<div class="metric"><span class="label">Delta / Gamma</span><b>'+num(o.delta)+' / '+num(o.gamma)+'</b></div>'+
+    '<div class="metric"><span class="label">Volume / OI</span><b>'+Number(o.volume||0).toLocaleString()+' / '+Number(o.openInterest||0).toLocaleString()+'</b></div>'+
+    '</div><div class="targets" style="margin-top:10px"><div class="target"><span>Premium TP1</span><b class="CALL">'+money(o.premiumTargets?.[0])+'</b></div><div class="target"><span>Premium TP2</span><b class="CALL">'+money(o.premiumTargets?.[1])+'</b></div><div class="target"><span>Premium TP3</span><b class="CALL">'+money(o.premiumTargets?.[2])+'</b></div><div class="target"><span>Premium SL estimate</span><b class="PUT">'+money(o.premiumStop)+'</b></div></div><p class="muted" style="font-size:11px">'+safe(o.note||'')+'</p>';
+  return '<div class="heroHead"><div><div class="ticker">'+safe(a.symbol)+'</div><div class="dir '+stateClass(a.direction)+'">'+safe(a.direction)+' • '+a.confidence+'%</div></div><div class="pill">Session <b>'+safe(a.phase)+'</b></div></div>'+
+    '<div class="metrics"><div class="metric"><span class="label">PDH / PDL</span><b>'+money(levels.pdh)+' / '+money(levels.pdl)+'</b></div><div class="metric"><span class="label">PMH / PML</span><b>'+money(levels.pmh)+' / '+money(levels.pml)+'</b></div><div class="metric"><span class="label">ORH / ORL</span><b>'+money(levels.orh)+' / '+money(levels.orl)+'</b></div><div class="metric"><span class="label">Call / Put Score</span><b>'+Number(s.callScore||0)+' / '+Number(s.putScore||0)+'</b></div><div class="metric"><span class="label">Sweep</span><b>'+money(s.sweepLow||s.sweepHigh)+'</b></div><div class="metric"><span class="label">MSS / FVG</span><b>'+(s.mssBull||s.mssBear?'YES':'NO')+' / '+(s.fvgBull||s.fvgBear?'YES':'NO')+'</b></div></div>'+
+    '<h2 style="margin-top:18px">العقد المختار</h2>'+option;
+}
+async function loadDetail(symbol){
+  $('#detail').innerHTML='<div class="empty loader">جاري تحميل '+safe(symbol)+' وسلسلة العقود...</div>';
+  try{const r=await fetch('/api/symbol?symbol='+encodeURIComponent(symbol),{cache:'no-store'});const d=await r.json();if(!r.ok)throw new Error(d.error||'تعذر التحميل');$('#detail').innerHTML=detailHTML(d)}
+  catch(e){$('#detail').innerHTML='<div class="error">'+safe(e.message)+'</div>'}
+}
+async function refresh(){
+  if(busy)return;busy=true;$('#refresh').textContent='جاري الفحص...';
+  try{const r=await fetch('/api/scan',{cache:'no-store'});const d=await r.json();if(!r.ok)throw new Error(d.error||'تعذر الفحص');renderScan(d);if(d.best?.symbol)loadDetail(d.best.symbol)}
+  catch(e){$('#best').innerHTML='<div class="error">'+safe(e.message)+'</div>';$('#rows').innerHTML='<tr><td colspan="10"><div class="error">'+safe(e.message)+'</div></td></tr>'}
+  finally{busy=false;$('#refresh').textContent='تحديث الآن'}
+}
+$('#refresh').onclick=refresh;refresh();setInterval(refresh,30000);
+</script>
+</body></html>
