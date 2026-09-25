@@ -52,7 +52,7 @@ services:
       - key: TELEGRAM_MIN_CONFIDENCE
         value: "82"
       - key: GOLD_TELEGRAM_MIN_CONFIDENCE
-        value: "82"
+        value: "65"
       - key: GOLD_TELEGRAM_MIN_RR
         value: "0.60"
       - key: TELEGRAM_CONFIRM_ON_5M_CLOSE
