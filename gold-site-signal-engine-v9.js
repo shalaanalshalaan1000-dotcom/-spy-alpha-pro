@@ -80,7 +80,7 @@ const replacements = [
   ],
   [
     " const model=analyzeGoldSignal(state.samples,q.price,now);\n if(!state.signal)maybeCreate(model,q,now);",
-    " const rawModel=analyzeGoldSignal(state.samples,q.price,now);\n const gatedModel=gateGoldModelWithNativeLuxAlgo(rawModel,state.samples,{now});\n const model=stabilizeCandidateModel(gatedModel,q,now);\n if(now-(state.lastDiagAt||0)>=60000){state.lastDiagAt=now;console.log(\`[xau-state] status=\${model.status} conf=\${Number(model.confidence)||0} bias=\${model.contextBias||'NA'} locked=\${Boolean(model.candidateLocked)} nativeICT=\${model.luxalgo?.gate||'NA'} samples=\${state.samples.length} fresh=\${freshQuote(q,now)} reason=\${String(model.reason||'').slice(0,220)}\`);}\n if(!state.signal){if(newsRisk.blockEntries){state.lastEntryGuard={atMs:now,reason:'USD_NEWS_BLACKOUT',newsLevel:newsRisk.level,newsReason:newsRisk.reason,activeEvent:newsRisk.activeEvent};}else maybeCreate(model,q,now);}"
+    " const rawModel=analyzeGoldSignal(state.samples,q.price,now);\n const gatedModel=gateGoldModelWithNativeLuxAlgo(rawModel,state.samples,{now});\n let model=gatedModel;try{model=stabilizeCandidateModel(gatedModel,q,now);}catch(e){console.error('[candidate-lock-error]',e?.stack||e);}\n if(now-(state.lastDiagAt||0)>=60000){state.lastDiagAt=now;console.log(\`[xau-state] status=\${model.status} conf=\${Number(model.confidence)||0} bias=\${model.contextBias||'NA'} locked=\${Boolean(model.candidateLocked)} nativeICT=\${model.luxalgo?.gate||'NA'} samples=\${state.samples.length} fresh=\${freshQuote(q,now)} reason=\${String(model.reason||'').slice(0,220)}\`);}\n if(!state.signal){if(newsRisk.blockEntries){state.lastEntryGuard={atMs:now,reason:'USD_NEWS_BLACKOUT',newsLevel:newsRisk.level,newsReason:newsRisk.reason,activeEvent:newsRisk.activeEvent};}else maybeCreate(model,q,now);}"
   ],
   [
     "signalConfidence:Number(state.signal?.confidence??model.confidence??0),minConfidence:MIN_CONFIDENCE,volatilityPolicy:policy,",
@@ -199,6 +199,11 @@ for (const [from, to] of replacements) {
   const countAnchor="state.dailySignalCount+=1;state.lastSignalAtMs=now;";
   if(!source.includes(countAnchor))throw new Error('opening-session patch: count anchor missing');
   source=source.replace(countAnchor,"state.dailySignalCount+=1;state.lastSignalAtMs=now;");
+}
+
+{
+  const catchAnchor="}catch(e){state.lastError=String(e?.message||e);return json(res,503,{error:'Signal engine unavailable',detail:state.lastError,build:BUILD,noAI:true});}});";
+  if(source.includes(catchAnchor))source=source.replace(catchAnchor,"}catch(e){state.lastError=String(e?.message||e);console.error('[signal-engine-error]',e?.stack||e);return json(res,503,{error:'Signal engine unavailable',detail:state.lastError,build:BUILD,noAI:true});}});");
 }
 
 fs.writeFileSync(runtimeUrl, source, 'utf8');
