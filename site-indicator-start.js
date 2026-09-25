@@ -4,7 +4,7 @@ import { getBtcSignal, injectBtcPanel } from './btc-ict-fast.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_INNER_PORT || 3100);
-const BUILD_TAG = 'site-indicator-v6-luxalgo-context';
+const BUILD_TAG = 'site-indicator-v7-native-ict';
 
 const app = spawn(process.execPath, ['gold-unified-start.js'], {
   env: { ...process.env, PORT: String(INNER_PORT) },
@@ -127,8 +127,8 @@ function injectIndicator(html) {
    const inBuy=Boolean(buy.insideZone),inSell=Boolean(sell.insideZone),buyTrig=Boolean(buy?.trigger?.ready),sellTrig=Boolean(sell?.trigger?.ready);
    document.getElementById('siteZoneTrigger').textContent=inBuy?(buyTrig?'BUY trigger ready':'داخل BUY zone — انتظر 5m'):inSell?(sellTrig?'SELL trigger ready':'داخل SELL zone — انتظر 5m'):'WAIT FOR ZONE';
    const lx=s.luxalgo||{},lf=lx.frames||{},fmtSide=x=>x?.structure?.side||'—';
-   const lxMode=lx.mode==='STRICT'?'STRICT':lx.mode==='OBSERVE'?'OBSERVE':'WAITING';
-   document.getElementById('siteLuxAlgo').textContent=(lx.connected?'✅ ':'⏳ ')+lxMode+' • H1 '+fmtSide(lf['1h'])+' • M15 '+fmtSide(lf['15m'])+' • M5 '+fmtSide(lf['5m']);
+   const lxMode=lx.mode==='NATIVE'?'NATIVE':lx.mode==='STRICT'?'STRICT':lx.mode==='OBSERVE'?'OBSERVE':'WAITING';
+   document.getElementById('siteLuxAlgo').textContent=(lx.ready?'✅ ':'⏳ ')+lxMode+' • H1 '+fmtSide(lf['1h'])+' • M15 '+fmtSide(lf['15m'])+' • M5 '+fmtSide(lf['5m']);
    document.getElementById('siteSignalExecutable').textContent=s.executable?'تنفيذي':'قراءة فقط';
    const nr=s.newsRisk||{};
    const newsLabel=nr.blockEntries?'⛔ إيقاف صفقات — خبر مؤثر':nr.dayHasHighImpactUsd?'⚠️ يوم أخبار USD':'✅ أخبار طبيعية';
