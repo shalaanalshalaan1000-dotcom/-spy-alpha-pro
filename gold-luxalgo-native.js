@@ -284,6 +284,32 @@ export function gateGoldModelWithNativeLuxAlgo(model,samples=[],options={}){
   const h1=snapshot.frames['1h'],m15=snapshot.frames['15m'],m5=snapshot.frames['5m'],m1=snapshot.frames['1m'];
   const h1Side=h1.structureSide,m15Side=m15.structureSide,m5Side=m5.structureSide;
 
+  // Fast reversal path: once external liquidity has been swept and the site engine has
+  // completed the chronological sweep -> MSS + displacement -> origin FVG sequence,
+  // require only a fresh M5 confirmation event. H1/M15 remain context and cannot veto
+  // the reversal just because their slower structure has not flipped yet.
+  const modelIct=model?.ict||{},legSweep=modelIct?.legSweep||modelIct?.sweep||null;
+  const externalSweep=Boolean(legSweep&&!/^local/i.test(String(legSweep?.name||'')));
+  const reversalSequence=Boolean(model?.strategy==='ICT_ORIGIN_REVERSAL'&&modelIct?.sequenceComplete&&modelIct?.hasSweep&&modelIct?.hasShift&&modelIct?.hasDisplacement&&modelIct?.originFvg);
+  const seq5=modelIct?.sequence5||null;
+  const m5FastConfirm=Boolean(seq5?.firstMss||seq5?.firstDisplacement||modelIct?.shift5?.mss||modelIct?.shift5?.displacement);
+  if(reversalSequence&&externalSweep&&m5FastConfirm){
+    const agreement={
+      h1Context:h1Side,
+      m15Context:m15Side,
+      m5Trigger:m5Side,
+      m5Structure:m5.structure?.type||null,
+      m5Fvg:m5.fvg?.type||null,
+      m5Displacement:m5.displacement?.side||null,
+      m5LiquiditySweep:m5.liquiditySweep?.event||null,
+      m1Timing:m1.structureSide||null,
+      higherTimeframeConflict:Boolean((h1Side&&h1Side!==candidate)||(m15Side&&m15Side!==candidate)),
+      reversalOverride:true,
+      sweptLevel:legSweep?.name||null
+    };
+    return{...model,luxalgo:{...snapshot,gate:'PASS',gateCode:'FAST_EXTERNAL_LIQUIDITY_REVERSAL',gateReason:`Fresh external-liquidity reversal confirms ${candidate}: ${legSweep?.name||'named liquidity'} sweep + chronological MSS/displacement + origin FVG + M5 confirmation; H1/M15 are context only.`,agreement}};
+  }
+
   // M15/H1 are context only. Do not wait for a slow higher-timeframe structure flip
   // after the M5 execution leg has already started.
   if(!m5Side)return block(model,snapshot,'Need confirmed M5 MSS/BOS before entry.','M5_STRUCTURE_MISSING');
