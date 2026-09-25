@@ -174,9 +174,9 @@ for (const [from, to] of replacements) {
 
 // Session context only: scan the full gold market day. London/New York labels are context, never a hard entry gate.
 {
-  const stateAnchor="lastReconnectAttempt:0,dailySignalDate:null,dailySignalCount:0,lastSignalAtMs:0,lastNewsRisk:null};";
+  const stateAnchor="lastReconnectAttempt:0,dailySignalDate:null,dailySignalCount:0,lastSignalAtMs:0,lastNewsRisk:null,candidateLock:null,candidateLockBucket:null};";
   if(!source.includes(stateAnchor))throw new Error('opening-session patch: state anchor missing');
-  source=source.replace(stateAnchor,"lastReconnectAttempt:0,dailySignalDate:null,dailySignalCount:0,lastSignalAtMs:0,lastNewsRisk:null,openSessionKey:null,openSessionSignalCount:0};");
+  source=source.replace(stateAnchor,"lastReconnectAttempt:0,dailySignalDate:null,dailySignalCount:0,lastSignalAtMs:0,lastNewsRisk:null,candidateLock:null,candidateLockBucket:null,openSessionKey:null,openSessionSignalCount:0};");
 
   const configAnchor="const XAU_MAX_RISK_USD=Math.max(XAU_SAFE_RISK_USD,Number(process.env.XAU_MAX_RISK_USD||10));";
   if(!source.includes(configAnchor))throw new Error('opening-session patch: config anchor missing');
