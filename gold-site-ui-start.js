@@ -19,15 +19,15 @@ function patchSiteSignalUi(source) {
   const sweepReady=Boolean(sweepEvent);
   const mssReady=sweepReady&&Boolean(ict?.hasShift||ict?.mss||ict?.firstMssEvent);
   const displacementReady=sweepReady&&Boolean(ict?.hasDisplacement||ict?.displacement||ict?.firstDisplacementEvent);
-  const shiftReady=mssReady&&displacementReady;
+  const shiftReady=mssReady||displacementReady;
   const continuationReady=Boolean(ict?.entryMode==='CONFIRMED_CONTINUATION'||ict?.useDirectContinuation||ict?.directContinuation);
-  const fvgReady=shiftReady&&Boolean(ict?.originFvg);
+  const fvgReady=shiftReady&&Boolean(ict?.originFvg||ict?.poi);
   const setupTriggerReady=shiftReady&&Boolean(fvgReady||continuationReady);
   const targetReady=setupTriggerReady&&Boolean(ict?.mainLiquidity||raw?.target1);
   const triggerReady=active;
-  const checks=[['Context',contextReady],[sweepReady?sweepLabel+' swept':'Liquidity Sweep',sweepReady],['MSS + Displacement',shiftReady],[continuationReady?'Continuation':'Origin FVG',continuationReady||fvgReady],['External Liquidity',targetReady],['Entry',triggerReady]],done=checks.filter(x=>x[1]).length,setupProgress=active?100:collecting?Math.min(15,Math.round((Number(raw?.sampleCount)||0)/5000*15)):Math.round(done/checks.length*100),setupSteps=checks.map(x=>x[0]+' '+(x[1]?'✓':'—')).join(' • ');
-  const reasonUpper=reason.toUpperCase();let missingCondition='بانتظار تسلسل ICT: سحب سيولة → MSS/Displacement → أول FVG → سيولة خارجية مناسبة';
-  if(recovering)missingCondition='استعادة بيانات السعر الحي';else if(cooldown)missingCondition='فترة حماية بعد الصفقة السابقة';else if(/MOVE CONSUMED/.test(reasonUpper))missingCondition='الحركة استُهلكت؛ ممنوع مطاردة آخرها وننتظر بداية جديدة';else if(/TARGET WAIT/.test(reasonUpper))missingCondition='لا توجد سيولة خارجية مناسبة تبعد 5$ أو أكثر عن منطقة الدخول';else if(/NO CHASE/.test(reasonUpper))missingCondition='السعر ابتعد عن منطقة الدخول؛ ننتظر عودة أو إعدادًا جديدًا';else if(/STOP_TOO_|INVALID_MOMENTUM_STOP|MIN_LOT_EXCEEDS/.test(reasonUpper))missingCondition='وقف الخسارة أو حجم المخاطرة غير مناسب';else if(/USD_NEWS_BLACKOUT|NEWS RISK/.test(reasonUpper))missingCondition='فلتر الأخبار يمنع الدخول مؤقتًا';else if(sweepReady&&!shiftReady)missingCondition=sweepLabel+' swept ✓ — ننتظر MSS + Displacement';else if(shiftReady&&!fvgReady&&!continuationReady)missingCondition=sweepLabel+' swept ✓ • MSS/Displacement ✓ — ننتظر Origin FVG أو استمرار مؤكد';else if((fvgReady||continuationReady)&&!targetReady)missingCondition=(continuationReady?'Continuation ✓':'Origin FVG ✓')+' — نبحث عن سيولة خارجية مناسبة';else if(/ICT CONTEXT WAIT/.test(reasonUpper))missingCondition='السياق لم يكتمل بعد؛ نحفظ الـSweep وننتظر MSS/Displacement بدل إعادة التسلسل من الصفر';else if(status==='CANDIDATE')missingCondition=continuationReady?'Continuation confirmed — الدخول مسلح الآن':'Origin FVG محددة؛ ننتظر رجوع السعر إليها للدخول';
+  const checks=[['Context',contextReady],[sweepReady?sweepLabel+' swept':'Liquidity Sweep',sweepReady],['MSS أو Displacement',shiftReady],[continuationReady?'Continuation':'FVG / OB',continuationReady||fvgReady],['External Liquidity',targetReady],['Entry',triggerReady]],done=checks.filter(x=>x[1]).length,setupProgress=active?100:collecting?Math.min(15,Math.round((Number(raw?.sampleCount)||0)/5000*15)):Math.round(done/checks.length*100),setupSteps=checks.map(x=>x[0]+' '+(x[1]?'✓':'—')).join(' • ');
+  const reasonUpper=reason.toUpperCase();let missingCondition='بانتظار تسلسل ICT: سحب سيولة → MSS أو Displacement قوي → أول FVG/OB → سيولة خارجية مناسبة';
+  if(recovering)missingCondition='استعادة بيانات السعر الحي';else if(cooldown)missingCondition='فترة حماية بعد الصفقة السابقة';else if(/MOVE CONSUMED/.test(reasonUpper))missingCondition='الحركة استُهلكت؛ ممنوع مطاردة آخرها وننتظر بداية جديدة';else if(/TARGET WAIT/.test(reasonUpper))missingCondition='لا توجد سيولة خارجية مناسبة تبعد 5$ أو أكثر عن منطقة الدخول';else if(/NO CHASE/.test(reasonUpper))missingCondition='السعر ابتعد عن منطقة الدخول؛ ننتظر عودة أو إعدادًا جديدًا';else if(/STOP_TOO_|INVALID_MOMENTUM_STOP|MIN_LOT_EXCEEDS/.test(reasonUpper))missingCondition='وقف الخسارة أو حجم المخاطرة غير مناسب';else if(/USD_NEWS_BLACKOUT|NEWS RISK/.test(reasonUpper))missingCondition='فلتر الأخبار يمنع الدخول مؤقتًا';else if(sweepReady&&!shiftReady)missingCondition=sweepLabel+' swept ✓ — ننتظر MSS أو Displacement قوي';else if(shiftReady&&!fvgReady&&!continuationReady)missingCondition=sweepLabel+' swept ✓ • trigger ✓ — ننتظر أول FVG/OB أو استمرار مؤكد';else if((fvgReady||continuationReady)&&!targetReady)missingCondition=(continuationReady?'Continuation ✓':'Origin FVG ✓')+' — نبحث عن سيولة خارجية مناسبة';else if(/ICT CONTEXT WAIT/.test(reasonUpper))missingCondition='نحفظ الـSweep وننتظر MSS أو Displacement قوي؛ لا نطلب الاثنين معًا';else if(status==='CANDIDATE')missingCondition=continuationReady?'Continuation confirmed — الدخول مسلح الآن':'Origin FVG محددة؛ ننتظر رجوع السعر إليها للدخول';
   const developingSide=['BUY','SELL'].includes(raw?.candidateAction)?raw.candidateAction:null;
   const scenarioLabel=active?(side==='BUY'?'BUY مؤكد — ICT Context':'SELL مؤكد — ICT Context'):candidate?('مرشح '+candidateSide+' — ICT Context'):recovering?'استعادة البيانات':cooldown?'انتظار بعد الصفقة':(sweepReady&&developingSide?(developingSide+' REVERSAL BUILDING — '+sweepLabel):(['BUY','SELL'].includes(raw?.contextBias)?('HTF Context '+raw.contextBias):'انتظار'));
   const waitReason=recovering?'جاري استعادة بيانات السعر الحي.':cooldown?'فترة حماية قصيرة بعد الصفقة السابقة.':candidate?(continuationReady?'Continuation confirmed — الدخول جاهز عند سعر المحرك الحي.':'Origin FVG محددة — ننتظر retracement إلى منطقة الدخول.'):missingCondition;
@@ -42,7 +42,7 @@ function patchSiteSignalUi(source) {
   source = source.replaceAll('const d=goldBrowserReading(raw);', 'const d=goldSignalReading(raw);');
   source = source.replace(
     'توقع الذهب — نموذج 5 دقائق',
-    'XAUUSD — ICT — ORIGIN TO LIQUIDITY | Liquidity Sweep + MSS/Displacement + Origin FVG / Continuation'
+    'XAUUSD — ICT — ORIGIN TO LIQUIDITY | Sweep + MSS OR Displacement + FVG/OB'
   );
   source = source.replace(
     "symbol:'OANDA:XAUUSD',interval:'15'",
@@ -50,12 +50,12 @@ function patchSiteSignalUi(source) {
   );
   source = source.replace(
     'يُعرض السيناريو المتوقع بعد اكتمال 5 دقائق من العينات ووصول التأكيد إلى 75%؛ وإلا تبقى القراءة انتظار.',
-    'ICT: يبحث عن بداية الحركة من سحب السيولة ثم MSS/Displacement وأول FVG صالح، ويستهدف السيولة الخارجية بدل مطاردة آخر الحركة.'
+    'ICT: بعد سحب السيولة يكفي MSS أو Displacement قوي، ثم أول FVG/OB صالح للدخول؛ الـKillzone وHTF سياق فقط.'
   );
 
   source = source.replace(
     '<div class="goldPlanCard"><span>إلغاء السيناريو</span><strong id="goldInvalidation">—</strong><small id="goldModelWindow">بيانات الرصد: —</small></div>',
-    '<div class="goldPlanCard"><span>تقدم الإشارة</span><strong id="goldSetupProgress">0%</strong><small id="goldSetupSteps">15m Context — • 1m/5m FVG — • MSS / Displacement — • Entry —</small></div><div class="goldPlanCard"><span>الشرط الناقص الآن</span><strong id="goldMissingCondition">—</strong><small>يتحدث مع كل قراءة جديدة</small></div><div class="goldPlanCard"><span>اللوت المحسوب</span><strong id="goldLotSize">—</strong><small id="goldLotRisk">حسب مسافة SL</small></div><div class="goldPlanCard"><span>ICT Origin Setup</span><strong id="goldIctDraw">—</strong><small id="goldIctBias">15m context • 1m/5m execution</small></div><div class="goldPlanCard"><span>إلغاء السيناريو</span><strong id="goldInvalidation">—</strong><small id="goldModelWindow">بيانات الرصد: —</small></div>'
+    '<div class="goldPlanCard"><span>تقدم الإشارة</span><strong id="goldSetupProgress">0%</strong><small id="goldSetupSteps">HTF Context — • Sweep — • MSS أو Displacement — • FVG/OB — • Entry —</small></div><div class="goldPlanCard"><span>الشرط الناقص الآن</span><strong id="goldMissingCondition">—</strong><small>يتحدث مع كل قراءة جديدة</small></div><div class="goldPlanCard"><span>اللوت المحسوب</span><strong id="goldLotSize">—</strong><small id="goldLotRisk">حسب مسافة SL</small></div><div class="goldPlanCard"><span>ICT Origin Setup</span><strong id="goldIctDraw">—</strong><small id="goldIctBias">15m context • 1m/5m execution</small></div><div class="goldPlanCard"><span>إلغاء السيناريو</span><strong id="goldInvalidation">—</strong><small id="goldModelWindow">بيانات الرصد: —</small></div>'
   );
   source = source.replace(
     "$('#goldScenario').textContent=labels[plan.state]||'انتظار';$('#goldScenario').className=classes[plan.state]||'muted';",
@@ -88,16 +88,16 @@ function patchSiteSignalUi(source) {
   if(/STOP_TOO_|INVALID_MOMENTUM_STOP|MIN_LOT_EXCEEDS/.test(u))return 'وقف الخسارة أو المخاطرة غير مناسب';
   if(/TARGET WAIT|MAIN_TARGET_BELOW_MIN_R|TP1_TOO_CLOSE/.test(u))return 'لا توجد سيولة خارجية مناسبة تبعد 5$ أو أكثر';
   if(/USD_NEWS_BLACKOUT|NEWS RISK/.test(u))return 'فلتر الأخبار يمنع الدخول مؤقتًا';
-   if(/ICT CONTEXT WAIT/.test(u))return 'السياق لم يكتمل بعد؛ نحفظ الـSweep وننتظر MSS/Displacement ثم Origin FVG أو Continuation';
+   if(/ICT CONTEXT WAIT/.test(u))return 'الـSweep محفوظ؛ ننتظر MSS أو Displacement قوي ثم أول FVG/OB';
    if(st==='CANDIDATE')return raw?.ict?.entryMode==='CONFIRMED_CONTINUATION'?'Continuation confirmed — الدخول مسلح':'Origin FVG محددة؛ ننتظر رجوع السعر إلى منطقة الدخول';
-  return 'بانتظار FVG + MSS/Displacement على 1m/5m';
+  return 'بانتظار MSS أو Displacement قوي ثم FVG/OB على 1m/5m';
  }
  async function refresh(){
   try{
    const r=await fetch('/api/auto-trade/signal?observe=1&_='+Date.now(),{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);const raw=await r.json();
    const status=String(raw?.status||'').toUpperCase(),active=Boolean(raw?.signalId)&&['ACTIVE','MANAGING'].includes(status),collecting=status==='COLLECTING',side=['BUY','SELL'].includes(raw?.candidateAction)?raw.candidateAction:(['BUY','SELL'].includes(raw?.contextBias)?raw.contextBias:null);
     const ict=raw?.ict||{},sweepEvent=ict?.legSweep||ict?.sweep||null,sweepLabel=String(sweepEvent?.name||'Liquidity').replaceAll('_',' '),contextReady=Number(ict?.dir15)!==0||Number(ict?.dir1)!==0,sweepReady=Boolean(sweepEvent),mssReady=sweepReady&&Boolean(ict?.hasShift||ict?.mss||ict?.firstMssEvent),displacementReady=sweepReady&&Boolean(ict?.hasDisplacement||ict?.displacement||ict?.firstDisplacementEvent),shiftReady=mssReady&&displacementReady,continuationReady=Boolean(ict?.entryMode==='CONFIRMED_CONTINUATION'||ict?.useDirectContinuation||ict?.directContinuation),fvgReady=shiftReady&&Boolean(ict?.originFvg),setupTriggerReady=shiftReady&&Boolean(fvgReady||continuationReady),targetReady=setupTriggerReady&&Boolean(ict?.mainLiquidity||raw?.target1),triggerReady=active;
-    const checks=[['Context',contextReady],[sweepReady?sweepLabel+' swept':'Sweep',sweepReady],['MSS + Displacement',shiftReady],[continuationReady?'Continuation':'Origin FVG',continuationReady||fvgReady],['External Liquidity',targetReady],['Entry',triggerReady]],done=checks.filter(x=>x[1]).length;
+    const checks=[['Context',contextReady],[sweepReady?sweepLabel+' swept':'Sweep',sweepReady],['MSS أو Displacement',shiftReady],[continuationReady?'Continuation':'FVG / OB',continuationReady||fvgReady],['External Liquidity',targetReady],['Entry',triggerReady]],done=checks.filter(x=>x[1]).length;
    const progress=active?100:collecting?Math.min(15,Math.max(1,Math.round((Number(raw?.sampleCount)||0)/5000*15))):Math.round(done/checks.length*100);
    const conf=Math.max(0,Math.min(100,Number(raw?.signalConfidence??raw?.confidence)||0)),min=0;
    set('goldSetupProgress',progress+'%');set('goldSetupSteps',checks.map(x=>x[0]+' '+(x[1]?'✓':'—')).join(' • '));set('goldMissingCondition',missing(raw,conf,min));
