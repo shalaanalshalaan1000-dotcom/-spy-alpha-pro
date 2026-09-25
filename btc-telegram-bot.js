@@ -161,33 +161,36 @@ async function telegram(method, body) {
 
 function message(signal) {
   const icon = signal.action === 'BUY' ? '🟢' : '🔴';
-  const strategy = signal.strategy || 'ICT_FAST_SCALP';
+  const strategy = signal.strategy || 'ICT_NARRATIVE_CONTINUATION';
   const trend = signal.trend || '—';
   const ict = signal.ict || {};
-  const rsi5 = Number(ict?.rsi5);
-  const fvg = ict?.fvg1?.bull || ict?.fvg5?.bull ? 'Bull FVG' : ict?.fvg1?.bear || ict?.fvg5?.bear ? 'Bear FVG' : '—';
-  const trigger = (ict?.mss1?.bull||ict?.mss5?.bull||ict?.displacement1?.bull||ict?.displacement5?.bull)?'Bull MSS/Displacement':(ict?.mss1?.bear||ict?.mss5?.bear||ict?.displacement1?.bear||ict?.displacement5?.bear)?'Bear MSS/Displacement':'WAIT';
+  const z = zone => zone && validNumber(zone.low) && validNumber(zone.high) ? `${n(zone.low)}–${n(zone.high)}` : '—';
+  const shift = ict.executionShift ? `${ict.executionShift.side || ''} ${ict.executionShift.type || 'SHIFT'}`.trim() : 'WAIT';
+  const displacement = ict.executionDisplacement?.side || 'WAIT';
+  const fvg = z(ict.executionFvg);
+  const poi = z(ict.m15Poi);
+  const targets = Array.isArray(signal.targetLabels) ? signal.targetLabels : [];
   const stamp = new Intl.DateTimeFormat('ar-SA', {
     timeZone: 'Asia/Riyadh', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
   }).format(new Date());
 
   const sizing = lotSizingLines(signal.entry, signal.stopLoss);
-  return `${icon} BTCUSD — ICT FAST CONFIRMED ${signal.action}\n` +
+  return `${icon} BTCUSD — ICT NARRATIVE CONFIRMED ${signal.action}\n` +
     `🧠 Strategy: ${strategy}\n` +
     `📊 Setup score: ${Math.round(Number(signal.confidence) || 0)}/100\n` +
-    `📈 1h/15m Trend: ${trend}\n` +
-    `⚡ 5m Trigger: ${trigger}\n` +
-    `📉 RSI5: ${Number.isFinite(rsi5) ? rsi5.toFixed(1) : '—'}\n` +
-    `🧩 FVG: ${fvg}\n` +
+    `📈 H1 / M15 Structure: ${trend}\n` +
+    `🧲 M15 POI: ${poi}\n` +
+    `⚡ Execution: ${shift} + ${displacement} displacement\n` +
+    `🧩 Execution FVG: ${fvg}\n` +
     `💵 Price: ${n(signal.price)}\n` +
     `📍 Entry: ${n(signal.entry)}\n` +
     `🛑 SL: ${n(signal.stopLoss)}\n` +
-    `🎯 TP1: ${n(signal.target1)}\n` +
-    `🎯 TP2: ${n(signal.target2)}\n` +
-    `🎯 TP3: ${n(signal.target3)}\n` +
-    `🎯 TP4: ${n(signal.target4)}\n\n` +
+    `🎯 TP1: ${n(signal.target1)} • ${targets[0] || 'external liquidity'}\n` +
+    `🎯 TP2: ${n(signal.target2)} • ${targets[1] || 'external liquidity'}\n` +
+    `🎯 TP3: ${n(signal.target3)} • ${targets[2] || 'external liquidity'}\n` +
+    `🎯 TP4: ${n(signal.target4)} • ${targets[3] || 'external liquidity'}\n\n` +
     `${sizing.join('\\n')}\n` +
-    `⏱️ 15m context / 1m+5m ICT trigger\n` +
+    `⏱️ H1/M15 narrative • M5/M1 execution • no counter-trend FVG entries\n` +
     `🕒 ${stamp} بتوقيت السعودية\n` +
     `⚪ إشارات فقط — لا تداول آلي`;
 }
