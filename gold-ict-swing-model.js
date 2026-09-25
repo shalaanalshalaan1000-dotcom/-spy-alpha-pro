@@ -326,14 +326,17 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
     const sweep=seqPick?.sweep??null,sweep5=sweep?.tf===5?sweep:null,sweep1=sweep?.tf===1?sweep:null;
     const namedSweep=Boolean(sweep&&!/^local/i.test(String(sweep.name||''))),freshSweep=Boolean(sweep&&now-sweep.t>=0&&now-sweep.t<=120*60_000);
     const seq5=seqPick?.seq5??null,seq1=seqPick?.seq1??null,firstMss=seqPick?.firstMss??null,firstDisplacement=seqPick?.firstDisplacement??null;
-    const sequenceAt=firstMss&&firstDisplacement?Math.max(firstMss.closeT??firstMss.t,firstDisplacement.closeT??firstDisplacement.t):null;
+    const triggerEvent=[firstMss,firstDisplacement].filter(Boolean).sort((a,b)=>(a.closeT??a.t)-(b.closeT??b.t))[0]??null;
+    const sequenceAt=triggerEvent?(triggerEvent.closeT??triggerEvent.t):null;
     const origin=sequenceAt!=null?originFvg(m1,m5,side,sequenceAt-1):null;
-    const freshSequence=Boolean(freshSweep&&firstMss&&firstDisplacement);
+    // Relaxed ICT trigger: after a valid liquidity sweep, MSS OR strong displacement is enough
+    // to arm the setup. The first post-trigger FVG/OB then defines the entry zone.
+    const freshSequence=Boolean(freshSweep&&triggerEvent);
     const freshReversal=Boolean(freshSequence&&origin);
     const freshBos=Boolean(bos?.broken&&now-bos.t>=0&&now-bos.t<=120*60_000);
     const directionalBreak=Boolean(dm.mss||dm.displacement);
     const score=(freshSequence?70:0)+(freshReversal?20:0)+(namedSweep?12:0)+(freshSweep?18:0)+(freshBos?16:0)+(directionalBreak?12:0)+(fvg?6:0)+(dir15===sign?3:0)+(dir1===sign?1:0);
-    return{side,sign,fvg,sweep,sweep5,sweep1,namedSweep,freshSweep,seq5,seq1,firstMss,firstDisplacement,sequenceAt,origin,freshSequence,freshReversal,dm,bos,freshBos,directionalBreak,score};
+    return{side,sign,fvg,sweep,sweep5,sweep1,namedSweep,freshSweep,seq5,seq1,firstMss,firstDisplacement,triggerEvent,sequenceAt,origin,freshSequence,freshReversal,dm,bos,freshBos,directionalBreak,score};
   };
   const buy5Preview=build5Preview('BUY'),sell5Preview=build5Preview('SELL');
   const reversalWinner=[buy5Preview,sell5Preview].filter(x=>x.freshReversal).sort((a,b)=>(b.sequenceAt||0)-(a.sequenceAt||0)||(b.sweep?.t||0)-(a.sweep?.t||0))[0]??null;
@@ -367,9 +370,12 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const firstDisplacementEvent=sweepState?.firstDisplacement??null;
   const hasShift=Boolean(firstMssEvent);
   const hasDisplacement=Boolean(firstDisplacementEvent);
-  // A valid reversal sequence is chronological: freshest liquidity sweep -> MSS and displacement
-  // (they may occur on separate 1m/5m candles) -> first NEW FVG. H1/M15 remain context only.
-  const sequenceShiftT=hasShift&&hasDisplacement?Math.max(firstMssEvent.closeT??firstMssEvent.t,firstDisplacementEvent.closeT??firstDisplacementEvent.t):null;
+  const triggerEvents=[firstMssEvent,firstDisplacementEvent].filter(Boolean).sort((a,b)=>(a.closeT??a.t)-(b.closeT??b.t));
+  const firstTriggerEvent=triggerEvents[0]??null;
+  const triggerConfirmed=Boolean(hasSweep&&(hasShift||hasDisplacement));
+  // Relaxed chronological sequence: liquidity sweep -> MSS OR strong displacement -> first NEW FVG/OB.
+  // H1/M15 and killzones remain context only; they do not veto the entry trigger.
+  const sequenceShiftT=triggerConfirmed&&firstTriggerEvent?(firstTriggerEvent.closeT??firstTriggerEvent.t):null;
   const hasBos=Boolean((bos5.broken&&(!legSweep||bos5.t>=legSweep.t))||(bos1.broken&&(!legSweep||bos1.t>=legSweep.t)));
   const reversalAnchor=sequenceShiftT;
   const continuationAnchor=[bos5,bos1].filter(x=>x?.broken).sort((a,b)=>a.t-b.t)[0]?.t??null;
@@ -381,16 +387,16 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const reversalFvg=reversalAnchor!=null?originFvg(m1,m5,side,reversalAnchor):null;
   // Continuation FVG must also be created after the post-BOS displacement, never before it.
   const continuationFvg=continuationDisplacementEvent?originFvg(m1,m5,side,continuationDisplacementEvent.t):null;
-  const sequenceConfirmed=Boolean(hasSweep&&hasShift&&hasDisplacement);
+  const sequenceConfirmed=triggerConfirmed;
   const structureAligned=Boolean(setupAligned||biasAligned||contextAligned);
-  const reversal=Boolean(reversalFvg&&sequenceConfirmed);
-  const continuation=Boolean(continuationFvg&&structureAligned&&hasBos&&contDisplacement);
-  const directContinuation=Boolean(sequenceConfirmed&&structureAligned&&hasBos);
+  const reversal=Boolean(reversalFvg&&triggerConfirmed);
+  const continuation=Boolean(continuationFvg&&structureAligned&&hasBos&&triggerConfirmed);
+  const directContinuation=Boolean(triggerConfirmed&&structureAligned&&hasBos);
   const executionReady=Boolean(reversal||continuation||directContinuation);
   const selectedFvg=reversal?reversalFvg:(continuation?continuationFvg:(reversalFvg??continuationFvg??fvg1??fvg5??null));
-  const contextSequence=reversal?'LIQUIDITY_SWEEP -> MSS/DISPLACEMENT -> ORIGIN_FVG':continuation?'TREND_STRUCTURE -> BOS -> DISPLACEMENT -> FVG':'LIQUIDITY_SWEEP -> MSS/DISPLACEMENT -> BOS -> CONFIRMED_CONTINUATION';
+  const contextSequence=reversal?'LIQUIDITY_SWEEP -> MSS_OR_DISPLACEMENT -> ORIGIN_FVG':continuation?'TREND_STRUCTURE -> BOS -> MSS_OR_DISPLACEMENT -> FVG':'LIQUIDITY_SWEEP -> MSS_OR_DISPLACEMENT -> BOS -> CONFIRMED_CONTINUATION';
 
-  if(!executionReady)return{...base,status:'WAIT',candidateAction:side,confidence:0,contextBias:side,oneMinuteConfirmed,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,contextAligned,biasAligned,setupAligned,setupVotes,setupReady,fvg15,sweep15,dm15,fvg5,sweep5,dm5,bos5,fvg1,sweep1,dm1,bos1,bos15,legSweep,sequence1,sequence5,shift1,shift5,shift15,firstMssEvent,firstDisplacementEvent,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),hasSweep,hasShift,hasDisplacement,hasBos,contextSequence},reason:'ICT CONTEXT WAIT: waiting for a preserved liquidity sweep to produce MSS + displacement; after confirmation the engine may use either an Origin FVG retest or a controlled continuation entry'};
+  if(!executionReady)return{...base,status:'WAIT',candidateAction:side,confidence:0,contextBias:side,oneMinuteConfirmed,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,contextAligned,biasAligned,setupAligned,setupVotes,setupReady,fvg15,sweep15,dm15,fvg5,sweep5,dm5,bos5,fvg1,sweep1,dm1,bos1,bos15,legSweep,sequence1,sequence5,shift1,shift5,shift15,firstMssEvent,firstDisplacementEvent,firstTriggerEvent,triggerConfirmed,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),hasSweep,hasShift,hasDisplacement,hasBos,contextSequence},reason:'ICT CONTEXT WAIT: liquidity sweep is preserved; waiting for MSS OR strong displacement, then the first valid Origin FVG/OB or controlled continuation entry'};
 
   const setupType=reversal?'ICT_ORIGIN_REVERSAL':continuation?'ICT_ORIGIN_CONTINUATION':'ICT_CONFIRMED_CONTINUATION';
   const fvg=selectedFvg,shiftT=reversal?firstShift?.t:continuationAnchor;
@@ -453,5 +459,5 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const targets=plan.targets.map(x=>round(x.price));
   const labels=plan.targets.map(x=>x.label);
   const drawOnLiquidity=labels[0]||'OPPOSING_LIQUIDITY';
-  return{...base,status:'CANDIDATE',candidateAction:side,side,strategy:setupType,confidence,contextBias:side,oneMinuteConfirmed,setupId:[side,setupType,sweep?.t??fvg?.t??now,round(entry),round(stop),drawOnLiquidity].join('|'),entry:round(entry),entryLow:round(entryLow),entryHigh:round(entryHigh),stopLoss:round(stop),target1:targets[0]??null,target2:targets[1]??null,target3:targets[2]??null,target4:targets[3]??null,targetLabels:labels,riskReward:round(plan.rr,2),ict:{setupType,mode:'ICT_NARRATIVE_ENGINE',phase,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),dealingRangeHigh:round(rangeHigh),dealingRangeLow:round(rangeLow),rangeContext,contextAligned,biasAligned,setupAligned,setupReady,executionReady,setupVotes,contextSequence,hasSweep,hasShift,hasDisplacement,hasBos,legSweep,sequence1,sequence5,firstShift,firstMssEvent,firstDisplacementEvent,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),shift1,shift5,shift15,contShift1,contShift5,continuationDisplacementEvent,sweep:sweep??sweep15,sweep15,sweep5,sweep1,displacement:hasDisplacement,mss:hasShift,bos:hasBos,bos15,bos5,bos1,dm15,dm5,dm1,orderBlock,poi,originFvg:fvg?{...fvg,low:round(fvg.low),high:round(fvg.high),mid:round(fvg.mid)}:null,entryMode:useDirectContinuation?'CONFIRMED_CONTINUATION':'ORIGIN_FVG_RETEST',directContinuation,useDirectContinuation,entryZoneAgeMinutes:fvg?round(zoneAgeMs/60000,1):null,minimumTargetMove:plan.minimumTargetMove,mainLiquidity:plan.mainLiquidity,drawOnLiquidity,pathConsumed:round(pathConsumed,2),atr1:round(atr1),atr5:round(atr5),atr15:round(atr15),stopBuffer:round(buffer),offSession},reason:'ICT NARRATIVE | '+phase+' | '+contextSequence+' | '+side+' via '+(useDirectContinuation?'CONFIRMED CONTINUATION':'ORIGIN FVG RETEST')+' from '+poi.type+' in '+rangeContext.location+' | draw '+drawOnLiquidity+' '+round(targets[0])+' | remaining '+round(Math.abs(targets[0]-price),2)};
+  return{...base,status:'CANDIDATE',candidateAction:side,side,strategy:setupType,confidence,contextBias:side,oneMinuteConfirmed,setupId:[side,setupType,sweep?.t??fvg?.t??now,round(entry),round(stop),drawOnLiquidity].join('|'),entry:round(entry),entryLow:round(entryLow),entryHigh:round(entryHigh),stopLoss:round(stop),target1:targets[0]??null,target2:targets[1]??null,target3:targets[2]??null,target4:targets[3]??null,targetLabels:labels,riskReward:round(plan.rr,2),ict:{setupType,mode:'ICT_NARRATIVE_ENGINE',phase,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),dealingRangeHigh:round(rangeHigh),dealingRangeLow:round(rangeLow),rangeContext,contextAligned,biasAligned,setupAligned,setupReady,executionReady,setupVotes,contextSequence,hasSweep,hasShift,hasDisplacement,hasBos,triggerConfirmed,legSweep,sequence1,sequence5,firstShift,firstMssEvent,firstDisplacementEvent,firstTriggerEvent,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),shift1,shift5,shift15,contShift1,contShift5,continuationDisplacementEvent,sweep:sweep??sweep15,sweep15,sweep5,sweep1,displacement:hasDisplacement,mss:hasShift,bos:hasBos,bos15,bos5,bos1,dm15,dm5,dm1,orderBlock,poi,originFvg:fvg?{...fvg,low:round(fvg.low),high:round(fvg.high),mid:round(fvg.mid)}:null,entryMode:useDirectContinuation?'CONFIRMED_CONTINUATION':'ORIGIN_FVG_RETEST',directContinuation,useDirectContinuation,entryZoneAgeMinutes:fvg?round(zoneAgeMs/60000,1):null,minimumTargetMove:plan.minimumTargetMove,mainLiquidity:plan.mainLiquidity,drawOnLiquidity,pathConsumed:round(pathConsumed,2),atr1:round(atr1),atr5:round(atr5),atr15:round(atr15),stopBuffer:round(buffer),offSession},reason:'ICT NARRATIVE | '+phase+' | '+contextSequence+' | '+side+' via '+(useDirectContinuation?'CONFIRMED CONTINUATION':'ORIGIN FVG RETEST')+' from '+poi.type+' in '+rangeContext.location+' | draw '+drawOnLiquidity+' '+round(targets[0])+' | remaining '+round(Math.abs(targets[0]-price),2)};
 }
