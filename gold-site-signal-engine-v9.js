@@ -8,7 +8,7 @@ let source = fs.readFileSync(sourceUrl, 'utf8');
 const replacements = [
   [
     "import { analyzeGoldSignal } from './gold-signal-model.js';",
-    "import { analyzeGoldSignal } from './gold-ict-swing-model.js';\nimport { getGoldNewsRisk } from './gold-news-risk.js';\nimport { ingestLuxAlgoEvent, getLuxAlgoState, gateGoldModelWithLuxAlgo } from './luxalgo-tradingview-bridge.js';"
+    "import { analyzeGoldSignal } from './gold-ict-swing-model.js';\nimport { getGoldNewsRisk } from './gold-news-risk.js';\nimport { gateGoldModelWithNativeLuxAlgo } from './gold-luxalgo-native.js';"
   ],
   [
     "const MIN_CONFIDENCE=Number(process.env.MIN_CONFIDENCE||72);",
@@ -28,7 +28,7 @@ const replacements = [
   ],
   [
     "const BUILD='site-signal-noai-v19-trade-management';",
-    "const BUILD='site-signal-noai-v43-luxalgo-bridge';"
+    "const BUILD='site-signal-noai-v44-native-ict';"
   ],
   [
     "const state={samples:[],signal:null,lastTerminal:null,trades:[],cooldownUntil:0,sameSideBlockUntil:0,lastLossSide:null,quote:null,lastError:null,ws:null,wsConnected:false,lastTvAt:0,lastLpAt:0,loggedQuote:false,loggedLp:false,lastEntryGuard:null};",
@@ -80,7 +80,7 @@ const replacements = [
   ],
   [
     " const model=analyzeGoldSignal(state.samples,q.price,now);\n if(!state.signal)maybeCreate(model,q,now);",
-    " const rawModel=analyzeGoldSignal(state.samples,q.price,now);\n const model=gateGoldModelWithLuxAlgo(rawModel,{now});\n if(now-(state.lastDiagAt||0)>=60000){state.lastDiagAt=now;console.log(\`[xau-state] status=\${model.status} conf=\${Number(model.confidence)||0} bias=\${model.contextBias||'NA'} lux=\${model.luxalgo?.gate||'NA'} samples=\${state.samples.length} fresh=\${freshQuote(q,now)} reason=\${String(model.reason||'').slice(0,220)}\`);}\n if(!state.signal){if(newsRisk.blockEntries){state.lastEntryGuard={atMs:now,reason:'USD_NEWS_BLACKOUT',newsLevel:newsRisk.level,newsReason:newsRisk.reason,activeEvent:newsRisk.activeEvent};}else maybeCreate(model,q,now);}"
+    " const rawModel=analyzeGoldSignal(state.samples,q.price,now);\n const model=gateGoldModelWithNativeLuxAlgo(rawModel,state.samples,{now});\n if(now-(state.lastDiagAt||0)>=60000){state.lastDiagAt=now;console.log(\`[xau-state] status=\${model.status} conf=\${Number(model.confidence)||0} bias=\${model.contextBias||'NA'} nativeICT=\${model.luxalgo?.gate||'NA'} samples=\${state.samples.length} fresh=\${freshQuote(q,now)} reason=\${String(model.reason||'').slice(0,220)}\`);}\n if(!state.signal){if(newsRisk.blockEntries){state.lastEntryGuard={atMs:now,reason:'USD_NEWS_BLACKOUT',newsLevel:newsRisk.level,newsReason:newsRisk.reason,activeEvent:newsRisk.activeEvent};}else maybeCreate(model,q,now);}"
   ],
   [
     "signalConfidence:Number(state.signal?.confidence??model.confidence??0),minConfidence:MIN_CONFIDENCE,volatilityPolicy:policy,",
@@ -188,20 +188,6 @@ for (const [from, to] of replacements) {
   const countAnchor="state.dailySignalCount+=1;state.lastSignalAtMs=now;";
   if(!source.includes(countAnchor))throw new Error('opening-session patch: count anchor missing');
   source=source.replace(countAnchor,"state.dailySignalCount+=1;state.lastSignalAtMs=now;");
-}
-
-// TradingView -> ICT Concepts [LuxAlgo] webhook receiver and pre-entry gate.
-{
-  const queueAnchor="let queue=Promise.resolve();function signal()";
-  const queueAt=source.indexOf(queueAnchor);
-  if(queueAt<0)throw new Error('LuxAlgo bridge patch: signal queue anchor missing');
-  const helper="async function readLuxAlgoBody(req){const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>65536)throw new Error('LUXALGO_WEBHOOK_BODY_TOO_LARGE');chunks.push(chunk);}const raw=Buffer.concat(chunks).toString('utf8').trim();if(!raw)return{};try{return JSON.parse(raw)}catch{throw new Error('INVALID_LUXALGO_JSON')}}\n";
-  source=source.slice(0,queueAt)+helper+source.slice(queueAt);
-
-  const serverAnchor="const server=http.createServer(async(req,res)=>{const u=new URL(req.url||'/','http://localhost');try{\n";
-  if(!source.includes(serverAnchor))throw new Error('LuxAlgo bridge patch: HTTP server anchor missing');
-  const routes=" if(req.method==='POST'&&u.pathname==='/api/tradingview/luxalgo'){const payload=await readLuxAlgoBody(req);const out=ingestLuxAlgoEvent(payload,{expectedSecret:process.env.LUXALGO_WEBHOOK_SECRET});console.log('[luxalgo-webhook]',out.ok?'accepted':'rejected',out.accepted?.event||out.error||'unknown',out.accepted?.timeframe||'');return json(res,out.statusCode||(out.ok?202:400),out);}\n if(req.method==='GET'&&u.pathname==='/api/tradingview/luxalgo/state')return json(res,200,getLuxAlgoState(Date.now()));\n";
-  source=source.replace(serverAnchor,serverAnchor+routes);
 }
 
 fs.writeFileSync(runtimeUrl, source, 'utf8');
