@@ -4,7 +4,7 @@ import { getBtcSignal, injectBtcPanel } from './btc-ict-fast.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_INNER_PORT || 3100);
-const BUILD_TAG = 'site-indicator-v7-native-ict';
+const BUILD_TAG = 'site-indicator-v8-m5-trigger';
 
 const app = spawn(process.execPath, ['gold-unified-start.js'], {
   env: { ...process.env, PORT: String(INNER_PORT) },
@@ -81,7 +81,7 @@ function mapIndicator(source = {}) {
     executable: Boolean(!blockedByNews && source.executable && ['BUY', 'SELL'].includes(source.action)),
     confidence: Number.isFinite(confidence) ? confidence : 0,
     price: Number.isFinite(Number(source.price)) ? Number(source.price) : null,
-    timeframe: '60m trend / 15m confirmation / 5m closed-candle execution',
+    timeframe: '15m context / 5m MSS-BOS + displacement + FVG trigger / 1m timing',
     provider: source.provider || null,
     status: blockedByNews ? 'NEWS_BLOCK' : (source.status || 'WAIT'),
     scenarioPlan,
