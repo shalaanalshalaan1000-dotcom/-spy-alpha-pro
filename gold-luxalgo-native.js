@@ -271,122 +271,100 @@ function block(model,snapshot,reason,code){
 export function gateGoldModelWithNativeLuxAlgo(model,samples=[],options={}){
   const now=Number(options.now)||Date.now();
   const snapshot=analyzeNativeLuxAlgo(samples,now,options.settings||{});
-  const candidate=['BUY','SELL'].includes(model?.candidateAction)?model.candidateAction:['BUY','SELL'].includes(model?.side)?model.side:null;
+  const candidate=['BUY','SELL'].includes(model?.candidateAction)
+    ? model.candidateAction
+    : ['BUY','SELL'].includes(model?.side)
+      ? model.side
+      : null;
 
   if(!candidate){
-    return{...model,luxalgo:{...snapshot,gate:snapshot.ready?'NO_CANDIDATE':'BUILDING_CONTEXT',gateReason:snapshot.ready?'No site-engine candidate to validate yet.':'Native ICT context is still building; no site-engine candidate yet.'}};
+    return{
+      ...model,
+      luxalgo:{
+        ...snapshot,
+        gate:snapshot.ready?'NO_CANDIDATE':'BUILDING_CONTEXT',
+        gateReason:snapshot.ready
+          ? 'No site-engine candidate to validate yet.'
+          : 'Native ICT context is still building; no site-engine candidate yet.'
+      }
+    };
   }
 
-  const h1=snapshot.frames['1h'],m15=snapshot.frames['15m'],m5=snapshot.frames['5m'],m1=snapshot.frames['1m'];
-  const h1Side=h1?.structureSide??null,m15Side=m15?.structureSide??null,m5Side=m5?.structureSide??null;
-  const modelIct=model?.ict||{},legSweep=modelIct?.legSweep||modelIct?.sweep||null;
-  const triggerConfirmed=Boolean(modelIct?.triggerConfirmed||(modelIct?.hasSweep&&(modelIct?.hasShift||modelIct?.hasDisplacement)));
-  const hasPoi=Boolean(modelIct?.originFvg||modelIct?.poi||modelIct?.entryMode==='CONFIRMED_CONTINUATION'||modelIct?.useDirectContinuation);
-  const nativeM5Trigger=Boolean(
-    same(m5?.structure,candidate,'5m',now)||
-    same(m5?.displacement,candidate,'5m',now)||
-    (m5?.fvg&&m5.fvg.side===candidate)||
-    (m5?.orderBlock&&m5.orderBlock.side===candidate)
+  const h1=snapshot.frames?.['1h']||{};
+  const m15=snapshot.frames?.['15m']||{};
+  const m5=snapshot.frames?.['5m']||{};
+  const m1=snapshot.frames?.['1m']||{};
+  const h1Side=h1.structureSide??null;
+  const m15Side=m15.structureSide??null;
+  const m5Side=m5.structureSide??null;
+
+  const modelIct=model?.ict||{};
+  const legSweep=modelIct?.legSweep||modelIct?.sweep||null;
+  const triggerConfirmed=Boolean(
+    modelIct?.triggerConfirmed||
+    (modelIct?.hasSweep&&(modelIct?.hasShift||modelIct?.hasDisplacement))
   );
-  const nativeConflict=Boolean(m5Side&&m5Side!==candidate);
+  const hasPoi=Boolean(
+    modelIct?.originFvg||
+    modelIct?.poi||
+    modelIct?.entryMode==='CONFIRMED_CONTINUATION'||
+    modelIct?.useDirectContinuation
+  );
+
+  const nativeM5Trigger=Boolean(
+    same(m5.structure,candidate,'5m',now)||
+    same(m5.displacement,candidate,'5m',now)||
+    (m5.fvg&&m5.fvg.side===candidate)||
+    (m5.orderBlock&&m5.orderBlock.side===candidate)
+  );
+
   const agreement={
     h1Context:h1Side,
     m15Context:m15Side,
     m5Context:m5Side,
-    m5Structure:m5?.structure?.type||null,
-    m5Fvg:m5?.fvg?.type||null,
-    m5OrderBlock:m5?.orderBlock?.type||null,
-    m5Displacement:m5?.displacement?.side||null,
-    m5LiquiditySweep:m5?.liquiditySweep?.event||null,
-    m1Timing:m1?.structureSide||null,
-    higherTimeframeConflict:Boolean((h1Side&&h1Side!==candidate)||(m15Side&&m15Side!==candidate)),
-    m5Conflict:nativeConflict,
+    m5Structure:m5.structure?.type||null,
+    m5Fvg:m5.fvg?.type||null,
+    m5OrderBlock:m5.orderBlock?.type||null,
+    m5Displacement:m5.displacement?.side||null,
+    m5LiquiditySweep:m5.liquiditySweep?.event||null,
+    m1Timing:m1.structureSide||null,
+    higherTimeframeConflict:Boolean(
+      (h1Side&&h1Side!==candidate)||
+      (m15Side&&m15Side!==candidate)
+    ),
+    m5Conflict:Boolean(m5Side&&m5Side!==candidate),
     triggerConfirmed,
     hasPoi,
     sweptLevel:legSweep?.name||null
   };
 
-  // Native ICT/LuxAlgo is now confirmation context, not a veto gate.
-  // The site engine remains authoritative once it has: liquidity sweep + (MSS OR strong displacement)
-  // + a valid FVG/OB/controlled continuation zone. This prevents slow H1/M15/M5 state from killing
-  // an otherwise valid early reversal.
+  // The native/LuxAlgo layer is confirmation context only. The site engine remains
+  // authoritative once a preserved liquidity sweep has produced MSS OR strong
+  // displacement and a valid entry POI.
   if(triggerConfirmed&&hasPoi){
-    return{...model,luxalgo:{...snapshot,gate:'PASS',gateCode:'SITE_TRIGGER_AUTHORITATIVE',gateReason:`Site ICT trigger confirms ${candidate}: preserved liquidity sweep + MSS OR strong displacement + valid entry POI; native ICT is context only.`,agreement}};
-  }
-
-  // If the site engine has already produced a candidate, preserve it even while native history
-  // is building or native M5 structure has not fully flipped. Surface the disagreement as metadata.
-  return{...model,luxalgo:{...snapshot,gate:'CONTEXT_ONLY',gateCode:nativeM5Trigger?'NATIVE_SUPPORT':'NATIVE_OBSERVE',gateReason:nativeM5Trigger?`Native M5 context supports ${candidate}; site trigger remains authoritative.`:`Native ICT is observing ${candidate}; no hard veto is applied.`,agreement}};
-}){
-  const now=Number(options.now)||Date.now();
-  const snapshot=analyzeNativeLuxAlgo(samples,now,options.settings||{});
-  const candidate=['BUY','SELL'].includes(model?.candidateAction)?model.candidateAction:['BUY','SELL'].includes(model?.side)?model.side:null;
-
-  if(!snapshot.ready){
-    return block(model,snapshot,'Native ICT engine is still building enough H1/M15/M5 history.','NATIVE_HISTORY_BUILDING');
-  }
-
-  if(!candidate){
-    return{...model,luxalgo:{...snapshot,gate:'NO_CANDIDATE',gateReason:'No site-engine candidate to validate yet.'}};
-  }
-
-  const h1=snapshot.frames['1h'],m15=snapshot.frames['15m'],m5=snapshot.frames['5m'],m1=snapshot.frames['1m'];
-  const h1Side=h1.structureSide,m15Side=m15.structureSide,m5Side=m5.structureSide;
-
-  // Fast reversal path: once external liquidity has been swept and the site engine has
-  // completed the chronological sweep -> MSS + displacement -> origin FVG sequence,
-  // require only a fresh M5 confirmation event. H1/M15 remain context and cannot veto
-  // the reversal just because their slower structure has not flipped yet.
-  const modelIct=model?.ict||{},legSweep=modelIct?.legSweep||modelIct?.sweep||null;
-  const externalSweep=Boolean(legSweep&&!/^local/i.test(String(legSweep?.name||'')));
-  const reversalSequence=Boolean(model?.strategy==='ICT_ORIGIN_REVERSAL'&&modelIct?.sequenceComplete&&modelIct?.hasSweep&&modelIct?.hasShift&&modelIct?.hasDisplacement&&modelIct?.originFvg);
-  const seq5=modelIct?.sequence5||null;
-  const m5FastConfirm=Boolean(seq5?.firstMss||seq5?.firstDisplacement||modelIct?.shift5?.mss||modelIct?.shift5?.displacement);
-  if(reversalSequence&&externalSweep&&m5FastConfirm){
-    const agreement={
-      h1Context:h1Side,
-      m15Context:m15Side,
-      m5Trigger:m5Side,
-      m5Structure:m5.structure?.type||null,
-      m5Fvg:m5.fvg?.type||null,
-      m5Displacement:m5.displacement?.side||null,
-      m5LiquiditySweep:m5.liquiditySweep?.event||null,
-      m1Timing:m1.structureSide||null,
-      higherTimeframeConflict:Boolean((h1Side&&h1Side!==candidate)||(m15Side&&m15Side!==candidate)),
-      reversalOverride:true,
-      sweptLevel:legSweep?.name||null
+    return{
+      ...model,
+      luxalgo:{
+        ...snapshot,
+        gate:'PASS',
+        gateCode:'SITE_TRIGGER_AUTHORITATIVE',
+        gateReason:`Site ICT trigger confirms ${candidate}: preserved liquidity sweep + MSS OR strong displacement + valid entry POI; native ICT is context only.`,
+        agreement
+      }
     };
-    return{...model,luxalgo:{...snapshot,gate:'PASS',gateCode:'FAST_EXTERNAL_LIQUIDITY_REVERSAL',gateReason:`Fresh external-liquidity reversal confirms ${candidate}: ${legSweep?.name||'named liquidity'} sweep + chronological MSS/displacement + origin FVG + M5 confirmation; H1/M15 are context only.`,agreement}};
   }
 
-  // M15/H1 are context only. Do not wait for a slow higher-timeframe structure flip
-  // after the M5 execution leg has already started.
-  if(!m5Side)return block(model,snapshot,'Need confirmed M5 MSS/BOS before entry.','M5_STRUCTURE_MISSING');
-  if(m5Side!==candidate)return block(model,snapshot,`M5 market structure is ${m5Side}, not ${candidate}.`,'M5_CONFLICT');
-
-  const m5Structure=m5.structure;
-  if(!same(m5Structure,candidate,'5m',now))return block(model,snapshot,'Need a fresh same-side M5 MSS/BOS event.','M5_STRUCTURE_STALE');
-
-  const fvg=m5.fvg;
-  if(!fvg||fvg.side!==candidate)return block(model,snapshot,'Need an active same-side M5 FVG.','M5_FVG_MISSING');
-
-  const disp=m5.displacement;
-  if(!same(disp,candidate,'5m',now))return block(model,snapshot,'Need fresh same-side M5 displacement.','M5_DISPLACEMENT_MISSING');
-
-  const agreement={
-    h1Context:h1Side,
-    m15Context:m15Side,
-    m5Trigger:m5Side,
-    m5Structure:m5Structure?.type||null,
-    m5Fvg:fvg.type,
-    m5Displacement:disp.side,
-    m5LiquiditySweep:m5.liquiditySweep?.event||null,
-    m1Timing:m1.structureSide||null,
-    higherTimeframeConflict:Boolean((h1Side&&h1Side!==candidate)||(m15Side&&m15Side!==candidate))
-  };
-
+  // Preserve a valid site candidate even if native M5 structure has not fully flipped yet.
   return{
     ...model,
-    luxalgo:{...snapshot,gate:'PASS',gateReason:`Native ICT M5 trigger confirms ${candidate}: fresh M5 MSS/BOS + displacement + active FVG; H1/M15 are context only.`,agreement}
+    luxalgo:{
+      ...snapshot,
+      gate:'CONTEXT_ONLY',
+      gateCode:nativeM5Trigger?'NATIVE_SUPPORT':'NATIVE_OBSERVE',
+      gateReason:nativeM5Trigger
+        ? `Native M5 context supports ${candidate}; site trigger remains authoritative.`
+        : `Native ICT is observing ${candidate}; no hard veto is applied.`,
+      agreement
+    }
   };
 }
