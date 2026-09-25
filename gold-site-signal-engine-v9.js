@@ -12,7 +12,7 @@ const replacements = [
   ],
   [
     "const MIN_CONFIDENCE=Number(process.env.MIN_CONFIDENCE||72);",
-    "const MIN_CONFIDENCE=82;"
+    "const MIN_CONFIDENCE=0;"
   ],
   [
     "const REQUIRE_1M_CONFIRM=String(process.env.GOLD_REQUIRE_1M_CONFIRM||'true').toLowerCase()!=='false';",
@@ -161,8 +161,7 @@ for (const [from, to] of replacements) {
 }
 
 
-// Opening-session control: trade only the first part of London and New York gold flow,
-// with at most two fresh signals per opening. Uses market-local time zones so DST is automatic.
+// Session context only: scan the full gold market day. London/New York labels are context, never a hard entry gate.
 {
   const stateAnchor="lastReconnectAttempt:0,dailySignalDate:null,dailySignalCount:0,lastSignalAtMs:0,lastNewsRisk:null};";
   if(!source.includes(stateAnchor))throw new Error('opening-session patch: state anchor missing');
@@ -180,15 +179,15 @@ for (const [from, to] of replacements) {
 
   const maybeAnchor="function maybeCreate(m,q,now){\n refreshDailyQuota(now);\n state.lastEntryGuard=null;";
   if(!source.includes(maybeAnchor))throw new Error('opening-session patch: maybeCreate anchor missing');
-  source=source.replace(maybeAnchor,"function maybeCreate(m,q,now){\n refreshDailyQuota(now);\n const openSession=refreshOpeningSession(now);\n state.lastEntryGuard=null;\n if(!openSession){state.lastEntryGuard={atMs:now,reason:'OUTSIDE_LONDON_NY_OPENING_WINDOWS',openingWindowMin:OPENING_WINDOW_MIN};return;}\n if(state.openSessionSignalCount>=MAX_OPENING_SESSION_SIGNALS){state.lastEntryGuard={atMs:now,reason:'OPENING_SESSION_2_SIGNAL_LIMIT_REACHED',openingSession:openSession.id,sessionSignalCount:state.openSessionSignalCount,maxSessionSignals:MAX_OPENING_SESSION_SIGNALS};return;}");
+  source=source.replace(maybeAnchor,"function maybeCreate(m,q,now){\n refreshDailyQuota(now);\n const openSession=refreshOpeningSession(now);\n state.lastEntryGuard=null;");
 
   const signalAnchor="tradeStyle:'ICT_FAST_SCALP',maxDailySignals:MAX_DAILY_SIGNALS,dailySignalNumber:state.dailySignalCount+1,newsRiskAtEntry:state.lastNewsRisk,";
   if(!source.includes(signalAnchor))throw new Error('opening-session patch: signal anchor missing');
-  source=source.replace(signalAnchor,"tradeStyle:'ICT_FAST_SCALP',openingSession:openSession.id,sessionSignalNumber:state.openSessionSignalCount+1,maxSessionSignals:MAX_OPENING_SESSION_SIGNALS,maxDailySignals:MAX_DAILY_SIGNALS,dailySignalNumber:state.dailySignalCount+1,newsRiskAtEntry:state.lastNewsRisk,");
+  source=source.replace(signalAnchor,"tradeStyle:'ICT_FAST_SCALP',openingSession:openSession?.id||m?.ict?.session||'ALL_MARKET',maxDailySignals:MAX_DAILY_SIGNALS,dailySignalNumber:state.dailySignalCount+1,newsRiskAtEntry:state.lastNewsRisk,");
 
   const countAnchor="state.dailySignalCount+=1;state.lastSignalAtMs=now;";
   if(!source.includes(countAnchor))throw new Error('opening-session patch: count anchor missing');
-  source=source.replace(countAnchor,"state.dailySignalCount+=1;state.openSessionSignalCount+=1;state.lastSignalAtMs=now;");
+  source=source.replace(countAnchor,"state.dailySignalCount+=1;state.lastSignalAtMs=now;");
 }
 
 fs.writeFileSync(runtimeUrl, source, 'utf8');
