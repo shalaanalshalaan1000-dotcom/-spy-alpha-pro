@@ -391,7 +391,10 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const structureAligned=Boolean(setupAligned||biasAligned||contextAligned);
   const reversal=Boolean(reversalFvg&&triggerConfirmed);
   const continuation=Boolean(continuationFvg&&structureAligned&&hasBos&&triggerConfirmed);
-  const directContinuation=Boolean(triggerConfirmed&&structureAligned&&hasBos);
+  // Do not force a full BOS after the sweep trigger when momentum has already left the origin.
+  // A confirmed sweep + (MSS OR displacement) + fresh origin FVG may arm a controlled continuation;
+  // the later path-consumed guard still blocks chasing once too much of the move is gone.
+  const directContinuation=Boolean(triggerConfirmed&&structureAligned&&(hasBos||reversalFvg));
   const executionReady=Boolean(reversal||continuation||directContinuation);
   const selectedFvg=reversal?reversalFvg:(continuation?continuationFvg:(reversalFvg??continuationFvg??fvg1??fvg5??null));
   const contextSequence=reversal?'LIQUIDITY_SWEEP -> MSS_OR_DISPLACEMENT -> ORIGIN_FVG':continuation?'TREND_STRUCTURE -> BOS -> MSS_OR_DISPLACEMENT -> FVG':'LIQUIDITY_SWEEP -> MSS_OR_DISPLACEMENT -> BOS -> CONFIRMED_CONTINUATION';
