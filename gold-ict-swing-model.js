@@ -370,7 +370,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   // A valid reversal sequence is chronological: freshest liquidity sweep -> MSS and displacement
   // (they may occur on separate 1m/5m candles) -> first NEW FVG. H1/M15 remain context only.
   const sequenceShiftT=hasShift&&hasDisplacement?Math.max(firstMssEvent.closeT??firstMssEvent.t,firstDisplacementEvent.closeT??firstDisplacementEvent.t):null;
-  const hasBos=Boolean(bos5.broken||bos1.broken);
+  const hasBos=Boolean((bos5.broken&&(!legSweep||bos5.t>=legSweep.t))||(bos1.broken&&(!legSweep||bos1.t>=legSweep.t)));
   const reversalAnchor=sequenceShiftT;
   const continuationAnchor=[bos5,bos1].filter(x=>x?.broken).sort((a,b)=>a.t-b.t)[0]?.t??null;
   const contShift1=continuationAnchor!=null?shiftAfter(m1,side,continuationAnchor,atr1):null;
