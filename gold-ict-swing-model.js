@@ -425,6 +425,8 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const lateMove=!useDirectContinuation&&pathConsumed>=.55&&!insidePoi;
   if(lateMove)return{...base,status:'WAIT',candidateAction:side,contextBias:side,ict:{dir4,dir1,dir15,levels,session,phase,contextSequence,legSweep,sequence1,sequence5,firstShift,orderBlock,poi,rangeContext,mainLiquidity:plan.mainLiquidity,pathConsumed:round(pathConsumed,2)},reason:'ICT NO CHASE: more than half of the path to external liquidity is already consumed; wait for a fresh liquidity event / new dealing range'};
   let confidence=55;
+  if(sequenceConfirmed)confidence+=6;
+  if(directContinuation)confidence+=2;
   // Confidence is driven primarily by the M5 execution sequence. M15/H1 are context bonuses only.
   if(sweep5)confidence+=12;
   if(dm5.mss)confidence+=10;
