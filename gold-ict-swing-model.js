@@ -124,6 +124,18 @@ function displacementAndMss(bars,side,atr5){
   const mss=side==='BUY'?last.close>priorHigh:last.close<priorLow;
   return{displacement,mss,body:round(body),priorHigh:round(priorHigh),priorLow:round(priorLow)};
 }
+function shiftAfter(bars,side,afterT,atrValue){
+  const x=bars.slice(-72); if(x.length<6)return null;
+  for(let i=4;i<x.length;i++){
+    const last=x[i]; if(afterT!=null&&last.t<afterT)continue;
+    const prior=x.slice(i-4,i),priorHigh=hi(prior),priorLow=lo(prior);
+    const body=Math.abs(last.close-last.open),range=Math.max(.0001,last.high-last.low);
+    const displacement=body>=Math.max((atrValue||1)*.45,.45)&&(side==='BUY'?last.close>=last.low+range*.72:last.close<=last.high-range*.72);
+    const mss=side==='BUY'?last.close>priorHigh:last.close<priorLow;
+    if(mss||displacement)return{mss,displacement,body:round(body),priorHigh:round(priorHigh),priorLow:round(priorLow),t:last.t};
+  }
+  return null;
+}
 function latestBos(bars,side){
   const x=bars.slice(-48); if(x.length<8)return{broken:false,level:null,t:null};
   const p=pivots(x,2,2),points=(side==='BUY'?p.highs:p.lows).slice().reverse();
@@ -209,15 +221,25 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const fvg5=latestFvg(m5,side),sweep5=localSweep(m5,side,levels),dm5=displacementAndMss(m5,side,atr5),bos5=latestBos(m5,side);
   const fvg1=latestFvg(m1,side),sweep1=localSweep(m1,side,levels),dm1=displacementAndMss(m1,side,atr1),bos1=latestBos(m1,side);
   const bos15=latestBos(m15,side);
-  const sweepCandidates=[sweep15,sweep5,sweep1].filter(Boolean).sort((a,b)=>a.t-b.t);
-  const legSweep=sweepCandidates[0]??null;
+  const sweepCandidates=[
+    sweep15?{...sweep15,tf:15}:null,
+    sweep5?{...sweep5,tf:5}:null,
+    sweep1?{...sweep1,tf:1}:null
+  ].filter(Boolean);
+  const namedSweeps=sweepCandidates.filter(x=>!/local/i.test(String(x.name||'')));
+  const legSweep=(namedSweeps.length?namedSweeps:sweepCandidates).sort((a,b)=>b.tf-a.tf||b.t-a.t)[0]??null;
   const hasSweep=Boolean(legSweep);
-  const hasShift=Boolean(dm15.mss||dm5.mss||dm1.mss);
-  const hasDisplacement=Boolean(dm15.displacement||dm5.displacement||dm1.displacement);
+  const shift1=hasSweep?shiftAfter(m1,side,legSweep.t,atr1):null;
+  const shift5=hasSweep?shiftAfter(m5,side,legSweep.t,atr5):null;
+  const shift15=hasSweep?shiftAfter(m15,side,legSweep.t,atr15):null;
+  const shiftEvents=[shift1,shift5,shift15].filter(Boolean).sort((a,b)=>a.t-b.t);
+  const firstShift=shiftEvents[0]??null;
+  const hasShift=shiftEvents.some(x=>x.mss);
+  const hasDisplacement=shiftEvents.some(x=>x.displacement);
   const hasBos=Boolean(bos15.broken||bos5.broken||bos1.broken);
-  const reversalAnchor=legSweep?.t??null;
+  const reversalAnchor=firstShift?.t??null;
   const continuationAnchor=[bos15,bos5,bos1].filter(x=>x?.broken).sort((a,b)=>a.t-b.t)[0]?.t??null;
-  const reversalFvg=hasSweep?originFvg(m1,m5,side,reversalAnchor):null;
+  const reversalFvg=reversalAnchor!=null?originFvg(m1,m5,side,reversalAnchor):null;
   const continuationFvg=continuationAnchor!=null?originFvg(m1,m5,side,continuationAnchor):null;
   const reversal=Boolean(reversalFvg&&hasSweep&&hasShift&&hasDisplacement);
   const continuation=Boolean(continuationFvg&&(setupAligned||biasAligned||contextAligned)&&hasBos&&hasDisplacement);
@@ -225,7 +247,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const selectedFvg=reversal?reversalFvg:continuationFvg;
   const contextSequence=reversal?'LIQUIDITY_SWEEP -> MSS/DISPLACEMENT -> FIRST_FVG_RETEST -> BOS_CONTINUATION':continuation?'TREND_STRUCTURE -> BOS -> DISPLACEMENT -> FIRST_FVG_RETEST':'INCOMPLETE';
 
-  if(!executionReady)return{...base,status:'WAIT',candidateAction:side,confidence:0,contextBias:side,oneMinuteConfirmed,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,contextAligned,biasAligned,setupAligned,setupVotes,setupReady,fvg15,sweep15,dm15,fvg5,sweep5,dm5,bos5,fvg1,sweep1,dm1,bos1,bos15,hasSweep,hasShift,hasDisplacement,hasBos,contextSequence},reason:'ICT CONTEXT WAIT: waiting for a fresh origin setup — liquidity sweep + MSS/displacement + first FVG retest, or aligned BOS + displacement + first FVG retest'};
+  if(!executionReady)return{...base,status:'WAIT',candidateAction:side,confidence:0,contextBias:side,oneMinuteConfirmed,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,contextAligned,biasAligned,setupAligned,setupVotes,setupReady,fvg15,sweep15,dm15,fvg5,sweep5,dm5,bos5,fvg1,sweep1,dm1,bos1,bos15,legSweep,shift1,shift5,shift15,hasSweep,hasShift,hasDisplacement,hasBos,contextSequence},reason:'ICT CONTEXT WAIT: waiting for a fresh origin setup — liquidity sweep, then MSS/displacement, then the first FVG retest; BOS is confirmation, not a reason to chase'};
 
   const setupType=reversal?'ICT_ORIGIN_REVERSAL':'ICT_ORIGIN_CONTINUATION';
   const fvg=selectedFvg,entry=fvg.mid,entryPad=clamp(atr1*.18,.06,.18),entryLow=Math.min(fvg.low,fvg.high)-entryPad,entryHigh=Math.max(fvg.low,fvg.high)+entryPad;
@@ -266,7 +288,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const targets=plan.targets.map(x=>round(x.price));
   const labels=plan.targets.map(x=>x.label);
   const drawOnLiquidity=labels[0]||'OPPOSING_LIQUIDITY';
-  return{...base,status:'CANDIDATE',candidateAction:side,side,strategy:setupType,confidence,contextBias:side,oneMinuteConfirmed,setupId:[side,setupType,sweep?.t??fvg.t,round(entry),round(stop),drawOnLiquidity].join('|'),entry:round(entry),entryLow:round(entryLow),entryHigh:round(entryHigh),stopLoss:round(stop),target1:targets[0]??null,target2:targets[1]??null,target3:targets[2]??null,target4:targets[3]??null,targetLabels:labels,riskReward:round(plan.rr,2),ict:{setupType,mode:'ICT_ORIGIN_TO_EXTERNAL_LIQUIDITY',dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),dealingRangeHigh:round(rangeHigh),dealingRangeLow:round(rangeLow),contextAligned,biasAligned,setupAligned,setupReady,executionReady,setupVotes,contextSequence,hasSweep,hasShift,hasDisplacement,hasBos,legSweep,sweep:sweep??sweep15,sweep15,sweep5,sweep1,displacement:hasDisplacement,mss:hasShift,bos:hasBos,bos15,bos5,bos1,dm15,dm5,dm1,originFvg:{...fvg,low:round(fvg.low),high:round(fvg.high),mid:round(fvg.mid)},entryZoneAgeMinutes:round(zoneAgeMs/60000,1),minimumTargetMove:plan.minimumTargetMove,mainLiquidity:plan.mainLiquidity,drawOnLiquidity,atr1:round(atr1),atr5:round(atr5),atr15:round(atr15),stopBuffer:round(buffer),offSession},reason:'ICT ORIGIN CONFIRMED | '+contextSequence+' | '+side+' from first FVG | external liquidity '+drawOnLiquidity+' '+round(targets[0])+' | distance '+round(Math.abs(targets[0]-entry),2)+'};
+  return{...base,status:'CANDIDATE',candidateAction:side,side,strategy:setupType,confidence,contextBias:side,oneMinuteConfirmed,setupId:[side,setupType,sweep?.t??fvg.t,round(entry),round(stop),drawOnLiquidity].join('|'),entry:round(entry),entryLow:round(entryLow),entryHigh:round(entryHigh),stopLoss:round(stop),target1:targets[0]??null,target2:targets[1]??null,target3:targets[2]??null,target4:targets[3]??null,targetLabels:labels,riskReward:round(plan.rr,2),ict:{setupType,mode:'ICT_ORIGIN_TO_EXTERNAL_LIQUIDITY',dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),dealingRangeHigh:round(rangeHigh),dealingRangeLow:round(rangeLow),contextAligned,biasAligned,setupAligned,setupReady,executionReady,setupVotes,contextSequence,hasSweep,hasShift,hasDisplacement,hasBos,legSweep,shift1,shift5,shift15,sweep:sweep??sweep15,sweep15,sweep5,sweep1,displacement:hasDisplacement,mss:hasShift,bos:hasBos,bos15,bos5,bos1,dm15,dm5,dm1,originFvg:{...fvg,low:round(fvg.low),high:round(fvg.high),mid:round(fvg.mid)},entryZoneAgeMinutes:round(zoneAgeMs/60000,1),minimumTargetMove:plan.minimumTargetMove,mainLiquidity:plan.mainLiquidity,drawOnLiquidity,atr1:round(atr1),atr5:round(atr5),atr15:round(atr15),stopBuffer:round(buffer),offSession},reason:'ICT ORIGIN CONFIRMED | '+contextSequence+' | '+side+' from first FVG | external liquidity '+drawOnLiquidity+' '+round(targets[0])+' | distance '+round(Math.abs(targets[0]-entry),2)+'};
 }
 };
 }
