@@ -159,15 +159,19 @@ function nearestSameSideFvg(snapshot,side,price){
 function targetPools(side,entry,h1,m15,m5,a5){
   const pools=[];
   const add=(label,price)=>{if(Number.isFinite(price)&&(side==='BUY'?price>entry:price<entry))pools.push({label,price:round(price)});};
-  for(const p of h1.structure.swings.highs.slice(-14))add('H1_BUY_SIDE',p.price);
-  for(const p of h1.structure.swings.lows.slice(-14))add('H1_SELL_SIDE',p.price);
-  for(const p of m15.structure.swings.highs.slice(-18))add('M15_BUY_SIDE',p.price);
-  for(const p of m15.structure.swings.lows.slice(-18))add('M15_SELL_SIDE',p.price);
-  for(const p of m5.structure.swings.highs.slice(-20))add('M5_BUY_SIDE',p.price);
-  for(const p of m5.structure.swings.lows.slice(-20))add('M5_SELL_SIDE',p.price);
-  for(const p of equalLiquidity(h1.name==='1h'?[]:[],side,a5))add(p.label,p.price);
-  const eql=[...h1.liquidity.buySide,...h1.liquidity.sellSide,...m15.liquidity.buySide,...m15.liquidity.sellSide];
-  for(const p of eql)add(p.label,p.price);
+  if(side==='BUY'){
+    for(const p of h1.structure.swings.highs.slice(-14))add('H1_BUY_SIDE',p.price);
+    for(const p of m15.structure.swings.highs.slice(-18))add('M15_BUY_SIDE',p.price);
+    for(const p of m5.structure.swings.highs.slice(-20))add('M5_BUY_SIDE',p.price);
+    for(const p of h1.liquidity.buySide)add('H1_EQH_BUY_SIDE',p.price);
+    for(const p of m15.liquidity.buySide)add('M15_EQH_BUY_SIDE',p.price);
+  }else{
+    for(const p of h1.structure.swings.lows.slice(-14))add('H1_SELL_SIDE',p.price);
+    for(const p of m15.structure.swings.lows.slice(-18))add('M15_SELL_SIDE',p.price);
+    for(const p of m5.structure.swings.lows.slice(-20))add('M5_SELL_SIDE',p.price);
+    for(const p of h1.liquidity.sellSide)add('H1_EQL_SELL_SIDE',p.price);
+    for(const p of m15.liquidity.sellSide)add('M15_EQL_SELL_SIDE',p.price);
+  }
   const dedup=[];
   for(const p of pools.sort((a,b)=>Math.abs(a.price-entry)-Math.abs(b.price-entry))){
     if(!dedup.some(x=>Math.abs(x.price-p.price)<=Math.max(10,a5*.12)))dedup.push(p);
@@ -222,7 +226,9 @@ function analyze(data){
   const m1Shift=m1.structure.latest?.side===side&&fresh(m1.structure.latest,30*60_000)?m1.structure.latest:null;
   const shift=m5Shift||m1Shift;
   const displacement=m5.displacement?.side===side&&fresh(m5.displacement,60*60_000)?m5.displacement:m1.displacement?.side===side&&fresh(m1.displacement,20*60_000)?m1.displacement:null;
-  const executionFvg=nearestSameSideFvg(m5,side,price)||nearestSameSideFvg(m1,side,price);
+  const executionAnchor=Math.max(Number(shift?.t)||0,Number(displacement?.t)||0);
+  const executionCandidates=[...m5.fvgs,...m1.fvgs].filter(z=>z.side===side&&z.t>=executionAnchor);
+  const executionFvg=executionCandidates.sort((a,b)=>Math.abs(a.mid-price)-Math.abs(b.mid-price))[0]||null;
   if(!shift||!displacement||!executionFvg){
     return{...base,confidence:62,ict:{...ict,m15Poi:m15Fvg||m15Ob,pullbackContext:true,executionShift:shift,executionDisplacement:displacement,executionFvg},reason:`ICT NARRATIVE WAIT — ${side} pullback is valid; wait for M5/M1 same-side MSS/BOS + displacement + FVG.`};
   }
