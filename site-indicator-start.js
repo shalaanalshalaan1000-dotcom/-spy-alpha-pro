@@ -4,7 +4,7 @@ import { getBtcSignal, injectBtcPanel } from './btc-ict-fast.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_INNER_PORT || 3100);
-const BUILD_TAG = 'site-indicator-v8-m5-trigger';
+const BUILD_TAG = 'site-indicator-v9-liquidity-reversal';
 
 const app = spawn(process.execPath, ['gold-unified-start.js'], {
   env: { ...process.env, PORT: String(INNER_PORT) },
