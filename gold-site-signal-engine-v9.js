@@ -28,11 +28,11 @@ const replacements = [
   ],
   [
     "const BUILD='site-signal-noai-v19-trade-management';",
-    "const BUILD='site-signal-noai-v47-stateful-continuation';"
+    "const BUILD='site-signal-noai-v48-candidate-lock';"
   ],
   [
     "const state={samples:[],signal:null,lastTerminal:null,trades:[],cooldownUntil:0,sameSideBlockUntil:0,lastLossSide:null,quote:null,lastError:null,ws:null,wsConnected:false,lastTvAt:0,lastLpAt:0,loggedQuote:false,loggedLp:false,lastEntryGuard:null};",
-    "const state={samples:[],signal:null,lastTerminal:null,trades:[],cooldownUntil:0,sameSideBlockUntil:0,lastLossSide:null,quote:null,lastError:null,ws:null,wsConnected:false,lastTvAt:0,lastLpAt:0,loggedQuote:false,loggedLp:false,lastEntryGuard:null,lastReconnectAttempt:0,dailySignalDate:null,dailySignalCount:0,lastSignalAtMs:0,lastNewsRisk:null};"
+    "const state={samples:[],signal:null,lastTerminal:null,trades:[],cooldownUntil:0,sameSideBlockUntil:0,lastLossSide:null,quote:null,lastError:null,ws:null,wsConnected:false,lastTvAt:0,lastLpAt:0,loggedQuote:false,loggedLp:false,lastEntryGuard:null,lastReconnectAttempt:0,dailySignalDate:null,dailySignalCount:0,lastSignalAtMs:0,lastNewsRisk:null,candidateLock:null,candidateLockBucket:null};"
   ],
   [
     "const now=Date.now(),rawT=n(v.lp_time),stamp=rawT==null?NaN:(rawT>1e12?rawT:rawT*1000);",
@@ -72,7 +72,7 @@ const replacements = [
   ],
   [
     " state.trades.push({...state.signal,status:'SIGNAL'});state.trades=state.trades.slice(-300);",
-    " state.trades.push({...state.signal,status:'SIGNAL'});state.trades=state.trades.slice(-300);state.dailySignalCount+=1;state.lastSignalAtMs=now;"
+    " state.trades.push({...state.signal,status:'SIGNAL'});state.trades=state.trades.slice(-300);state.dailySignalCount+=1;state.lastSignalAtMs=now;state.candidateLock=null;state.candidateLockBucket=null;"
   ],
   [
     " const q=state.quote,now=Date.now();",
@@ -80,7 +80,7 @@ const replacements = [
   ],
   [
     " const model=analyzeGoldSignal(state.samples,q.price,now);\n if(!state.signal)maybeCreate(model,q,now);",
-    " const rawModel=analyzeGoldSignal(state.samples,q.price,now);\n const model=gateGoldModelWithNativeLuxAlgo(rawModel,state.samples,{now});\n if(now-(state.lastDiagAt||0)>=60000){state.lastDiagAt=now;console.log(\`[xau-state] status=\${model.status} conf=\${Number(model.confidence)||0} bias=\${model.contextBias||'NA'} nativeICT=\${model.luxalgo?.gate||'NA'} samples=\${state.samples.length} fresh=\${freshQuote(q,now)} reason=\${String(model.reason||'').slice(0,220)}\`);}\n if(!state.signal){if(newsRisk.blockEntries){state.lastEntryGuard={atMs:now,reason:'USD_NEWS_BLACKOUT',newsLevel:newsRisk.level,newsReason:newsRisk.reason,activeEvent:newsRisk.activeEvent};}else maybeCreate(model,q,now);}"
+    " const rawModel=analyzeGoldSignal(state.samples,q.price,now);\n const gatedModel=gateGoldModelWithNativeLuxAlgo(rawModel,state.samples,{now});\n const model=stabilizeCandidateModel(gatedModel,q,now);\n if(now-(state.lastDiagAt||0)>=60000){state.lastDiagAt=now;console.log(\`[xau-state] status=\${model.status} conf=\${Number(model.confidence)||0} bias=\${model.contextBias||'NA'} locked=\${Boolean(model.candidateLocked)} nativeICT=\${model.luxalgo?.gate||'NA'} samples=\${state.samples.length} fresh=\${freshQuote(q,now)} reason=\${String(model.reason||'').slice(0,220)}\`);}\n if(!state.signal){if(newsRisk.blockEntries){state.lastEntryGuard={atMs:now,reason:'USD_NEWS_BLACKOUT',newsLevel:newsRisk.level,newsReason:newsRisk.reason,activeEvent:newsRisk.activeEvent};}else maybeCreate(model,q,now);}"
   ],
   [
     "signalConfidence:Number(state.signal?.confidence??model.confidence??0),minConfidence:MIN_CONFIDENCE,volatilityPolicy:policy,",
@@ -103,6 +103,17 @@ const replacements = [
 for (const [from, to] of replacements) {
   if (!source.includes(from)) throw new Error(`gold-site-signal-engine-v9: expected signature not found: ${from.slice(0, 60)}`);
   source = source.replace(from, to);
+}
+
+
+// Candidate setup state machine: once a valid ICT candidate is formed, freeze the
+// entry zone, SL and targets. Live ticks may execute that plan, but they may not
+// rewrite it. A different confirmed setup can replace it only after a new M5 bucket.
+{
+  const candidateAnchor="function maybeCreate(m,q,now){\n refreshDailyQuota(now);";
+  if(!source.includes(candidateAnchor))throw new Error('candidate-lock patch: maybeCreate anchor missing');
+  const candidateFns="function m5Bucket(now=Date.now()){return Math.floor(now/300000);}\nfunction validCandidatePlan(m){return Boolean(m&&m.status==='CANDIDATE'&&['BUY','SELL'].includes(m.candidateAction)&&Number(m.confidence)>=MIN_CONFIDENCE&&validLevels(m));}\nfunction candidatePlanConsumed(lock,q){if(!lock)return true;const side=lock.candidateAction,px=side==='BUY'?(n(q?.bid)??n(q?.price)):(n(q?.ask)??n(q?.price)),sl=n(lock.stopLoss),tp1=n(lock.target1);if(px==null||!['BUY','SELL'].includes(side))return false;return side==='BUY'?((sl!=null&&px<=sl)||(tp1!=null&&px>=tp1)):((sl!=null&&px>=sl)||(tp1!=null&&px<=tp1));}\nfunction freezeCandidate(m,now){const bucket=m5Bucket(now);return{...m,candidateLocked:true,candidateLockedAtMs:now,candidateLockedM5Bucket:bucket,reason:'LOCKED ICT CANDIDATE — entry zone, SL and targets fixed until execution, structural invalidation, target consumption, or a new confirmed M5 setup'};}\nfunction stabilizeCandidateModel(m,q,now){const bucket=m5Bucket(now);if(state.signal){state.candidateLock=null;state.candidateLockBucket=null;return m;}if(state.candidateLock&&candidatePlanConsumed(state.candidateLock,q)){state.candidateLock=null;state.candidateLockBucket=null;}const incomingValid=validCandidatePlan(m);if(!state.candidateLock){if(!incomingValid)return m;state.candidateLock=freezeCandidate(m,now);state.candidateLockBucket=bucket;}else{const lock=state.candidateLock,sameSide=m?.candidateAction===lock.candidateAction,sameSetup=Boolean(incomingValid&&sameSide&&((m.setupId&&lock.setupId&&m.setupId===lock.setupId)||(!m.setupId&&!lock.setupId)));const newM5=bucket!==state.candidateLockBucket;if(newM5){state.candidateLockBucket=bucket;if(incomingValid&&!sameSetup)state.candidateLock=freezeCandidate(m,now);}}const locked=state.candidateLock;return{...locked,price:n(q?.price)??locked.price,bid:n(q?.bid),ask:n(q?.ask),updatedAt:iso(now),candidateLocked:true,rawStatus:m?.status??null,rawReason:m?.reason??null};}\n";
+  source=source.replace(candidateAnchor,candidateFns+candidateAnchor);
 }
 
 
