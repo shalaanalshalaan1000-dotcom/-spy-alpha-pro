@@ -390,7 +390,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const selectedFvg=reversal?reversalFvg:(continuation?continuationFvg:(reversalFvg??continuationFvg??fvg1??fvg5??null));
   const contextSequence=reversal?'LIQUIDITY_SWEEP -> MSS/DISPLACEMENT -> ORIGIN_FVG':continuation?'TREND_STRUCTURE -> BOS -> DISPLACEMENT -> FVG':'LIQUIDITY_SWEEP -> MSS/DISPLACEMENT -> BOS -> CONFIRMED_CONTINUATION';
 
-  if(!executionReady)  if(!executionReady)return{...base,status:'WAIT',candidateAction:side,confidence:0,contextBias:side,oneMinuteConfirmed,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,contextAligned,biasAligned,setupAligned,setupVotes,setupReady,fvg15,sweep15,dm15,fvg5,sweep5,dm5,bos5,fvg1,sweep1,dm1,bos1,bos15,legSweep,sequence1,sequence5,shift1,shift5,shift15,firstMssEvent,firstDisplacementEvent,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),hasSweep,hasShift,hasDisplacement,hasBos,contextSequence},reason:'ICT CONTEXT WAIT: waiting for a preserved liquidity sweep to produce MSS + displacement; after confirmation the engine may use either an Origin FVG retest or a controlled continuation entry'};
+  if(!executionReady)return{...base,status:'WAIT',candidateAction:side,confidence:0,contextBias:side,oneMinuteConfirmed,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,contextAligned,biasAligned,setupAligned,setupVotes,setupReady,fvg15,sweep15,dm15,fvg5,sweep5,dm5,bos5,fvg1,sweep1,dm1,bos1,bos15,legSweep,sequence1,sequence5,shift1,shift5,shift15,firstMssEvent,firstDisplacementEvent,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),hasSweep,hasShift,hasDisplacement,hasBos,contextSequence},reason:'ICT CONTEXT WAIT: waiting for a preserved liquidity sweep to produce MSS + displacement; after confirmation the engine may use either an Origin FVG retest or a controlled continuation entry'};
 
   const setupType=reversal?'ICT_ORIGIN_REVERSAL':continuation?'ICT_ORIGIN_CONTINUATION':'ICT_CONFIRMED_CONTINUATION';
   const fvg=selectedFvg,shiftT=reversal?firstShift?.t:continuationAnchor;
@@ -407,7 +407,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const entry=poi.mid,entryPad=useDirectContinuation?directPad:originPad,entryLow=useDirectContinuation?poi.low:poi.low-entryPad,entryHigh=useDirectContinuation?poi.high:poi.high+entryPad;
   const zoneAgeMs=fvg?now-fvg.t:0;
   if(!useDirectContinuation&&fvg&&zoneAgeMs>75*60_000)return{...base,status:'WAIT',candidateAction:side,contextBias:side,ict:{dir4,dir1,dir15,levels,session,contextSequence,originFvg:fvg,zoneAgeMinutes:round(zoneAgeMs/60000,1)},reason:'ICT MOVE CONSUMED: origin FVG is too old; wait for a new liquidity sweep / structure leg'};
-  const buffer=  const buffer=clamp(atr1*.35,.15,.45);
+  const buffer=clamp(atr1*.35,.15,.45);
   const recent=m1.slice(-16),fallbackExtreme=side==='BUY'?lo(recent):hi(recent);
   const sweep=legSweep;
   const anchor=useDirectContinuation?fallbackExtreme:(sweep?.extreme??fallbackExtreme);
@@ -424,7 +424,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   if(useDirectContinuation&&pathConsumed>=.40)return{...base,status:'WAIT',candidateAction:side,contextBias:side,ict:{dir4,dir1,dir15,levels,session,phase,contextSequence,legSweep,sequence1,sequence5,firstShift,orderBlock,poi,rangeContext,mainLiquidity:plan.mainLiquidity,pathConsumed:round(pathConsumed,2),directContinuation:true},reason:'ICT NO CHASE: continuation confirmed but more than 40% of the path to external liquidity is already consumed'};
   const lateMove=!useDirectContinuation&&pathConsumed>=.55&&!insidePoi;
   if(lateMove)return{...base,status:'WAIT',candidateAction:side,contextBias:side,ict:{dir4,dir1,dir15,levels,session,phase,contextSequence,legSweep,sequence1,sequence5,firstShift,orderBlock,poi,rangeContext,mainLiquidity:plan.mainLiquidity,pathConsumed:round(pathConsumed,2)},reason:'ICT NO CHASE: more than half of the path to external liquidity is already consumed; wait for a fresh liquidity event / new dealing range'};
-  let confidence=55;  let confidence=55;
+  let confidence=55;
   // Confidence is driven primarily by the M5 execution sequence. M15/H1 are context bonuses only.
   if(sweep5)confidence+=12;
   if(dm5.mss)confidence+=10;
