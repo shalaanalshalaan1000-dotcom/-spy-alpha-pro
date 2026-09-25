@@ -1,0 +1,97 @@
+// Gold Alpha webhook patch for a personal copy of "ICT Concepts [LuxAlgo]"
+// Append this block near the END of the open-source indicator after its ICT calculations.
+// It intentionally contains only the bridge/alert layer, not LuxAlgo's indicator source.
+//
+// TradingView alert:
+//   Condition -> your copied indicator -> Any alert() function call
+//   Webhook URL -> https://spy-alpha-pro-1.onrender.com/api/tradingview/luxalgo
+//
+// Add the same copied indicator + alert on XAUUSD: 1H, 15m, 5m.
+// 1m is optional execution timing.
+//
+// Expected existing identifiers in the LuxAlgo source:
+// bullMSSTrig, bearMSSTrig, MSS, L_bodyUP, L_bodyDN, sDispl, per,
+// imbalanceUP, imbalanceDN, shwFVG, bullish_ob, bearish_ob,
+// b_liq_B, b_liq_S, ny, ldn_open, ldn_close, asian.
+
+goldAlphaBridgeEnabled = input.bool(true, "Enable Gold Alpha webhook", group = "Gold Alpha Webhook")
+goldAlphaBridgeSecret  = input.string("", "Webhook secret", group = "Gold Alpha Webhook")
+
+gaJsonNum(float value) =>
+    na(value) ? "null" : str.tostring(value, format.mintick)
+
+gaKillzone() =>
+    ny ? "NEW_YORK" : ldn_open ? "LONDON_OPEN" : ldn_close ? "LONDON_CLOSE" : asian ? "ASIA" : "OFF_KILLZONE"
+
+gaEmit(string eventName, string side, float zoneLow, float zoneHigh) =>
+    if goldAlphaBridgeEnabled and str.length(goldAlphaBridgeSecret) > 0 and barstate.isconfirmed
+        payload = '{"secret":"' + goldAlphaBridgeSecret +
+          '","source":"ICT Concepts [LuxAlgo]","symbol":"' + syminfo.tickerid +
+          '","timeframe":"' + timeframe.period +
+          '","event":"' + eventName +
+          '","side":"' + side +
+          '","price":' + gaJsonNum(close) +
+          ',"zoneLow":' + gaJsonNum(zoneLow) +
+          ',"zoneHigh":' + gaJsonNum(zoneHigh) +
+          ',"time":' + str.tostring(timenow) +
+          ',"killzone":"' + gaKillzone() + '"}'
+        alert(payload, alert.freq_all)
+
+// BOS appears as new entries in the source's BOS line arrays.
+gaBullBosCount = MSS.l_bosBl.size()
+gaBearBosCount = MSS.l_bosBr.size()
+gaBullBosTrig = ta.change(gaBullBosCount) > 0
+gaBearBosTrig = ta.change(gaBearBosCount) > 0
+
+// Order-block creation.
+gaBullObCount = bullish_ob.size()
+gaBearObCount = bearish_ob.size()
+gaBullObTrig = ta.change(gaBullObCount) > 0
+gaBearObTrig = ta.change(gaBearObCount) > 0
+
+// A newly completed liquidity zone transition is treated as a sweep event.
+int gaBuySideBrokenCount = 0
+int gaSellSideBrokenCount = 0
+for i = 0 to b_liq_B.size() - 1
+    if b_liq_B.get(i).broken
+        gaBuySideBrokenCount += 1
+for i = 0 to b_liq_S.size() - 1
+    if b_liq_S.get(i).broken
+        gaSellSideBrokenCount += 1
+
+gaBuySideSweepTrig  = ta.change(gaBuySideBrokenCount) > 0
+gaSellSideSweepTrig = ta.change(gaSellSideBrokenCount) > 0
+
+// Only send newly-created FVGs; do not spam while the same gap extends.
+gaBullFvgTrig = imbalanceUP and per and shwFVG and not imbalanceUP[1]
+gaBearFvgTrig = imbalanceDN and per and shwFVG and not imbalanceDN[1]
+
+if bullMSSTrig
+    gaEmit("BULLISH_MSS", "BUY", na, na)
+if bearMSSTrig
+    gaEmit("BEARISH_MSS", "SELL", na, na)
+
+if gaBullBosTrig
+    gaEmit("BULLISH_BOS", "BUY", na, na)
+if gaBearBosTrig
+    gaEmit("BEARISH_BOS", "SELL", na, na)
+
+if sDispl and per and L_bodyUP
+    gaEmit("BULLISH_DISPLACEMENT", "BUY", na, na)
+if sDispl and per and L_bodyDN
+    gaEmit("BEARISH_DISPLACEMENT", "SELL", na, na)
+
+if gaBullFvgTrig
+    gaEmit("BULLISH_FVG", "BUY", math.min(high[2], low), math.max(high[2], low))
+if gaBearFvgTrig
+    gaEmit("BEARISH_FVG", "SELL", math.min(high, low[2]), math.max(high, low[2]))
+
+if gaBullObTrig
+    gaEmit("BULLISH_OB", "BUY", na, na)
+if gaBearObTrig
+    gaEmit("BEARISH_OB", "SELL", na, na)
+
+if gaSellSideSweepTrig
+    gaEmit("SELLSIDE_LIQUIDITY_SWEPT", "BUY", na, na)
+if gaBuySideSweepTrig
+    gaEmit("BUYSIDE_LIQUIDITY_SWEPT", "SELL", na, na)

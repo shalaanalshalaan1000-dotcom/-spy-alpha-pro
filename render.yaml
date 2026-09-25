@@ -105,3 +105,7 @@ services:
         value: "6"
       - key: TELEGRAM_MARKET_ONLY
         value: "true"
+      - key: LUXALGO_REQUIRED
+        value: "false"
+      - key: LUXALGO_WEBHOOK_SECRET
+        sync: false
