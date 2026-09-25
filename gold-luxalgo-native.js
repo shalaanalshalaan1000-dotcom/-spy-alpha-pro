@@ -284,12 +284,13 @@ export function gateGoldModelWithNativeLuxAlgo(model,samples=[],options={}){
   const h1=snapshot.frames['1h'],m15=snapshot.frames['15m'],m5=snapshot.frames['5m'],m1=snapshot.frames['1m'];
   const h1Side=h1.structureSide,m15Side=m15.structureSide,m5Side=m5.structureSide;
 
-  if(h1Side&&h1Side!==candidate)return block(model,snapshot,`H1 market structure is ${h1Side}, not ${candidate}.`,'H1_CONFLICT');
-  if(m15Side&&m15Side!==candidate)return block(model,snapshot,`M15 market structure is ${m15Side}, not ${candidate}.`,'M15_CONFLICT');
-  if(!h1Side||!m15Side)return block(model,snapshot,'Need confirmed H1 and M15 market structure before entry.','HTF_STRUCTURE_MISSING');
-
+  // M15/H1 are context only. Do not wait for a slow higher-timeframe structure flip
+  // after the M5 execution leg has already started.
   if(!m5Side)return block(model,snapshot,'Need confirmed M5 MSS/BOS before entry.','M5_STRUCTURE_MISSING');
   if(m5Side!==candidate)return block(model,snapshot,`M5 market structure is ${m5Side}, not ${candidate}.`,'M5_CONFLICT');
+
+  const m5Structure=m5.structure;
+  if(!same(m5Structure,candidate,'5m',now))return block(model,snapshot,'Need a fresh same-side M5 MSS/BOS event.','M5_STRUCTURE_STALE');
 
   const fvg=m5.fvg;
   if(!fvg||fvg.side!==candidate)return block(model,snapshot,'Need an active same-side M5 FVG.','M5_FVG_MISSING');
@@ -297,22 +298,20 @@ export function gateGoldModelWithNativeLuxAlgo(model,samples=[],options={}){
   const disp=m5.displacement;
   if(!same(disp,candidate,'5m',now))return block(model,snapshot,'Need fresh same-side M5 displacement.','M5_DISPLACEMENT_MISSING');
 
-  if(opposite(m1.structure,candidate,'1m',now)){
-    return block(model,snapshot,`M1 timing structure is ${m1.structure.side}; wait for execution to realign.`,'M1_TIMING_CONFLICT');
-  }
-
   const agreement={
-    h1:h1Side,
-    m15:m15Side,
-    m5:m5Side,
+    h1Context:h1Side,
+    m15Context:m15Side,
+    m5Trigger:m5Side,
+    m5Structure:m5Structure?.type||null,
     m5Fvg:fvg.type,
     m5Displacement:disp.side,
     m5LiquiditySweep:m5.liquiditySweep?.event||null,
-    m1:m1.structureSide||null
+    m1Timing:m1.structureSide||null,
+    higherTimeframeConflict:Boolean((h1Side&&h1Side!==candidate)||(m15Side&&m15Side!==candidate))
   };
 
   return{
     ...model,
-    luxalgo:{...snapshot,gate:'PASS',gateReason:`Native ICT context confirms ${candidate}: H1/M15/M5 aligned + M5 displacement + active FVG.`,agreement}
+    luxalgo:{...snapshot,gate:'PASS',gateReason:`Native ICT M5 trigger confirms ${candidate}: fresh M5 MSS/BOS + displacement + active FVG; H1/M15 are context only.`,agreement}
   };
 }
