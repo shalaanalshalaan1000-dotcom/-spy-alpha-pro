@@ -28,7 +28,7 @@ const replacements = [
   ],
   [
     "const BUILD='site-signal-noai-v19-trade-management';",
-    "const BUILD='site-signal-noai-v44-native-ict';"
+    "const BUILD='site-signal-noai-v45-m5-trigger';"
   ],
   [
     "const state={samples:[],signal:null,lastTerminal:null,trades:[],cooldownUntil:0,sameSideBlockUntil:0,lastLossSide:null,quote:null,lastError:null,ws:null,wsConnected:false,lastTvAt:0,lastLpAt:0,loggedQuote:false,loggedLp:false,lastEntryGuard:null};",
