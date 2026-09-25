@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 
-const BUILD_TAG='ict-origin-liquidity-v19-reversal';
+const BUILD_TAG='ict-origin-liquidity-v20-stateful-continuation';
 const PORT=Number(process.env.PORT||3000);
 const UI_PORT=3001,AUTO_PORT=3002,DATA_PORT=3005;
 
