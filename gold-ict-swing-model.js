@@ -239,10 +239,13 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const hasBos=Boolean(bos15.broken||bos5.broken||bos1.broken);
   const reversalAnchor=firstShift?.t??null;
   const continuationAnchor=[bos15,bos5,bos1].filter(x=>x?.broken).sort((a,b)=>a.t-b.t)[0]?.t??null;
+  const contShift1=continuationAnchor!=null?shiftAfter(m1,side,continuationAnchor,atr1):null;
+  const contShift5=continuationAnchor!=null?shiftAfter(m5,side,continuationAnchor,atr5):null;
+  const contDisplacement=Boolean(contShift1?.displacement||contShift5?.displacement);
   const reversalFvg=reversalAnchor!=null?originFvg(m1,m5,side,reversalAnchor):null;
   const continuationFvg=continuationAnchor!=null?originFvg(m1,m5,side,continuationAnchor):null;
   const reversal=Boolean(reversalFvg&&hasSweep&&hasShift&&hasDisplacement);
-  const continuation=Boolean(continuationFvg&&(setupAligned||biasAligned||contextAligned)&&hasBos&&hasDisplacement);
+  const continuation=Boolean(continuationFvg&&(setupAligned||biasAligned||contextAligned)&&hasBos&&contDisplacement);
   const executionReady=Boolean(reversal||continuation);
   const selectedFvg=reversal?reversalFvg:continuationFvg;
   const contextSequence=reversal?'LIQUIDITY_SWEEP -> MSS/DISPLACEMENT -> FIRST_FVG_RETEST -> BOS_CONTINUATION':continuation?'TREND_STRUCTURE -> BOS -> DISPLACEMENT -> FIRST_FVG_RETEST':'INCOMPLETE';
@@ -288,7 +291,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const targets=plan.targets.map(x=>round(x.price));
   const labels=plan.targets.map(x=>x.label);
   const drawOnLiquidity=labels[0]||'OPPOSING_LIQUIDITY';
-  return{...base,status:'CANDIDATE',candidateAction:side,side,strategy:setupType,confidence,contextBias:side,oneMinuteConfirmed,setupId:[side,setupType,sweep?.t??fvg.t,round(entry),round(stop),drawOnLiquidity].join('|'),entry:round(entry),entryLow:round(entryLow),entryHigh:round(entryHigh),stopLoss:round(stop),target1:targets[0]??null,target2:targets[1]??null,target3:targets[2]??null,target4:targets[3]??null,targetLabels:labels,riskReward:round(plan.rr,2),ict:{setupType,mode:'ICT_ORIGIN_TO_EXTERNAL_LIQUIDITY',dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),dealingRangeHigh:round(rangeHigh),dealingRangeLow:round(rangeLow),contextAligned,biasAligned,setupAligned,setupReady,executionReady,setupVotes,contextSequence,hasSweep,hasShift,hasDisplacement,hasBos,legSweep,shift1,shift5,shift15,sweep:sweep??sweep15,sweep15,sweep5,sweep1,displacement:hasDisplacement,mss:hasShift,bos:hasBos,bos15,bos5,bos1,dm15,dm5,dm1,originFvg:{...fvg,low:round(fvg.low),high:round(fvg.high),mid:round(fvg.mid)},entryZoneAgeMinutes:round(zoneAgeMs/60000,1),minimumTargetMove:plan.minimumTargetMove,mainLiquidity:plan.mainLiquidity,drawOnLiquidity,atr1:round(atr1),atr5:round(atr5),atr15:round(atr15),stopBuffer:round(buffer),offSession},reason:'ICT ORIGIN CONFIRMED | '+contextSequence+' | '+side+' from first FVG | external liquidity '+drawOnLiquidity+' '+round(targets[0])+' | distance '+round(Math.abs(targets[0]-entry),2)+'};
+  return{...base,status:'CANDIDATE',candidateAction:side,side,strategy:setupType,confidence,contextBias:side,oneMinuteConfirmed,setupId:[side,setupType,sweep?.t??fvg.t,round(entry),round(stop),drawOnLiquidity].join('|'),entry:round(entry),entryLow:round(entryLow),entryHigh:round(entryHigh),stopLoss:round(stop),target1:targets[0]??null,target2:targets[1]??null,target3:targets[2]??null,target4:targets[3]??null,targetLabels:labels,riskReward:round(plan.rr,2),ict:{setupType,mode:'ICT_ORIGIN_TO_EXTERNAL_LIQUIDITY',dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),dealingRangeHigh:round(rangeHigh),dealingRangeLow:round(rangeLow),contextAligned,biasAligned,setupAligned,setupReady,executionReady,setupVotes,contextSequence,hasSweep,hasShift,hasDisplacement,hasBos,legSweep,shift1,shift5,shift15,contShift1,contShift5,sweep:sweep??sweep15,sweep15,sweep5,sweep1,displacement:hasDisplacement,mss:hasShift,bos:hasBos,bos15,bos5,bos1,dm15,dm5,dm1,originFvg:{...fvg,low:round(fvg.low),high:round(fvg.high),mid:round(fvg.mid)},entryZoneAgeMinutes:round(zoneAgeMs/60000,1),minimumTargetMove:plan.minimumTargetMove,mainLiquidity:plan.mainLiquidity,drawOnLiquidity,atr1:round(atr1),atr5:round(atr5),atr15:round(atr15),stopBuffer:round(buffer),offSession},reason:'ICT ORIGIN CONFIRMED | '+contextSequence+' | '+side+' from first FVG | external liquidity '+drawOnLiquidity+' '+round(targets[0])+' | distance '+round(Math.abs(targets[0]-entry),2)+'};
 }
 };
 }
