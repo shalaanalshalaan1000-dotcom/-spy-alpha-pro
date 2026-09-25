@@ -95,6 +95,111 @@ function priceActionRead(m5,m15,price,atr5,atr15){
   return{primary,m5:r5,m15:r15,confirmedSide:primary.confirmed?primary.breakoutSide:null};
 }
 
+
+function sma(values=[],period=14){
+  if(values.length<period)return null;
+  const x=values.slice(-period);return x.reduce((a,b)=>a+b,0)/period;
+}
+function emaSeries(values=[],period=14){
+  if(values.length<period)return[];
+  const k=2/(period+1),out=[];let prev=values.slice(0,period).reduce((a,b)=>a+b,0)/period;
+  out.push(prev);
+  for(let i=period;i<values.length;i++){prev=values[i]*k+prev*(1-k);out.push(prev);}
+  return out;
+}
+function rsiValue(bars=[],period=14){
+  const closes=bars.map(b=>b.close);if(closes.length<period+1)return null;
+  let gains=0,losses=0;
+  for(let i=1;i<=period;i++){const d=closes[i]-closes[i-1];if(d>0)gains+=d;else losses-=d;}
+  let avgGain=gains/period,avgLoss=losses/period;
+  for(let i=period+1;i<closes.length;i++){const d=closes[i]-closes[i-1],g=Math.max(0,d),l=Math.max(0,-d);avgGain=(avgGain*(period-1)+g)/period;avgLoss=(avgLoss*(period-1)+l)/period;}
+  if(avgLoss===0)return 100;const rs=avgGain/avgLoss;return 100-(100/(1+rs));
+}
+function macdRead(bars=[]){
+  const closes=bars.map(b=>b.close),e12=emaSeries(closes,12),e26=emaSeries(closes,26);
+  if(!e12.length||!e26.length)return{macd:null,signal:null,histogram:null,bias:'NEUTRAL'};
+  const offset=closes.length-e26.length,macdSeries=[];
+  for(let i=offset;i<closes.length;i++){
+    const e12Index=i-(closes.length-e12.length),e26Index=i-offset;
+    if(e12Index>=0&&e12Index<e12.length)macdSeries.push(e12[e12Index]-e26[e26Index]);
+  }
+  const sig=emaSeries(macdSeries,9),m=macdSeries.at(-1),signal=sig.at(-1);
+  if(!Number.isFinite(m)||!Number.isFinite(signal))return{macd:round(m,4),signal:round(signal,4),histogram:null,bias:'NEUTRAL'};
+  const h=m-signal;return{macd:round(m,4),signal:round(signal,4),histogram:round(h,4),bias:h>0?'BUY':h<0?'SELL':'NEUTRAL'};
+}
+function stochasticRead(bars=[],period=5,smoothK=3,smoothD=3){
+  if(bars.length<period+smoothK+smoothD)return{k:null,d:null,bias:'NEUTRAL'};
+  const raw=[];
+  for(let i=period-1;i<bars.length;i++){
+    const w=bars.slice(i-period+1,i+1),hh=hi(w),ll=lo(w),c=bars[i].close;
+    raw.push(hh>ll?((c-ll)/(hh-ll))*100:50);
+  }
+  const smooth=(arr,p)=>arr.map((_,i)=>i+1<p?null:arr.slice(i-p+1,i+1).reduce((a,b)=>a+b,0)/p).filter(v=>v!=null);
+  const kSeries=smooth(raw,smoothK),dSeries=smooth(kSeries,smoothD),k=kSeries.at(-1),d=dSeries.at(-1);
+  const bias=Number.isFinite(k)&&Number.isFinite(d)?(k>d&&k<85?'BUY':k<d&&k>15?'SELL':'NEUTRAL'):'NEUTRAL';
+  return{k:round(k,1),d:round(d,1),bias};
+}
+function candlePatternRead(bars=[]){
+  const x=bars.slice(-3),last=x.at(-1),prev=x.at(-2);
+  if(!last)return{pattern:'NONE',bias:'NEUTRAL',strength:0};
+  const range=Math.max(.0001,last.high-last.low),body=Math.abs(last.close-last.open),upper=last.high-Math.max(last.open,last.close),lower=Math.min(last.open,last.close)-last.low,bull=last.close>last.open,bear=last.close<last.open;
+  if(prev){
+    const prevBull=prev.close>prev.open,prevBear=prev.close<prev.open;
+    if(bull&&prevBear&&last.open<=prev.close&&last.close>=prev.open)return{pattern:'BULLISH_ENGULFING',bias:'BUY',strength:70};
+    if(bear&&prevBull&&last.open>=prev.close&&last.close<=prev.open)return{pattern:'BEARISH_ENGULFING',bias:'SELL',strength:70};
+  }
+  if(body/range<=.10)return{pattern:'DOJI',bias:'NEUTRAL',strength:25};
+  if(lower>=body*2&&upper<=Math.max(body*.75,range*.18)&&last.close>=last.low+range*.65)return{pattern:'HAMMER',bias:'BUY',strength:58};
+  if(upper>=body*2&&lower<=Math.max(body*.75,range*.18)&&last.close<=last.low+range*.35)return{pattern:'SHOOTING_STAR',bias:'SELL',strength:58};
+  return{pattern:bull?'BULL_CANDLE':bear?'BEAR_CANDLE':'FLAT',bias:bull?'BUY':bear?'SELL':'NEUTRAL',strength:20};
+}
+function extendedChartPattern(bars,price,atrValue,spanMs=300000,timeframe='5m'){
+  const base=readReversalPattern(bars,price,atrValue,spanMs,timeframe),rows=bars.slice(-72),p=pivots(rows,1,1),hs=p.highs.slice(-4),ls=p.lows.slice(-4),atrNow=Math.max(.05,Number(atrValue)||1),last=rows.at(-1);
+  if(!last||hs.length<2||ls.length<2)return base;
+  const hLine=fitSwingLine(hs,spanMs,last.t),lLine=fitSwingLine(ls,spanMs,last.t);if(!hLine||!lLine)return base;
+  const upper=hLine.value(last.t),lower=lLine.value(last.t),floor=Math.max(.01,atrNow*.025),flatTol=Math.max(floor*.35,atrNow*.012),widthNow=upper-lower;
+  const priorT=last.t-Math.min(12,rows.length-1)*spanMs,widthPrior=hLine.value(priorT)-lLine.value(priorT),convergence=widthNow>0&&widthPrior>0?widthNow/widthPrior:null;
+  const symmetrical=hLine.slope<-floor*.12&&lLine.slope>floor*.12&&convergence!=null&&convergence<=.92;
+  const ascendingTriangle=Math.abs(hLine.slope)<=flatTol&&lLine.slope>floor*.20&&convergence!=null&&convergence<=.94;
+  const descendingTriangle=hLine.slope<-floor*.20&&Math.abs(lLine.slope)<=flatTol&&convergence!=null&&convergence<=.94;
+  const h3=p.highs.slice(-3),l3=p.lows.slice(-3);let headShoulders=false,inverseHeadShoulders=false,neckline=null;
+  if(h3.length===3){
+    const shoulders=Math.abs(h3[0].price-h3[2].price)<=atrNow*.55,head=h3[1].price>Math.max(h3[0].price,h3[2].price)+atrNow*.18;
+    const betweenLows=p.lows.filter(z=>z.t>h3[0].t&&z.t<h3[2].t).slice(-2);
+    if(shoulders&&head&&betweenLows.length>=2){neckline=(betweenLows[0].price+betweenLows[1].price)/2;headShoulders=true;}
+  }
+  if(l3.length===3){
+    const shoulders=Math.abs(l3[0].price-l3[2].price)<=atrNow*.55,head=l3[1].price<Math.min(l3[0].price,l3[2].price)-atrNow*.18;
+    const betweenHighs=p.highs.filter(z=>z.t>l3[0].t&&z.t<l3[2].t).slice(-2);
+    if(shoulders&&head&&betweenHighs.length>=2){neckline=(betweenHighs[0].price+betweenHighs[1].price)/2;inverseHeadShoulders=true;}
+  }
+  const margin=Math.max(.04,atrNow*.06),market=Number.isFinite(Number(price))?Number(price):last.close;
+  const hsBreak=headShoulders&&neckline!=null&&last.close<neckline-margin&&market<=neckline;
+  const ihsBreak=inverseHeadShoulders&&neckline!=null&&last.close>neckline+margin&&market>=neckline;
+  const triBull=(symmetrical||ascendingTriangle)&&last.close>upper+margin&&market>=upper;
+  const triBear=(symmetrical||descendingTriangle)&&last.close<lower-margin&&market<=lower;
+  if(!(headShoulders||inverseHeadShoulders||symmetrical||ascendingTriangle||descendingTriangle))return base;
+  let pattern=headShoulders?'HEAD_AND_SHOULDERS':inverseHeadShoulders?'INVERSE_HEAD_AND_SHOULDERS':ascendingTriangle?'ASCENDING_TRIANGLE':descendingTriangle?'DESCENDING_TRIANGLE':'SYMMETRICAL_TRIANGLE';
+  let breakoutSide=hsBreak?'SELL':ihsBreak?'BUY':triBull?'BUY':triBear?'SELL':null,confirmed=Boolean(breakoutSide);
+  let bias=breakoutSide||(headShoulders?'SELL':inverseHeadShoulders?'BUY':ascendingTriangle?'BUY':descendingTriangle?'SELL':'NEUTRAL');
+  let strength=(headShoulders||inverseHeadShoulders)?66:56;if(confirmed)strength+=18;if(convergence!=null&&convergence<.78)strength+=6;
+  return{...base,pattern,bias,stage:confirmed?'BREAKOUT_CONFIRMED':'FORMING',confirmed,breakoutSide,strength:clamp(strength,0,94),upperLine:round(upper),lowerLine:round(lower),neckline:round(neckline),convergenceRatio:round(convergence,2),freshBreakout:confirmed};
+}
+function technicalConfluenceRead(m5,m15,price,atr5,atr15){
+  const pa5=extendedChartPattern(m5,price,atr5,300000,'5m'),pa15=extendedChartPattern(m15,price,atr15,900000,'15m');
+  const primary=[pa5,pa15].sort((a,b)=>(Number(b.confirmed)-Number(a.confirmed))||(b.strength-a.strength)||(a.timeframe==='5m'?-1:1))[0];
+  const closes=m5.map(b=>b.close),ma50=sma(closes,50),ma200=sma(closes,200),rsi=rsiValue(m5,14),macd=macdRead(m5),stoch=stochasticRead(m5,5,3,3),candle=candlePatternRead(m5);
+  let buy=0,sell=0;
+  if(ma50!=null&&ma200!=null){if(ma50>ma200)buy+=2;else if(ma50<ma200)sell+=2;}
+  if(ma50!=null){if(price>ma50)buy+=1;else if(price<ma50)sell+=1;}
+  if(rsi!=null){if(rsi>=55&&rsi<75)buy+=1;else if(rsi<=45&&rsi>25)sell+=1;}
+  if(macd.bias==='BUY')buy+=1;else if(macd.bias==='SELL')sell+=1;
+  if(stoch.bias==='BUY')buy+=1;else if(stoch.bias==='SELL')sell+=1;
+  if(candle.bias==='BUY'&&candle.strength>=50)buy+=1;else if(candle.bias==='SELL'&&candle.strength>=50)sell+=1;
+  const indicatorBias=buy-sell>=2?'BUY':sell-buy>=2?'SELL':'NEUTRAL';
+  return{primary,m5:pa5,m15:pa15,marketStructure:primary.structure,trendLines:{upper:primary.upperLine,lower:primary.lowerLine,highSlope:primary.highSlope,lowSlope:primary.lowSlope,breakoutSide:primary.breakoutSide},indicators:{ma50:round(ma50),ma200:round(ma200),rsi14:round(rsi,1),macd,stochastic533:stoch,bias:indicatorBias,buyScore:buy,sellScore:sell},candle,confirmedSide:primary.confirmed?primary.breakoutSide:null};
+}
+
 function structureDirection(bars){
   const x=bars.slice(-30),p=pivots(x,2,2),hs=p.highs.slice(-2),ls=p.lows.slice(-2),last=x.at(-1);
   if(!last)return 0;
@@ -353,14 +458,14 @@ function targetPlan(side,entry,stop,levels,m1,m5,m15,h1,h4,atr1,atr5){
 export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const price=n(rawPrice),m1all=minuteBars(samples),m5all=aggregate(m1all,5),m15all=aggregate(m1all,15),h1all=aggregate(m1all,60),h4all=aggregate(m1all,240);
   const m1=closed(m1all,1,now),m5=closed(m5all,5,now),m15=closed(m15all,15,now),h1=closed(h1all,60,now),h4=closed(h4all,240,now);
-  const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'ICT_TOP_DOWN',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',ict:null,sampleCount:samples.length,modelTimeframes:{context:'4H/1H',bias:'15m',setup:'5m liquidity/FVG + price-action reversal patterns',execution:'1m/5m MSS/FVG',timing:'1m'},priceAction:null,updatedAt:new Date(now).toISOString(),reason:'ICT engine is collecting enough HTF history'};
+  const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'ICT_TOP_DOWN',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',ict:null,sampleCount:samples.length,modelTimeframes:{context:'4H/1H',bias:'15m',setup:'5m liquidity/FVG + price-action reversal patterns',execution:'1m/5m MSS/FVG',timing:'1m'},priceAction:null,technicalRead:null,updatedAt:new Date(now).toISOString(),reason:'ICT engine is collecting enough HTF history'};
   if(price==null||m1.length<120||m5.length<30||m15.length<20||h1.length<12||h4.length<3)return base;
 
   const levels=sessionLevels(m15,now),session=activeSession(now),dir4=structureDirection(h4),dir1=structureDirection(h1),dir15=structureDirection(m15);
   const rangeRows=h1.slice(-24),rangeHigh=hi(rangeRows),rangeLow=lo(rangeRows),equilibrium=Number.isFinite(rangeHigh)&&Number.isFinite(rangeLow)?(rangeHigh+rangeLow)/2:null;
   const location=equilibrium==null?'UNKNOWN':price<=equilibrium?'DISCOUNT':'PREMIUM';
   const atr1=atr(m1,14)||.25,atr5=atr(m5,14)||1,atr15=atr(m15,14)||2;
-  const priceAction=priceActionRead(m5,m15,price,atr5,atr15);base.priceAction=priceAction;
+  const technicalRead=technicalConfluenceRead(m5,m15,price,atr5,atr15),priceAction={primary:technicalRead.primary,m5:technicalRead.m5,m15:technicalRead.m15,confirmedSide:technicalRead.confirmedSide};base.priceAction=priceAction;base.technicalRead=technicalRead;
   const offSession=session==='OFF_KILLZONE';
   const build15=side=>{
     const sign=side==='BUY'?1:-1,fvg=latestFvg(m15,side),sweep=localSweep(m15,side,levels),dm=displacementAndMss(m15,side,atr15);
@@ -515,10 +620,13 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const primaryPattern=priceAction.primary;
   if(primaryPattern?.confirmed&&primaryPattern.breakoutSide===side)confidence+=6;
   else if(primaryPattern?.confirmed&&primaryPattern.breakoutSide&&primaryPattern.breakoutSide!==side)confidence-=8;
-  else if(primaryPattern?.bias===side&&['FALLING_WEDGE','RISING_WEDGE'].includes(primaryPattern?.pattern))confidence+=2;
+  else if(primaryPattern?.bias===side&&['FALLING_WEDGE','RISING_WEDGE','HEAD_AND_SHOULDERS','INVERSE_HEAD_AND_SHOULDERS','ASCENDING_TRIANGLE','DESCENDING_TRIANGLE','SYMMETRICAL_TRIANGLE'].includes(primaryPattern?.pattern))confidence+=2;
+  const indicatorBias=technicalRead?.indicators?.bias,candleBias=technicalRead?.candle?.bias;
+  if(indicatorBias===side)confidence+=3;else if(['BUY','SELL'].includes(indicatorBias)&&indicatorBias!==side)confidence-=3;
+  if(candleBias===side&&Number(technicalRead?.candle?.strength)>=50)confidence+=2;else if(['BUY','SELL'].includes(candleBias)&&candleBias!==side&&Number(technicalRead?.candle?.strength)>=50)confidence-=2;
   confidence=clamp(confidence,0,95);
   const targets=plan.targets.map(x=>round(x.price));
   const labels=plan.targets.map(x=>x.label);
   const drawOnLiquidity=labels[0]||'OPPOSING_LIQUIDITY';
-  return{...base,status:'CANDIDATE',candidateAction:side,side,strategy:setupType,confidence,contextBias:side,oneMinuteConfirmed,setupId:[side,setupType,sweep?.t??fvg?.t??now,round(entry),round(stop),drawOnLiquidity].join('|'),entry:round(entry),entryLow:round(entryLow),entryHigh:round(entryHigh),stopLoss:round(stop),target1:targets[0]??null,target2:targets[1]??null,target3:targets[2]??null,target4:targets[3]??null,targetLabels:labels,riskReward:round(plan.rr,2),ict:{setupType,mode:'ICT_NARRATIVE_ENGINE',phase,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),dealingRangeHigh:round(rangeHigh),dealingRangeLow:round(rangeLow),rangeContext,contextAligned,biasAligned,setupAligned,setupReady,executionReady,setupVotes,contextSequence,hasSweep,hasShift,hasDisplacement,hasBos,triggerConfirmed,legSweep,sequence1,sequence5,firstShift,firstMssEvent,firstDisplacementEvent,firstTriggerEvent,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),shift1,shift5,shift15,contShift1,contShift5,continuationDisplacementEvent,sweep:sweep??sweep15,sweep15,sweep5,sweep1,displacement:hasDisplacement,mss:hasShift,bos:hasBos,bos15,bos5,bos1,dm15,dm5,dm1,orderBlock,poi,originFvg:fvg?{...fvg,low:round(fvg.low),high:round(fvg.high),mid:round(fvg.mid)}:null,entryMode:useDirectContinuation?'CONFIRMED_CONTINUATION':'ORIGIN_FVG_RETEST',directContinuation,useDirectContinuation,entryZoneAgeMinutes:fvg?round(zoneAgeMs/60000,1):null,minimumTargetMove:plan.minimumTargetMove,mainLiquidity:plan.mainLiquidity,drawOnLiquidity,pathConsumed:round(pathConsumed,2),atr1:round(atr1),atr5:round(atr5),atr15:round(atr15),stopBuffer:round(buffer),offSession},reason:'ICT NARRATIVE | '+phase+' | '+contextSequence+' | '+side+' via '+(useDirectContinuation?'CONFIRMED CONTINUATION':'ORIGIN FVG RETEST')+' from '+poi.type+' in '+rangeContext.location+' | PA '+priceAction.primary.pattern+' '+priceAction.primary.stage+(priceAction.primary.breakoutSide?' '+priceAction.primary.breakoutSide:'')+' | draw '+drawOnLiquidity+' '+round(targets[0])+' | remaining '+round(Math.abs(targets[0]-price),2)};
+  return{...base,status:'CANDIDATE',candidateAction:side,side,strategy:setupType,confidence,contextBias:side,oneMinuteConfirmed,setupId:[side,setupType,sweep?.t??fvg?.t??now,round(entry),round(stop),drawOnLiquidity].join('|'),entry:round(entry),entryLow:round(entryLow),entryHigh:round(entryHigh),stopLoss:round(stop),target1:targets[0]??null,target2:targets[1]??null,target3:targets[2]??null,target4:targets[3]??null,targetLabels:labels,riskReward:round(plan.rr,2),ict:{setupType,mode:'ICT_NARRATIVE_ENGINE',phase,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),dealingRangeHigh:round(rangeHigh),dealingRangeLow:round(rangeLow),rangeContext,contextAligned,biasAligned,setupAligned,setupReady,executionReady,setupVotes,contextSequence,hasSweep,hasShift,hasDisplacement,hasBos,triggerConfirmed,legSweep,sequence1,sequence5,firstShift,firstMssEvent,firstDisplacementEvent,firstTriggerEvent,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),shift1,shift5,shift15,contShift1,contShift5,continuationDisplacementEvent,sweep:sweep??sweep15,sweep15,sweep5,sweep1,displacement:hasDisplacement,mss:hasShift,bos:hasBos,bos15,bos5,bos1,dm15,dm5,dm1,orderBlock,poi,originFvg:fvg?{...fvg,low:round(fvg.low),high:round(fvg.high),mid:round(fvg.mid)}:null,entryMode:useDirectContinuation?'CONFIRMED_CONTINUATION':'ORIGIN_FVG_RETEST',directContinuation,useDirectContinuation,entryZoneAgeMinutes:fvg?round(zoneAgeMs/60000,1):null,minimumTargetMove:plan.minimumTargetMove,mainLiquidity:plan.mainLiquidity,drawOnLiquidity,pathConsumed:round(pathConsumed,2),atr1:round(atr1),atr5:round(atr5),atr15:round(atr15),stopBuffer:round(buffer),offSession},reason:'ICT NARRATIVE | '+phase+' | '+contextSequence+' | '+side+' via '+(useDirectContinuation?'CONFIRMED CONTINUATION':'ORIGIN FVG RETEST')+' from '+poi.type+' in '+rangeContext.location+' | PA '+priceAction.primary.pattern+' '+priceAction.primary.stage+(priceAction.primary.breakoutSide?' '+priceAction.primary.breakoutSide:'')+' | TA '+String(technicalRead?.indicators?.bias||'NEUTRAL')+' / '+String(technicalRead?.candle?.pattern||'NONE')+' | draw '+drawOnLiquidity+' '+round(targets[0])+' | remaining '+round(Math.abs(targets[0]-price),2)};
 }
