@@ -1,10 +1,10 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
-import { buildBtcMurphySignal } from './btc-murphy-model.js';
+import { getBtcSignal as getBtcNarrativeSignal } from './btc-ict-fast.js';
 
 const PORT = Number(process.env.PORT || 10000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_SITE_INNER_PORT || 3200);
-const BUILD = 'gold-alpha-btc-murphy-v3';
+const BUILD = 'gold-alpha-btc-ict-narrative-v4';
 let stopping = false;
 
 const child = spawn(process.execPath, ['site-indicator-start.js'], {
@@ -155,7 +155,7 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && url.pathname === '/api/btc-signal') {
     try {
-      const payload = await getBtcSignal();
+      const payload = await getBtcNarrativeSignal();
       res.writeHead(200, {'content-type':'application/json; charset=utf-8','cache-control':'no-store','access-control-allow-origin':'*','x-gold-alpha-build':BUILD});
       return res.end(JSON.stringify(payload));
     } catch (error) {
@@ -183,6 +183,6 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => console.log(`[render-start] ${BUILD} listening on ${PORT}; gold-inner=${INNER_PORT}; BTCUSD Murphy signals-only=on`));
+server.listen(PORT, '0.0.0.0', () => console.log(`[render-start] ${BUILD} listening on ${PORT}; gold-inner=${INNER_PORT}; BTCUSD ICT narrative signals-only=on`));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
