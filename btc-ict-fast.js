@@ -1,5 +1,3 @@
-import { buildBtcMurphySignal } from './btc-murphy-model.js';
-const BTC_MIN_CONFIDENCE=Math.max(65,Math.min(90,Number(process.env.BTC_MIN_CONFIDENCE||65)||65));
 const BTC_CACHE_MS=Math.max(5000,Math.min(30000,Number(process.env.BTC_CACHE_MS||12000)||12000));
 const BTC_CONTRACT_SIZE=Math.max(.000001,Number(process.env.EXNESS_BTC_CONTRACT_SIZE||1));
 const BTC_LOT_STEP=Math.max(.001,Number(process.env.EXNESS_BTC_LOT_STEP||.01));
@@ -206,21 +204,6 @@ function compatIct(h1,m15,m5,m1,side){
     m1:{side:m1.structure.side,latest:m1.structure.latest,fvg:m1.fvg,orderBlock:m1.orderBlock,liquiditySweep:m1.liquiditySweep}
   };
 }
-function scoreBucket(){return{BUY:0,SELL:0,reasons:{BUY:[],SELL:[]}};}
-function addScore(bucket,side,value,reason){if(!['BUY','SELL'].includes(side)||!(value>0))return;bucket[side]+=value;bucket.reasons[side].push(reason);}
-function sideFromDir(dir){return dir>0?'BUY':dir<0?'SELL':'NEUTRAL';}
-function momentumSide(rows,count=4){const x=rows.slice(-Math.max(2,count+1));if(x.length<2)return'NEUTRAL';const d=x.at(-1).close-x[0].close;return d>0?'BUY':d<0?'SELL':'NEUTRAL';}
-function fibonacciLocation(rows,price){
-  const x=rows.slice(-72);if(x.length<12)return{location:'UNKNOWN',BUY:0,SELL:0,high:null,low:null,pos:null};
-  const high=Math.max(...x.map(c=>c.high)),low=Math.min(...x.map(c=>c.low)),range=high-low;
-  if(!(range>0))return{location:'UNKNOWN',BUY:0,SELL:0,high:round(high),low:round(low),pos:null};
-  const pos=(price-low)/range;let BUY=0,SELL=0,location='MID';
-  if(pos<=.382){BUY=6;location='DEEP_DISCOUNT';}
-  else if(pos<.50){BUY=4;location='DISCOUNT';}
-  else if(pos>.618){SELL=6;location='DEEP_PREMIUM';}
-  else if(pos>.50){SELL=4;location='PREMIUM';}
-  return{location,BUY,SELL,high:round(high),low:round(low),pos:round(pos,3),fib382:round(low+range*.382),fib50:round(low+range*.5),fib618:round(low+range*.618)};
-}
 function candleRead(rows){
   const last=rows.at(-1),prev=rows.at(-2);if(!last)return{side:'NEUTRAL',strength:0,pattern:'NONE'};
   const range=Math.max(.01,last.high-last.low),body=Math.abs(last.close-last.open),upper=last.high-Math.max(last.open,last.close),lower=Math.min(last.open,last.close)-last.low;
@@ -228,94 +211,112 @@ function candleRead(rows){
   if(prev&&last.close<last.open&&prev.close>prev.open&&last.open>=prev.close&&last.close<=prev.open)return{side:'SELL',strength:5,pattern:'BEARISH_ENGULFING'};
   if(lower>=Math.max(body*1.8,range*.32)&&last.close>=last.low+range*.62)return{side:'BUY',strength:4,pattern:'LOWER_REJECTION'};
   if(upper>=Math.max(body*1.8,range*.32)&&last.close<=last.low+range*.38)return{side:'SELL',strength:4,pattern:'UPPER_REJECTION'};
-  return{side:last.close>last.open?'BUY':last.close<last.open?'SELL':'NEUTRAL',strength:2,pattern:'CANDLE_DIRECTION'};
+  if(body>=range*.58)return{side:last.close>last.open?'BUY':'SELL',strength:3,pattern:last.close>last.open?'BULLISH_IMPULSE':'BEARISH_IMPULSE'};
+  return{side:last.close>last.open?'BUY':last.close<last.open?'SELL':'NEUTRAL',strength:1,pattern:'CANDLE_DIRECTION'};
 }
-function fallbackTargets(side,entry,risk,a5){
+function breakoutRead(rows,a5){
+  const x=rows.slice(-36);if(x.length<12)return{side:'NEUTRAL',type:'NONE',level:null};
+  const last=x.at(-1),prior=x.slice(0,-1),sw=swingPoints(prior,3);
+  const recentHigh=sw.highs.at(-1)?.price??Math.max(...prior.slice(-12).map(v=>v.high));
+  const recentLow=sw.lows.at(-1)?.price??Math.min(...prior.slice(-12).map(v=>v.low));
+  const buffer=Math.max(4,(a5||50)*.04);
+  if(last.close>recentHigh+buffer)return{side:'BUY',type:'BREAKOUT',level:round(recentHigh),close:round(last.close),t:last.t};
+  if(last.close<recentLow-buffer)return{side:'SELL',type:'BREAKDOWN',level:round(recentLow),close:round(last.close),t:last.t};
+  return{side:'NEUTRAL',type:'NONE',level:null,close:round(last.close),t:last.t};
+}
+function srSnapshot(rows){
+  const x=rows.slice(-120),sw=swingPoints(x,4),price=x.at(-1)?.close;
+  const highs=sw.highs.map(v=>v.price).filter(Number.isFinite),lows=sw.lows.map(v=>v.price).filter(Number.isFinite);
+  const resistance=highs.filter(v=>v>price).sort((a,b)=>a-b)[0]??highs.at(-1)??null;
+  const support=lows.filter(v=>v<price).sort((a,b)=>b-a)[0]??lows.at(-1)??null;
+  return{support:round(support),resistance:round(resistance)};
+}
+function priceActionTargets(side,entry,risk,h1,m15,m5,a5){
+  const pools=[];
+  const add=(label,price)=>{if(Number.isFinite(price)&&(side==='BUY'?price>entry:price<entry))pools.push({label,price:round(price)});};
+  const frames=[['M5',m5],['M15',m15],['H1',h1]];
+  for(const [name,snap] of frames){
+    const pts=side==='BUY'?snap.structure.swings.highs:snap.structure.swings.lows;
+    for(const p of pts.slice(-20))add(side==='BUY'?name+'_RESISTANCE':name+'_SUPPORT',p.price);
+  }
+  const minGap=Math.max(35,a5*.28);
+  const dedup=[];
+  for(const p of pools.sort((a,b)=>Math.abs(a.price-entry)-Math.abs(b.price-entry))){
+    if(Math.abs(p.price-entry)<minGap)continue;
+    if(!dedup.some(x=>Math.abs(x.price-p.price)<=Math.max(12,a5*.10)))dedup.push(p);
+  }
   const dir=side==='BUY'?1:-1;
-  const d=[
-    Math.max(45,a5*.45,risk*.70),
-    Math.max(80,a5*.80,risk*1.15),
-    Math.max(130,a5*1.25,risk*1.65),
-    Math.max(200,a5*1.85,risk*2.30)
+  const fallback=[
+    entry+dir*Math.max(minGap,risk*.80),
+    entry+dir*Math.max(minGap*1.6,risk*1.25),
+    entry+dir*Math.max(minGap*2.4,risk*1.80),
+    entry+dir*Math.max(minGap*3.2,risk*2.50)
   ];
-  return d.map(x=>round(entry+dir*x));
-}
-function chooseTargets(side,entry,risk,h1,m15,m5,a5){
-  const minMove=Math.max(45,a5*.45),pools=targetPools(side,entry,h1,m15,m5,a5),fallback=fallbackTargets(side,entry,risk,a5),out=[],labels=[];
-  const usable=pools.filter(p=>Math.abs(p.price-entry)>=minMove);
+  const out=[],labels=[];
   for(let i=0;i<4;i++){
-    let p=usable[i]?.price??fallback[i],label=usable[i]?.label??('CONFLUENCE_TP'+(i+1));
-    if(i&&side==='BUY'&&p<=out[i-1]+20){p=Math.max(fallback[i],out[i-1]+Math.max(25,a5*.18));label='CONFLUENCE_TP'+(i+1);}
-    if(i&&side==='SELL'&&p>=out[i-1]-20){p=Math.min(fallback[i],out[i-1]-Math.max(25,a5*.18));label='CONFLUENCE_TP'+(i+1);}
+    let p=dedup[i]?.price??fallback[i],label=dedup[i]?.label??('PA_TP'+(i+1));
+    if(i&&side==='BUY'&&p<=out[i-1]+Math.max(18,a5*.10)){p=Math.max(fallback[i],out[i-1]+Math.max(22,a5*.12));label='PA_TP'+(i+1);}
+    if(i&&side==='SELL'&&p>=out[i-1]-Math.max(18,a5*.10)){p=Math.min(fallback[i],out[i-1]-Math.max(22,a5*.12));label='PA_TP'+(i+1);}
     out.push(round(p));labels.push(label);
   }
-  return{targets:out,labels,pools:usable.slice(0,8)};
+  return{targets:out,labels,levels:dedup.slice(0,8)};
 }
 function analyze(data){
   const one=data.one,five=data.five,fifteen=data.fifteen,hour=data.hour,ticker=data.ticker||{};
   if(one.length<80||five.length<80||fifteen.length<80||hour.length<80)throw new Error('BTC history incomplete');
-  const price=Number(ticker.price??one.at(-1).close),h1=frame(hour,'1h'),m15=frame(fifteen,'15m'),m5=frame(five,'5m'),m1=frame(one,'1m');
-  const a1=atr(one,14)||price*.0007,a5=atr(five,14)||price*.0015,ict=compatIct(h1,m15,m5,m1,null);
-  let murphy=null;try{murphy=buildBtcMurphySignal(one,five,fifteen,hour,ticker);}catch{}
-  const base={symbol:'BTCUSD',source:'COINBASE_SPOT',status:'WAIT',action:'WAIT',side:null,strategy:'MULTI_MODEL_CONFLUENCE',tradeStyle:'MULTI_MODEL_CONFLUENCE',confidence:0,scoreMeaning:'SETUP_SCORE_NOT_WIN_PROBABILITY',minimumConfidence:BTC_MIN_CONFIDENCE,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,lotSizing:null,trend:`15m ${m15.structure.side||'NEUTRAL'} / 1h ${h1.structure.side||'NEUTRAL'}`,confluence:null,murphy: murphy?.murphy||null,ict,updatedAt:new Date().toISOString(),reason:'CONFLUENCE WAIT — building BTC evidence.'};
+  const price=Number(ticker.price??one.at(-1).close),h1=frame(hour,'1h'),m15=frame(fifteen,'15m'),m5=frame(five,'5m');
+  const a5=atr(five,14)||price*.0015,a1=atr(one,14)||price*.0007;
+  const context=m15.structure.side||null,bias1h=h1.structure.side||'NEUTRAL',setup5=m5.structure.side||'NEUTRAL';
+  const event5=m5.structure.latest||null,eventFresh=Boolean(event5&&fresh(event5,70*60_000));
+  const candle5=candleRead(five),breakout5=breakoutRead(five,a5),disp5=m5.displacement;
+  const displacementFresh=Boolean(disp5&&fresh(disp5,45*60_000));
+  const sr5=srSnapshot(five),sr15=srSnapshot(fifteen);
+  const base={symbol:'BTCUSD',source:'COINBASE_SPOT',status:'WAIT',action:'WAIT',side:null,strategy:'PRICE_ACTION_ONLY',tradeStyle:'PRICE_ACTION_ONLY',confidence:0,scoreMeaning:'DESCRIPTIVE_SETUP_STRENGTH_NOT_WIN_PROBABILITY',price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,lotSizing:null,executionMode:'SIGNALS_ONLY',trend:`1h ${bias1h} / 15m ${context||'NEUTRAL'} / 5m ${setup5}`,priceAction:{version:'BTC_PRICE_ACTION_V1',context15:context||'NEUTRAL',bias1h,structure5:setup5,event5,candle5,breakout5,displacement5:disp5,supportResistance:{m5:sr5,m15:sr15}},updatedAt:new Date().toISOString(),reason:'PRICE ACTION WAIT — waiting for 15m context and a confirmed 5m trigger.'};
 
-  const components={structure:scoreBucket(),trend:scoreBucket(),momentum:scoreBucket(),priceAction:scoreBucket(),liquidity:scoreBucket(),location:scoreBucket(),volatility:scoreBucket()};
-  addScore(components.structure,h1.structure.side,7,'1h structure');
-  addScore(components.structure,m15.structure.side,9,'15m structure');
-  addScore(components.structure,m5.structure.side,8,'5m structure');
+  if(!context)return{...base,confidence:25,reason:'PRICE ACTION WAIT — 15m structure is neutral; no directional context yet.'};
 
-  const mt=murphy?.murphy?.trend||{},murphySide=mt.side||(['BUY','SELL'].includes(murphy?.action)?murphy.action:null);
-  addScore(components.trend,murphySide,10,'Murphy multi-timeframe trend');
-  if(mt.bull1h)addScore(components.trend,'BUY',4,'1h EMA trend');if(mt.bear1h)addScore(components.trend,'SELL',4,'1h EMA trend');
-  if(mt.bull15)addScore(components.trend,'BUY',4,'15m EMA trend');if(mt.bear15)addScore(components.trend,'SELL',4,'15m EMA trend');
+  const structureAligned=setup5===context;
+  const freshStructureTrigger=eventFresh&&event5.side===context;
+  const breakoutTrigger=breakout5.side===context;
+  const candleTrigger=candle5.side===context&&candle5.strength>=4;
+  const displacementTrigger=displacementFresh&&disp5?.side===context;
+  const triggerReady=freshStructureTrigger||breakoutTrigger||candleTrigger||displacementTrigger;
+  const setupReady=structureAligned||freshStructureTrigger||breakoutTrigger;
 
-  const rsi5=Number(murphy?.murphy?.rsi5),rsi15=Number(mt.rsi15),mom5=momentumSide(five,4),mom1=momentumSide(one,5);
-  if(Number.isFinite(rsi5)){if(rsi5>=53&&rsi5<=76)addScore(components.momentum,'BUY',5,'5m RSI bullish');else if(rsi5<=47&&rsi5>=24)addScore(components.momentum,'SELL',5,'5m RSI bearish');}
-  if(Number.isFinite(rsi15)){if(rsi15>=52&&rsi15<=78)addScore(components.momentum,'BUY',4,'15m RSI bullish');else if(rsi15<=48&&rsi15>=22)addScore(components.momentum,'SELL',4,'15m RSI bearish');}
-  addScore(components.momentum,mom5,3,'5m momentum');addScore(components.momentum,mom1,2,'1m momentum');
+  let confidence=50;
+  confidence+=setupReady?12:0;
+  confidence+=freshStructureTrigger?12:0;
+  confidence+=breakoutTrigger?10:0;
+  confidence+=candleTrigger?8:0;
+  confidence+=displacementTrigger?6:0;
+  confidence+=bias1h===context?5:bias1h==='NEUTRAL'?0:-4;
+  confidence=clamp(Math.round(confidence),20,95);
+  base.confidence=confidence;
 
-  const candle=candleRead(five),trigger=murphy?.murphy?.trigger||{};
-  addScore(components.priceAction,candle.side,candle.strength,`5m ${candle.pattern}`);
-  if(trigger.ready&&murphySide){addScore(components.priceAction,murphySide,8,`Murphy ${trigger.type||'trigger'}`);if(trigger.type==='BREAKOUT'||trigger.type==='PULLBACK_RESUMPTION')addScore(components.priceAction,murphySide,3,'confirmed 5m price-action trigger');}
+  if(!setupReady)return{...base,reason:`PRICE ACTION WAIT — 15m ${context}; 5m structure is ${setup5}. Waiting for 5m structure to align or break back ${context}.`};
+  if(!triggerReady)return{...base,reason:`PRICE ACTION WAIT — 15m ${context} and 5m context are aligned, but no fresh 5m BOS/MSS, breakout, strong rejection/engulfing, or displacement yet.`};
 
-  const sweeps=[h1.liquiditySweep,m15.liquiditySweep,m5.liquiditySweep,m1.liquiditySweep].filter(Boolean);
-  for(const e of sweeps.slice(-2))addScore(components.liquidity,e.side,7,'liquidity sweep');
-  const fvgBuy=Boolean(m5.fvgs.some(x=>x.side==='BUY')||m1.fvgs.some(x=>x.side==='BUY')),fvgSell=Boolean(m5.fvgs.some(x=>x.side==='SELL')||m1.fvgs.some(x=>x.side==='SELL'));
-  if(fvgBuy)addScore(components.liquidity,'BUY',3,'active bullish FVG');if(fvgSell)addScore(components.liquidity,'SELL',3,'active bearish FVG');
-  if(m5.orderBlock?.side)addScore(components.liquidity,m5.orderBlock.side,2,'5m order block');
+  const side=context,dir=side==='BUY'?1:-1,recent5=five.slice(-12),sw5=m5.structure.swings;
+  const lastSwing=side==='BUY'?sw5.lows.at(-1)?.price:sw5.highs.at(-1)?.price;
+  const localExtreme=side==='BUY'?Math.min(...recent5.slice(-6).map(c=>c.low)):Math.max(...recent5.slice(-6).map(c=>c.high));
+  const buffer=Math.max(12,a5*.12,a1*.30);
+  let stop=side==='BUY'?Math.min(Number.isFinite(lastSwing)?lastSwing:localExtreme,localExtreme)-buffer:Math.max(Number.isFinite(lastSwing)?lastSwing:localExtreme,localExtreme)+buffer;
+  let risk=Math.abs(price-stop);
+  const minRisk=Math.max(28,a5*.28),maxRisk=Math.max(120,a5*1.8);
+  if(risk<minRisk){stop=price-dir*minRisk;risk=minRisk;}
+  if(risk>maxRisk){
+    stop=side==='BUY'?localExtreme-buffer:localExtreme+buffer;
+    risk=Math.abs(price-stop);
+    if(risk>maxRisk)return{...base,reason:`PRICE ACTION WAIT — 5m trigger is valid but structural stop is too wide (${round(risk)}).`};
+  }
 
-  const fib=fibonacciLocation(hour,price);addScore(components.location,'BUY',fib.BUY,`Fibonacci ${fib.location}`);addScore(components.location,'SELL',fib.SELL,`Fibonacci ${fib.location}`);
+  const entry=price,entryHalf=Math.max(10,Math.min(45,a1*.35)),chosen=priceActionTargets(side,entry,risk,h1,m15,m5,a5),targets=chosen.targets;
+  const rr=Math.abs(targets[0]-entry)/risk;
+  const triggers=[freshStructureTrigger?event5?.type:null,breakoutTrigger?breakout5.type:null,candleTrigger?candle5.pattern:null,displacementTrigger?'DISPLACEMENT':null].filter(Boolean);
+  const h1Note=bias1h===side?'1h aligned':bias1h==='NEUTRAL'?'1h neutral':'1h opposite (bias only)';
+  const pa={...base.priceAction,side,setupReady:true,triggerReady:true,triggers,targetLevels:chosen.levels,h1Note};
 
-  const avgRange=mean(five.slice(-20).map(c=>c.high-c.low))||a5,volRatio=a5/Math.max(1,avgRange),volumeRatio=Number(murphy?.murphy?.volume5Ratio);
-  if(volRatio>=.65&&volRatio<=1.9){addScore(components.volatility,'BUY',4,'healthy ATR regime');addScore(components.volatility,'SELL',4,'healthy ATR regime');}
-  if(Number.isFinite(volumeRatio)&&volumeRatio>=1.02){addScore(components.volatility,mom5,3,'5m volume expansion');}
-  if(m5.displacement?.side)addScore(components.volatility,m5.displacement.side,3,'5m displacement');
-
-  const caps={structure:24,trend:18,momentum:14,priceAction:16,liquidity:12,location:6,volatility:10};
-  for(const [name,c] of Object.entries(components)){c.BUY=Math.min(caps[name],c.BUY);c.SELL=Math.min(caps[name],c.SELL);}
-  const totals={BUY:0,SELL:0};for(const c of Object.values(components)){totals.BUY+=c.BUY;totals.SELL+=c.SELL;}
-  totals.BUY=clamp(Math.round(totals.BUY),0,100);totals.SELL=clamp(Math.round(totals.SELL),0,100);
-  const side=totals.BUY>=totals.SELL?'BUY':'SELL',confidence=totals[side],other=totals[side==='BUY'?'SELL':'BUY'],lead=confidence-other;
-  const confluence={version:'BTC_CONFLUENCE_V1',weights:caps,scores:totals,lead,selectedSide:side,breakdown:Object.fromEntries(Object.entries(components).map(([k,v])=>[k,{BUY:v.BUY,SELL:v.SELL,reasons:v.reasons}])),structure:{h1:h1.structure.side||'NEUTRAL',m15:m15.structure.side||'NEUTRAL',m5:m5.structure.side||'NEUTRAL'},momentum:{rsi5:round(rsi5,1),rsi15:round(rsi15,1),m5:mom5,m1:mom1},priceAction:{candle,trigger},liquidity:{sweeps:sweeps.slice(-4),m5Fvg:m5.fvg,m1Fvg:m1.fvg,orderBlock:m5.orderBlock},fibonacci:fib,volatility:{atr1:round(a1),atr5:round(a5),atrRatio:round(volRatio,2),volumeRatio:round(volumeRatio,2)},legacyModels:{murphy:{status:murphy?.status||'WAIT',action:murphy?.action||'WAIT',confidence:murphy?.confidence||0,strategy:murphy?.strategy||null},ictContext:{h1:h1.structure.side,m15:m15.structure.side,m5:m5.structure.side}}};
-  base.confluence=confluence;base.confidence=confidence;base.trend=`1h ${h1.structure.side||'NEUTRAL'} / 15m ${m15.structure.side||'NEUTRAL'} / 5m ${m5.structure.side||'NEUTRAL'}`;base.ict=compatIct(h1,m15,m5,m1,side);
-
-  if(confidence<BTC_MIN_CONFIDENCE||lead<8)return{...base,reason:`CONFLUENCE WAIT — BUY ${totals.BUY}/100 • SELL ${totals.SELL}/100 • lead ${lead}; need ≥${BTC_MIN_CONFIDENCE} and lead ≥8.`};
-
-  const murphyAligned=murphy?.status==='ACTIVE'&&murphy?.action===side;
-  let entry=murphyAligned&&Number.isFinite(Number(murphy.entry))?Number(murphy.entry):price;
-  const entryHalf=Math.max(15,Math.min(65,a1*.45)),entryLow=entry-entryHalf,entryHigh=entry+entryHalf;
-  const recent5=five.slice(-10),recent1=one.slice(-18),buffer=Math.max(18,a1*.35);
-  let stop=side==='BUY'?Math.min(Math.min(...recent5.map(c=>c.low)),Math.min(...recent1.map(c=>c.low)))-buffer:Math.max(Math.max(...recent5.map(c=>c.high)),Math.max(...recent1.map(c=>c.high)))+buffer;
-  const minRisk=Math.max(35,a1*.55);if(Math.abs(entry-stop)<minRisk)stop=entry+(side==='BUY'?-1:1)*minRisk;
-  const risk=Math.abs(entry-stop),maxRisk=Math.max(900,price*.009);
-  if(!(risk>0)||risk>maxRisk)return{...base,reason:`CONFLUENCE WAIT — structural BTC stop ${round(risk,2)} is outside allowed range.`};
-
-  const chosen=chooseTargets(side,entry,risk,h1,m15,m5,a5),targets=chosen.targets,tp1Reward=Math.abs(targets[0]-entry),rr=tp1Reward/risk;
-  if(tp1Reward<Math.max(40,a5*.35)||rr<.50)return{...base,reason:`CONFLUENCE WAIT — TP1 room ${round(tp1Reward,2)} / ${round(rr,2)}R is too small.`};
-
-  const strategy=components.liquidity[side]>=7&&components.priceAction[side]>=7?'CONFLUENCE_REVERSAL':components.trend[side]>=12&&components.structure[side]>=14?'CONFLUENCE_TREND':'CONFLUENCE_BREAKOUT';
-  const sizing=lotSizing(entry,stop);
-  return{...base,status:'ACTIVE',action:side,side,strategy,tradeStyle:'MULTI_MODEL_CONFLUENCE',confidence,entry:round(entry),entryLow:round(entryLow),entryHigh:round(entryHigh),stopLoss:round(stop),target1:targets[0],target2:targets[1],target3:targets[2],target4:targets[3],targetLabels:chosen.labels,riskReward:round(rr,2),lotSizing:sizing,confluence,ict:compatIct(h1,m15,m5,m1,side),reason:`CONFLUENCE ${side} ${confidence}/100 — Structure ${components.structure[side]}/24 • Trend ${components.trend[side]}/18 • Momentum ${components.momentum[side]}/14 • PriceAction ${components.priceAction[side]}/16 • Liquidity ${components.liquidity[side]}/12 • Fib ${components.location[side]}/6 • Volatility ${components.volatility[side]}/10.`};
+  return{...base,status:'ACTIVE',action:side,side,confidence,entry:round(entry),entryLow:round(entry-entryHalf),entryHigh:round(entry+entryHalf),stopLoss:round(stop),target1:targets[0],target2:targets[1],target3:targets[2],target4:targets[3],targetLabels:chosen.labels,riskReward:round(rr,2),lotSizing:lotSizing(entry,stop),priceAction:pa,reason:`PRICE ACTION ${side} — 15m ${context} context + 5m ${triggers.join(' + ')||'confirmed trigger'}; ${h1Note}.`};
 }
 async function freshCandidate(force=false){
   if(!force&&cache.value&&Date.now()<cache.expiresAt)return cache.value;
@@ -351,7 +352,7 @@ export async function getBtcSignal(force=false){
 export function injectBtcPanel(html){
   if(html.includes('btcIctFastPanel'))return html;
   const css='<style>#btcIctFastPanel{max-width:1280px;margin:16px auto 28px;padding:16px;border:1px solid #5f4724;border-radius:18px;background:linear-gradient(145deg,#17130d,#0b111b);direction:rtl;color:#eef2f7}#btcIctFastPanel h2{margin:0;color:#f2bd63;font-size:20px}.btcFastTag{display:inline-block;margin-right:8px;padding:5px 8px;border:1px solid #6d4b24;border-radius:999px;color:#ffc56e;font-size:11px}.btcFastGrid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px}.btcFastCard{padding:10px;border:1px solid #343b48;border-radius:11px;background:#0c121d}.btcFastCard span{display:block;color:#95a1b4;font-size:10px}.btcFastCard strong{display:block;margin-top:5px;font-size:15px;direction:ltr;text-align:right}.btcFastBuy{color:#52e5a5}.btcFastSell{color:#ff718c}.btcFastWait{color:#ffd166}.btcFastNote{margin-top:10px;color:#a79a84;font-size:11px;line-height:1.7}@media(max-width:900px){.btcFastGrid{grid-template-columns:repeat(2,1fr)}}</style>';
-  const panel='<section id="btcIctFastPanel"><div><h2>BTCUSD — MULTI-MODEL CONFLUENCE <span class="btcFastTag">24/7 LIVE TEST • 1H/15m Context • 5m/1m Timing</span></h2><p id="btcFastMeta" class="btcFastNote">جارٍ تحميل قراءة البيتكوين…</p></div><div class="btcFastGrid"><div class="btcFastCard"><span>الحالة</span><strong id="btcFastState">WAIT</strong></div><div class="btcFastCard"><span>درجة الإعداد</span><strong id="btcFastConfidence">—</strong></div><div class="btcFastCard"><span>BUY Score</span><strong id="btcFastBuyScore">—</strong></div><div class="btcFastCard"><span>SELL Score</span><strong id="btcFastSellScore">—</strong></div><div class="btcFastCard"><span>السعر</span><strong id="btcFastPrice">—</strong></div><div class="btcFastCard"><span>الدخول</span><strong id="btcFastEntry">—</strong></div><div class="btcFastCard"><span>وقف الخسارة</span><strong id="btcFastStop">—</strong></div><div class="btcFastCard"><span>TP1</span><strong id="btcFastTp1">—</strong></div><div class="btcFastCard"><span>TP2</span><strong id="btcFastTp2">—</strong></div><div class="btcFastCard"><span>TP3</span><strong id="btcFastTp3">—</strong></div><div class="btcFastCard"><span>TP4</span><strong id="btcFastTp4">—</strong></div><div class="btcFastCard"><span>اللوت المقترح</span><strong id="btcFastLot">—</strong></div><div class="btcFastCard"><span>Structure</span><strong id="btcFastStructure">—</strong></div><div class="btcFastCard"><span>Momentum</span><strong id="btcFastMomentum">—</strong></div><div class="btcFastCard"><span>Price Action</span><strong id="btcFastTrigger">—</strong></div></div><p id="btcFastReason" class="btcFastNote">Structure + Trend + Momentum + Price Action + Liquidity + Fibonacci + Volatility. ICT أصبح سياقًا فقط وليس بوابة إلزامية.</p></section>';
-  const js='<script id="btcIctFastClient">(function(){const el=id=>document.getElementById(id),money=v=>v==null?"—":"$"+Number(v).toLocaleString("en-US",{maximumFractionDigits:2});async function run(){try{const r=await fetch("/api/btc-signal?_="+Date.now(),{cache:"no-store"}),d=await r.json(),cf=d.confluence||{},scores=cf.scores||{},bd=cf.breakdown||{},active=d.status==="ACTIVE"&&["BUY","SELL"].includes(d.action),selected=cf.selectedSide||d.action||"BUY";const state=el("btcFastState");state.textContent=active?(d.action==="BUY"?"شراء":"بيع"):"WAIT";state.className=active?(d.action==="BUY"?"btcFastBuy":"btcFastSell"):"btcFastWait";el("btcFastConfidence").textContent=Math.round(Number(d.confidence)||0)+"/100";el("btcFastBuyScore").textContent=Math.round(Number(scores.BUY)||0)+"/100";el("btcFastSellScore").textContent=Math.round(Number(scores.SELL)||0)+"/100";el("btcFastPrice").textContent=money(d.price);el("btcFastEntry").textContent=active?money(d.entry):"—";el("btcFastStop").textContent=active?money(d.stopLoss):"—";for(let i=1;i<=4;i++)el("btcFastTp"+i).textContent=active?money(d["target"+i]):"—";el("btcFastLot").textContent=active&&Number(d.lotSizing?.recommendedLot)>0?Number(d.lotSizing.recommendedLot).toFixed(2)+" lot":"—";el("btcFastStructure").textContent=(cf.structure?.h1||"—")+" / "+(cf.structure?.m15||"—")+" / "+(cf.structure?.m5||"—");el("btcFastMomentum").textContent="RSI5 "+(cf.momentum?.rsi5??"—")+" • RSI15 "+(cf.momentum?.rsi15??"—");el("btcFastTrigger").textContent=(cf.priceAction?.trigger?.type||cf.priceAction?.candle?.pattern||"WAIT");el("btcFastReason").textContent=d.reason||"—";el("btcFastMeta").textContent="BTC-USD • تحديث كل 5 ثوانٍ • "+(active?"إشارة مقفلة":"Confluence scan")+" • "+new Date(d.updatedAt||Date.now()).toLocaleTimeString("ar-SA",{timeZone:"Asia/Riyadh",hour:"2-digit",minute:"2-digit",second:"2-digit"});}catch(e){el("btcFastMeta").textContent="تعذر تحميل BTC الآن";}setTimeout(run,5000)}run()})();</script>';
+  const panel='<section id="btcIctFastPanel"><div><h2>BTCUSD — PRICE ACTION ONLY <span class="btcFastTag">15m Context • 5m Setup + Confirmation • 1h Bias Only</span></h2><p id="btcFastMeta" class="btcFastNote">جارٍ تحميل قراءة البيتكوين…</p></div><div class="btcFastGrid"><div class="btcFastCard"><span>الحالة</span><strong id="btcFastState">WAIT</strong></div><div class="btcFastCard"><span>قوة الإعداد</span><strong id="btcFastConfidence">—</strong></div><div class="btcFastCard"><span>15m Context</span><strong id="btcFastContext">—</strong></div><div class="btcFastCard"><span>5m Structure</span><strong id="btcFastStructure">—</strong></div><div class="btcFastCard"><span>5m Trigger</span><strong id="btcFastTrigger">—</strong></div><div class="btcFastCard"><span>1h Bias</span><strong id="btcFastBias">—</strong></div><div class="btcFastCard"><span>السعر</span><strong id="btcFastPrice">—</strong></div><div class="btcFastCard"><span>الدخول</span><strong id="btcFastEntry">—</strong></div><div class="btcFastCard"><span>وقف الخسارة</span><strong id="btcFastStop">—</strong></div><div class="btcFastCard"><span>TP1</span><strong id="btcFastTp1">—</strong></div><div class="btcFastCard"><span>TP2</span><strong id="btcFastTp2">—</strong></div><div class="btcFastCard"><span>TP3</span><strong id="btcFastTp3">—</strong></div><div class="btcFastCard"><span>TP4</span><strong id="btcFastTp4">—</strong></div><div class="btcFastCard"><span>اللوت المقترح</span><strong id="btcFastLot">—</strong></div><div class="btcFastCard"><span>الاستراتيجية</span><strong>PRICE_ACTION_ONLY</strong></div></div><p id="btcFastReason" class="btcFastNote">15m يحدد السياق، 5m يؤكد الدخول. 1h Bias فقط ولا يمنع الصفقة.</p></section>';
+  const js='<script id="btcIctFastClient">(function(){const el=id=>document.getElementById(id),money=v=>v==null?"—":"$"+Number(v).toLocaleString("en-US",{maximumFractionDigits:2});async function run(){try{const r=await fetch("/api/btc-signal?_="+Date.now(),{cache:"no-store"}),d=await r.json(),pa=d.priceAction||{},active=d.status==="ACTIVE"&&["BUY","SELL"].includes(d.action);const state=el("btcFastState");state.textContent=active?(d.action==="BUY"?"شراء":"بيع"):"WAIT";state.className=active?(d.action==="BUY"?"btcFastBuy":"btcFastSell"):"btcFastWait";el("btcFastConfidence").textContent=Math.round(Number(d.confidence)||0)+"/100";el("btcFastContext").textContent=pa.context15||"—";el("btcFastStructure").textContent=pa.structure5||"—";el("btcFastTrigger").textContent=(pa.triggers&&pa.triggers.length?pa.triggers.join(" + "):(pa.breakout5?.type||pa.candle5?.pattern||"WAIT"));el("btcFastBias").textContent=pa.bias1h||"—";el("btcFastPrice").textContent=money(d.price);el("btcFastEntry").textContent=active?money(d.entry):"—";el("btcFastStop").textContent=active?money(d.stopLoss):"—";for(let i=1;i<=4;i++)el("btcFastTp"+i).textContent=active?money(d["target"+i]):"—";el("btcFastLot").textContent=active&&Number(d.lotSizing?.recommendedLot)>0?Number(d.lotSizing.recommendedLot).toFixed(2)+" lot":"—";el("btcFastReason").textContent=d.reason||"—";el("btcFastMeta").textContent="BTC-USD • تحديث كل 5 ثوانٍ • "+(active?"إشارة Price Action مقفلة":"Price Action scan")+" • "+new Date(d.updatedAt||Date.now()).toLocaleTimeString("ar-SA",{timeZone:"Asia/Riyadh",hour:"2-digit",minute:"2-digit",second:"2-digit"});}catch(e){el("btcFastMeta").textContent="تعذر تحميل BTC الآن";}setTimeout(run,5000)}run()})();</script>';
   return html.replace('</head>',css+'</head>').replace('</body>',panel+js+'</body>');
 }
