@@ -1,10 +1,11 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { getBtcSignal, injectBtcPanel } from './btc-ict-fast.js';
+import { renderTradeJournalPage } from './trade-journal.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_INNER_PORT || 3100);
-const BUILD_TAG = 'site-indicator-v12-gold-multimodel-btc-smc-pa';
+const BUILD_TAG = 'site-indicator-v13-trade-journal';
 
 const app = spawn(process.execPath, ['gold-unified-start.js'], {
   env: { ...process.env, PORT: String(INNER_PORT) },
@@ -105,10 +106,11 @@ function injectIndicator(html) {
 .siteIndicatorMeta{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
 .siteIndicatorMeta div{padding:9px;border:1px solid #26384f;border-radius:10px;background:#0a101a}
 .siteIndicatorMeta span{display:block;color:#8fa0b8;font-size:11px}.siteIndicatorMeta strong{display:block;margin-top:4px}
+.siteIndicatorTop{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}.siteIndicatorTop h3{margin:0}.journalLink{display:inline-flex;padding:8px 11px;border:1px solid #3b5879;border-radius:10px;color:#dce9ff;background:#111c2c;text-decoration:none;font-size:12px;font-weight:900}
 @media(max-width:760px){.siteIndicatorMeta{grid-template-columns:1fr 1fr}}
 </style>`;
 
-  const panel = `<section id="siteOwnedIndicator"><h3>مؤشر الموقع — المصدر الوحيد للإشارة</h3><div id="siteSignalWord" class="siteWait">WAIT</div><div class="siteIndicatorMeta"><div><span>درجة الإعداد</span><strong id="siteSignalConfidence">0/100</strong></div><div><span>السعر</span><strong id="siteSignalPrice">—</strong></div><div><span>الحالة</span><strong id="siteSignalStatus">WAIT</strong></div><div><span>Market Bias</span><strong id="siteMarketBias">—</strong></div><div><span>BUY Zone</span><strong id="siteBuyZone">—</strong></div><div><span>SELL Zone</span><strong id="siteSellZone">—</strong></div><div><span>5m Trigger</span><strong id="siteZoneTrigger">WAIT</strong></div><div><span>Confluence</span><strong id="siteConfluence">WAITING</strong></div><div><span>حالة الأخبار</span><strong id="siteNewsRisk">جارٍ الفحص…</strong></div><div><span>الخبر المؤثر</span><strong id="siteNewsEvent">—</strong></div><div><span>التنفيذ</span><strong id="siteSignalExecutable">غير تنفيذي</strong></div><div><span>المصدر</span><strong>Gold Alpha Site</strong></div><div><span>سبب القرار</span><strong id="siteSignalReason">—</strong></div></div></section>`;
+  const panel = `<section id="siteOwnedIndicator"><div class="siteIndicatorTop"><h3>مؤشر الموقع — المصدر الوحيد للإشارة</h3><a class="journalLink" href="/journal">Trade Journal</a></div><div id="siteSignalWord" class="siteWait">WAIT</div><div class="siteIndicatorMeta"><div><span>درجة الإعداد</span><strong id="siteSignalConfidence">0/100</strong></div><div><span>السعر</span><strong id="siteSignalPrice">—</strong></div><div><span>الحالة</span><strong id="siteSignalStatus">WAIT</strong></div><div><span>Market Bias</span><strong id="siteMarketBias">—</strong></div><div><span>BUY Zone</span><strong id="siteBuyZone">—</strong></div><div><span>SELL Zone</span><strong id="siteSellZone">—</strong></div><div><span>5m Trigger</span><strong id="siteZoneTrigger">WAIT</strong></div><div><span>Confluence</span><strong id="siteConfluence">WAITING</strong></div><div><span>حالة الأخبار</span><strong id="siteNewsRisk">جارٍ الفحص…</strong></div><div><span>الخبر المؤثر</span><strong id="siteNewsEvent">—</strong></div><div><span>التنفيذ</span><strong id="siteSignalExecutable">غير تنفيذي</strong></div><div><span>المصدر</span><strong>Gold Alpha Site</strong></div><div><span>سبب القرار</span><strong id="siteSignalReason">—</strong></div></div></section>`;
 
   const js = `<script>
 (function(){
@@ -151,6 +153,15 @@ function injectIndicator(html) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+
+  if (req.method === 'GET' && (url.pathname === '/journal' || url.pathname === '/trade-journal')) {
+    res.writeHead(200, {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-gold-alpha-build': BUILD_TAG
+    });
+    return res.end(renderTradeJournalPage());
+  }
 
   if (req.method === 'GET' && (url.pathname === '/api/btc-signal' || url.pathname === '/api/btc')) {
     try {
