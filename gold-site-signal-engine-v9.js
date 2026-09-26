@@ -126,12 +126,12 @@ for (const [from, to] of replacements) {
   source=source.replace(oldNormalize,newNormalize);
 
   const oldAdd="function add(t,p,bid=p,ask=p){t=n(t);p=n(p);if(t==null||p==null||p<=0)return;state.samples.push({t,p,price:p,bid:n(bid)??p,ask:n(ask)??p});}";
-  const newAdd="function add(t,p,bid=p,ask=p,ohlc=null){t=n(t);p=n(p);if(t==null||p==null||p<=0)return;const row={t,p,price:p,bid:n(bid)??p,ask:n(ask)??p};if(ohlc&&[ohlc.open,ohlc.high,ohlc.low,ohlc.close].every(v=>n(v)!=null)){row.open=n(ohlc.open);row.high=n(ohlc.high);row.low=n(ohlc.low);row.close=n(ohlc.close);row.p=row.close;row.price=row.close;}state.samples.push(row);}";
+  const newAdd="function add(t,p,bid=p,ask=p,ohlc=null,volume=null){t=n(t);p=n(p);if(t==null||p==null||p<=0)return;const row={t,p,price:p,bid:n(bid)??p,ask:n(ask)??p};if(ohlc&&[ohlc.open,ohlc.high,ohlc.low,ohlc.close].every(v=>n(v)!=null)){row.open=n(ohlc.open);row.high=n(ohlc.high);row.low=n(ohlc.low);row.close=n(ohlc.close);row.p=row.close;row.price=row.close;}const vol=n(volume);if(vol!=null&&vol>=0)row.volume=vol;state.samples.push(row);}";
   if(!source.includes(oldAdd))throw new Error('confluence patch: add anchor missing');
   source=source.replace(oldAdd,newAdd);
 
-  source=source.replace("const t=n(v[0]),close=n(v[4]);","const t=n(v[0]),open=n(v[1]),high=n(v[2]),low=n(v[3]),close=n(v[4]);");
-  source=source.replace("add(ms,close,close,close);","add(ms,close,close,close,{open,high,low,close});");
+  source=source.replace("const t=n(v[0]),close=n(v[4]);","const t=n(v[0]),open=n(v[1]),high=n(v[2]),low=n(v[3]),close=n(v[4]),volume=n(v[5]);");
+  source=source.replace("add(ms,close,close,close);","add(ms,close,close,close,{open,high,low,close},volume);");
   source=source.replace("send('create_series',[cs,'s1','s1','symbol_1','1',180]);","send('create_series',[cs,'s1','s1','symbol_1','1',5000]);");
 
   const validStart=source.indexOf("function validLevels("),validEnd=source.indexOf("\nfunction entryPx",validStart);
