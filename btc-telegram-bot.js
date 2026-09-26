@@ -2,7 +2,7 @@ const SIGNAL_URL = String(process.env.BTC_TELEGRAM_SIGNAL_URL || 'https://spy-al
 const BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
 const CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || '').trim();
 const POLL_MS = Math.max(5000, Number(process.env.BTC_TELEGRAM_POLL_MS || 5000));
-const MIN_CONFIDENCE = Math.max(65, Number(process.env.BTC_TELEGRAM_MIN_CONFIDENCE || 70));
+const MIN_CONFIDENCE = Math.max(65, Number(process.env.BTC_TELEGRAM_MIN_CONFIDENCE || 65));
 const BTC_ACCOUNT_BALANCE_USD = Math.max(1, Number(process.env.BTC_ACCOUNT_BALANCE_USD || 178));
 const BTC_CONTRACT_SIZE = Math.max(0.000001, Number(process.env.EXNESS_BTC_CONTRACT_SIZE || 1));
 const BTC_LOT_STEP = Math.max(0.001, Number(process.env.EXNESS_BTC_LOT_STEP || 0.01));
@@ -161,27 +161,26 @@ async function telegram(method, body) {
 
 function message(signal) {
   const icon = signal.action === 'BUY' ? '🟢' : '🔴';
-  const strategy = signal.strategy || 'ICT_NARRATIVE_CONTINUATION';
+  const strategy = signal.strategy || 'MULTI_MODEL_CONFLUENCE';
   const trend = signal.trend || '—';
-  const ict = signal.ict || {};
-  const z = zone => zone && validNumber(zone.low) && validNumber(zone.high) ? `${n(zone.low)}–${n(zone.high)}` : '—';
-  const shift = ict.executionShift ? `${ict.executionShift.side || ''} ${ict.executionShift.type || 'SHIFT'}`.trim() : 'WAIT';
-  const displacement = ict.executionDisplacement?.side || 'WAIT';
-  const fvg = z(ict.executionFvg);
-  const poi = z(ict.m15Poi);
+  const cf = signal.confluence || {};
+  const scores = cf.scores || {};
+  const breakdown = cf.breakdown || {};
+  const selected = cf.selectedSide || signal.action || 'BUY';
+  const points = key => Math.round(Number(breakdown?.[key]?.[selected]) || 0);
   const targets = Array.isArray(signal.targetLabels) ? signal.targetLabels : [];
   const stamp = new Intl.DateTimeFormat('ar-SA', {
     timeZone: 'Asia/Riyadh', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
   }).format(new Date());
 
   const sizing = lotSizingLines(signal.entry, signal.stopLoss);
-  return `${icon} BTCUSD — ICT NARRATIVE CONFIRMED ${signal.action}\n` +
+  return `${icon} BTCUSD — CONFLUENCE CONFIRMED ${signal.action}\n` +
     `🧠 Strategy: ${strategy}\n` +
     `📊 Setup score: ${Math.round(Number(signal.confidence) || 0)}/100\n` +
-    `📈 H1 / M15 Structure: ${trend}\n` +
-    `🧲 M15 POI: ${poi}\n` +
-    `⚡ Execution: ${shift} + ${displacement} displacement\n` +
-    `🧩 Execution FVG: ${fvg}\n` +
+    `⚖️ BUY ${Math.round(Number(scores.BUY)||0)}/100 • SELL ${Math.round(Number(scores.SELL)||0)}/100\n` +
+    `📈 Structure: ${trend}\n` +
+    `🧩 Structure ${points('structure')}/24 • Trend ${points('trend')}/18 • Momentum ${points('momentum')}/14\n` +
+    `⚡ Price Action ${points('priceAction')}/16 • Liquidity ${points('liquidity')}/12 • Fib ${points('location')}/6 • Vol ${points('volatility')}/10\n` +
     `💵 Price: ${n(signal.price)}\n` +
     `📍 Entry: ${n(signal.entry)}\n` +
     `🛑 SL: ${n(signal.stopLoss)}\n` +
@@ -190,7 +189,7 @@ function message(signal) {
     `🎯 TP3: ${n(signal.target3)} • ${targets[2] || 'external liquidity'}\n` +
     `🎯 TP4: ${n(signal.target4)} • ${targets[3] || 'external liquidity'}\n\n` +
     `${sizing.join('\\n')}\n` +
-    `⏱️ H1/M15 narrative • M5/M1 execution • no counter-trend FVG entries\n` +
+    `⏱️ Multi-model confluence • 1H/15m context • 5m/1m timing\n` +
     `🕒 ${stamp} بتوقيت السعودية\n` +
     `⚪ إشارات فقط — لا تداول آلي`;
 }
