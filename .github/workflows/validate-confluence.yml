@@ -1,4 +1,4 @@
-name: Validate gold confluence engine
+name: Validate gold and BTC confluence engines
 
 on:
   push:
@@ -9,6 +9,10 @@ on:
       - 'gold-unified-start.js'
       - 'site-indicator-start.js'
       - 'telegram-xau-bot-v3.js'
+      - 'btc-ict-fast.js'
+      - 'btc-murphy-model.js'
+      - 'btc-telegram-bot.js'
+      - 'render-start.js'
       - '.github/workflows/validate-confluence.yml'
   pull_request:
     paths:
@@ -18,6 +22,10 @@ on:
       - 'gold-unified-start.js'
       - 'site-indicator-start.js'
       - 'telegram-xau-bot-v3.js'
+      - 'btc-ict-fast.js'
+      - 'btc-murphy-model.js'
+      - 'btc-telegram-bot.js'
+      - 'render-start.js'
 
 jobs:
   syntax:
@@ -35,5 +43,11 @@ jobs:
           node --check gold-unified-start.js
           node --check site-indicator-start.js
           node --check telegram-xau-bot-v3.js
+          node --check btc-ict-fast.js
+          node --check btc-murphy-model.js
+          node --check btc-telegram-bot.js
+          node --check render-start.js
       - name: Validate confluence module imports
-        run: node -e "import('./gold-confluence-model.js').then(m=>{if(typeof m.analyzeGoldSignal!=='function')process.exit(1)})"
+        run: |
+          node -e "import('./gold-confluence-model.js').then(m=>{if(typeof m.analyzeGoldSignal!=='function')process.exit(1)})"
+          node -e "import('./btc-ict-fast.js').then(m=>{if(typeof m.getBtcSignal!=='function')process.exit(1)})"
