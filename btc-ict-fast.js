@@ -3,6 +3,7 @@ const BTC_CONTRACT_SIZE=Math.max(.000001,Number(process.env.EXNESS_BTC_CONTRACT_
 const BTC_LOT_STEP=Math.max(.001,Number(process.env.EXNESS_BTC_LOT_STEP||.01));
 const BTC_SAFE_RISK_USD=Math.max(1,Number(process.env.BTC_SAFE_RISK_USD||5));
 const BTC_MAX_RISK_USD=Math.max(BTC_SAFE_RISK_USD,Number(process.env.BTC_MAX_RISK_USD||10));
+const BTC_MIN_CONFIDENCE=Math.max(60,Math.min(90,Number(process.env.BTC_MIN_CONFIDENCE||70)||70));
 const cache={expiresAt:0,value:null};
 const lifecycle={signal:null,lastTerminal:null,cooldownUntil:0};
 
@@ -264,6 +265,7 @@ function priceActionTargets(side,entry,risk,h1,m15,m5,a5){
 function analyze(data){
   const one=data.one,five=data.five,fifteen=data.fifteen,hour=data.hour,ticker=data.ticker||{};
   if(one.length<80||five.length<80||fifteen.length<80||hour.length<80)throw new Error('BTC history incomplete');
+
   const price=Number(ticker.price??one.at(-1).close),h1=frame(hour,'1h'),m15=frame(fifteen,'15m'),m5=frame(five,'5m');
   const a5=atr(five,14)||price*.0015,a1=atr(one,14)||price*.0007;
   const context=m15.structure.side||null,bias1h=h1.structure.side||'NEUTRAL',setup5=m5.structure.side||'NEUTRAL';
@@ -271,30 +273,89 @@ function analyze(data){
   const candle5=candleRead(five),breakout5=breakoutRead(five,a5),disp5=m5.displacement;
   const displacementFresh=Boolean(disp5&&fresh(disp5,45*60_000));
   const sr5=srSnapshot(five),sr15=srSnapshot(fifteen);
-  const base={symbol:'BTCUSD',source:'COINBASE_SPOT',status:'WAIT',action:'WAIT',side:null,strategy:'PRICE_ACTION_ONLY',tradeStyle:'PRICE_ACTION_ONLY',confidence:0,scoreMeaning:'DESCRIPTIVE_SETUP_STRENGTH_NOT_WIN_PROBABILITY',price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,lotSizing:null,executionMode:'SIGNALS_ONLY',trend:`1h ${bias1h} / 15m ${context||'NEUTRAL'} / 5m ${setup5}`,priceAction:{version:'BTC_PRICE_ACTION_V1',context15:context||'NEUTRAL',bias1h,structure5:setup5,event5,candle5,breakout5,displacement5:disp5,supportResistance:{m5:sr5,m15:sr15}},updatedAt:new Date().toISOString(),reason:'PRICE ACTION WAIT — waiting for 15m context and a confirmed 5m trigger.'};
 
-  if(!context)return{...base,confidence:25,reason:'PRICE ACTION WAIT — 15m structure is neutral; no directional context yet.'};
+  const structureAligned=Boolean(context&&setup5===context);
+  const freshStructureTrigger=Boolean(context&&eventFresh&&event5.side===context);
+  const breakoutTrigger=Boolean(context&&breakout5.side===context);
+  const candleTrigger=Boolean(context&&candle5.side===context&&candle5.strength>=4);
+  const displacementTrigger=Boolean(context&&displacementFresh&&disp5?.side===context);
 
-  const structureAligned=setup5===context;
-  const freshStructureTrigger=eventFresh&&event5.side===context;
-  const breakoutTrigger=breakout5.side===context;
-  const candleTrigger=candle5.side===context&&candle5.strength>=4;
-  const displacementTrigger=displacementFresh&&disp5?.side===context;
-  const triggerReady=freshStructureTrigger||breakoutTrigger||candleTrigger||displacementTrigger;
-  const setupReady=structureAligned||freshStructureTrigger||breakoutTrigger;
+  const sweep5=m5.liquiditySweep;
+  const sweep15=m15.liquiditySweep;
+  const smcSweep=(
+    sweep5&&context&&sweep5.side===context&&fresh(sweep5,90*60_000)?{...sweep5,timeframe:'5m'}:
+    sweep15&&context&&sweep15.side===context&&fresh(sweep15,4*60*60_000)?{...sweep15,timeframe:'15m'}:
+    null
+  );
+  const sameSideFvg=context?nearestSameSideFvg(m5,context,price):null;
+  const sameSideOb=context&&m5.orderBlock?.side===context?m5.orderBlock:null;
+  const zonePad=Math.max(6,a5*.08);
+  const fvgTouch=Boolean(sameSideFvg&&zoneContains(price,sameSideFvg,zonePad));
+  const obTouch=Boolean(sameSideOb&&zoneContains(price,sameSideOb,zonePad));
 
-  let confidence=50;
-  confidence+=setupReady?12:0;
-  confidence+=freshStructureTrigger?12:0;
+  // SMC supplies directional context/structure; Price Action supplies the execution trigger.
+  // Liquidity sweeps, FVGs and OBs strengthen a setup but are not all mandatory.
+  const smcReady=Boolean(context&&(structureAligned||freshStructureTrigger||smcSweep));
+  const paReady=Boolean(context&&(breakoutTrigger||candleTrigger||displacementTrigger));
+
+  let confidence=43;
+  confidence+=structureAligned?12:0;
+  confidence+=freshStructureTrigger?10:0;
+  confidence+=smcSweep?8:0;
+  confidence+=fvgTouch?4:0;
+  confidence+=obTouch?4:0;
   confidence+=breakoutTrigger?10:0;
   confidence+=candleTrigger?8:0;
   confidence+=displacementTrigger?6:0;
   confidence+=bias1h===context?5:bias1h==='NEUTRAL'?0:-4;
   confidence=clamp(Math.round(confidence),20,95);
-  base.confidence=confidence;
 
-  if(!setupReady)return{...base,reason:`PRICE ACTION WAIT — 15m ${context}; 5m structure is ${setup5}. Waiting for 5m structure to align or break back ${context}.`};
-  if(!triggerReady)return{...base,reason:`PRICE ACTION WAIT — 15m ${context} and 5m context are aligned, but no fresh 5m BOS/MSS, breakout, strong rejection/engulfing, or displacement yet.`};
+  const smc={
+    version:'BTC_SMC_V1',
+    context15:context||'NEUTRAL',
+    bias1h,
+    structure5:setup5,
+    structureAligned,
+    event5,
+    freshStructureTrigger,
+    liquiditySweep:smcSweep,
+    fvg:sameSideFvg,
+    fvgTouch,
+    orderBlock:sameSideOb,
+    orderBlockTouch:obTouch,
+    ready:smcReady
+  };
+  const priceAction={
+    version:'BTC_PRICE_ACTION_V2',
+    context15:context||'NEUTRAL',
+    bias1h,
+    structure5:setup5,
+    event5,
+    candle5,
+    breakout5,
+    displacement5:disp5,
+    supportResistance:{m5:sr5,m15:sr15},
+    ready:paReady
+  };
+
+  const base={
+    symbol:'BTCUSD',source:'COINBASE_SPOT',status:'WAIT',action:'WAIT',side:null,
+    strategy:'SMC_PRICE_ACTION',tradeStyle:'SMC_PRICE_ACTION',
+    confidence,minimumConfidence:BTC_MIN_CONFIDENCE,
+    scoreMeaning:'DESCRIPTIVE_SETUP_STRENGTH_NOT_WIN_PROBABILITY',
+    price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,
+    target1:null,target2:null,target3:null,target4:null,targetLabels:[],
+    riskReward:null,lotSizing:null,executionMode:'SIGNALS_ONLY',
+    trend:`1h ${bias1h} / 15m ${context||'NEUTRAL'} / 5m ${setup5}`,
+    smc,priceAction,
+    updatedAt:new Date().toISOString(),
+    reason:'SMC + PRICE ACTION WAIT — waiting for SMC context and a confirmed Price Action trigger.'
+  };
+
+  if(!context)return{...base,confidence:25,reason:'SMC + PRICE ACTION WAIT — 15m market structure is neutral; no directional SMC context yet.'};
+  if(!smcReady)return{...base,reason:`SMC WAIT — 15m ${context}; waiting for 5m structure alignment, a fresh BOS/MSS, or a same-side liquidity sweep.`};
+  if(!paReady)return{...base,reason:`PRICE ACTION WAIT — SMC context is ${context}, but no fresh 5m breakout, strong rejection/engulfing, or displacement yet.`};
+  if(confidence<BTC_MIN_CONFIDENCE)return{...base,reason:`SMC + PRICE ACTION WAIT — combined setup strength ${confidence}/100 is below the ${BTC_MIN_CONFIDENCE}/100 threshold.`};
 
   const side=context,dir=side==='BUY'?1:-1,recent5=five.slice(-12),sw5=m5.structure.swings;
   const lastSwing=side==='BUY'?sw5.lows.at(-1)?.price:sw5.highs.at(-1)?.price;
@@ -307,16 +368,35 @@ function analyze(data){
   if(risk>maxRisk){
     stop=side==='BUY'?localExtreme-buffer:localExtreme+buffer;
     risk=Math.abs(price-stop);
-    if(risk>maxRisk)return{...base,reason:`PRICE ACTION WAIT — 5m trigger is valid but structural stop is too wide (${round(risk)}).`};
+    if(risk>maxRisk)return{...base,reason:`SMC + PRICE ACTION WAIT — confirmed trigger, but the structural stop is too wide (${round(risk)}).`};
   }
 
-  const entry=price,entryHalf=Math.max(10,Math.min(45,a1*.35)),chosen=priceActionTargets(side,entry,risk,h1,m15,m5,a5),targets=chosen.targets;
+  const entry=price,entryHalf=Math.max(10,Math.min(45,a1*.35));
+  const chosen=priceActionTargets(side,entry,risk,h1,m15,m5,a5),targets=chosen.targets;
   const rr=Math.abs(targets[0]-entry)/risk;
-  const triggers=[freshStructureTrigger?event5?.type:null,breakoutTrigger?breakout5.type:null,candleTrigger?candle5.pattern:null,displacementTrigger?'DISPLACEMENT':null].filter(Boolean);
+  const paTriggers=[
+    breakoutTrigger?breakout5.type:null,
+    candleTrigger?candle5.pattern:null,
+    displacementTrigger?'DISPLACEMENT':null
+  ].filter(Boolean);
+  const smcConfirmations=[
+    freshStructureTrigger?event5?.type:null,
+    structureAligned?'STRUCTURE_ALIGNED':null,
+    smcSweep?'LIQUIDITY_SWEEP':null,
+    fvgTouch?'FVG_REACTION':null,
+    obTouch?'ORDER_BLOCK_REACTION':null
+  ].filter(Boolean);
   const h1Note=bias1h===side?'1h aligned':bias1h==='NEUTRAL'?'1h neutral':'1h opposite (bias only)';
-  const pa={...base.priceAction,side,setupReady:true,triggerReady:true,triggers,targetLevels:chosen.levels,h1Note};
 
-  return{...base,status:'ACTIVE',action:side,side,confidence,entry:round(entry),entryLow:round(entry-entryHalf),entryHigh:round(entry+entryHalf),stopLoss:round(stop),target1:targets[0],target2:targets[1],target3:targets[2],target4:targets[3],targetLabels:chosen.labels,riskReward:round(rr,2),lotSizing:lotSizing(entry,stop),priceAction:pa,reason:`PRICE ACTION ${side} — 15m ${context} context + 5m ${triggers.join(' + ')||'confirmed trigger'}; ${h1Note}.`};
+  return{
+    ...base,status:'ACTIVE',action:side,side,confidence,
+    entry:round(entry),entryLow:round(entry-entryHalf),entryHigh:round(entry+entryHalf),
+    stopLoss:round(stop),target1:targets[0],target2:targets[1],target3:targets[2],target4:targets[3],
+    targetLabels:chosen.labels,riskReward:round(rr,2),lotSizing:lotSizing(entry,stop),
+    smc:{...smc,confirmations:smcConfirmations},
+    priceAction:{...priceAction,side,setupReady:true,triggerReady:true,triggers:paTriggers,targetLevels:chosen.levels,h1Note},
+    reason:`SMC + PRICE ACTION ${side} — SMC [${smcConfirmations.join(' + ')||'context'}] + PA [${paTriggers.join(' + ')||'trigger'}]; score ${confidence}/100; ${h1Note}.`
+  };
 }
 async function freshCandidate(force=false){
   if(!force&&cache.value&&Date.now()<cache.expiresAt)return cache.value;
@@ -352,7 +432,7 @@ export async function getBtcSignal(force=false){
 export function injectBtcPanel(html){
   if(html.includes('btcIctFastPanel'))return html;
   const css='<style>#btcIctFastPanel{max-width:1280px;margin:16px auto 28px;padding:16px;border:1px solid #5f4724;border-radius:18px;background:linear-gradient(145deg,#17130d,#0b111b);direction:rtl;color:#eef2f7}#btcIctFastPanel h2{margin:0;color:#f2bd63;font-size:20px}.btcFastTag{display:inline-block;margin-right:8px;padding:5px 8px;border:1px solid #6d4b24;border-radius:999px;color:#ffc56e;font-size:11px}.btcFastGrid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px}.btcFastCard{padding:10px;border:1px solid #343b48;border-radius:11px;background:#0c121d}.btcFastCard span{display:block;color:#95a1b4;font-size:10px}.btcFastCard strong{display:block;margin-top:5px;font-size:15px;direction:ltr;text-align:right}.btcFastBuy{color:#52e5a5}.btcFastSell{color:#ff718c}.btcFastWait{color:#ffd166}.btcFastNote{margin-top:10px;color:#a79a84;font-size:11px;line-height:1.7}@media(max-width:900px){.btcFastGrid{grid-template-columns:repeat(2,1fr)}}</style>';
-  const panel='<section id="btcIctFastPanel"><div><h2>BTCUSD — PRICE ACTION ONLY <span class="btcFastTag">15m Context • 5m Setup + Confirmation • 1h Bias Only</span></h2><p id="btcFastMeta" class="btcFastNote">جارٍ تحميل قراءة البيتكوين…</p></div><div class="btcFastGrid"><div class="btcFastCard"><span>الحالة</span><strong id="btcFastState">WAIT</strong></div><div class="btcFastCard"><span>قوة الإعداد</span><strong id="btcFastConfidence">—</strong></div><div class="btcFastCard"><span>15m Context</span><strong id="btcFastContext">—</strong></div><div class="btcFastCard"><span>5m Structure</span><strong id="btcFastStructure">—</strong></div><div class="btcFastCard"><span>5m Trigger</span><strong id="btcFastTrigger">—</strong></div><div class="btcFastCard"><span>1h Bias</span><strong id="btcFastBias">—</strong></div><div class="btcFastCard"><span>السعر</span><strong id="btcFastPrice">—</strong></div><div class="btcFastCard"><span>الدخول</span><strong id="btcFastEntry">—</strong></div><div class="btcFastCard"><span>وقف الخسارة</span><strong id="btcFastStop">—</strong></div><div class="btcFastCard"><span>TP1</span><strong id="btcFastTp1">—</strong></div><div class="btcFastCard"><span>TP2</span><strong id="btcFastTp2">—</strong></div><div class="btcFastCard"><span>TP3</span><strong id="btcFastTp3">—</strong></div><div class="btcFastCard"><span>TP4</span><strong id="btcFastTp4">—</strong></div><div class="btcFastCard"><span>اللوت المقترح</span><strong id="btcFastLot">—</strong></div><div class="btcFastCard"><span>الاستراتيجية</span><strong>PRICE_ACTION_ONLY</strong></div></div><p id="btcFastReason" class="btcFastNote">15m يحدد السياق، 5m يؤكد الدخول. 1h Bias فقط ولا يمنع الصفقة.</p></section>';
-  const js='<script id="btcIctFastClient">(function(){const el=id=>document.getElementById(id),money=v=>v==null?"—":"$"+Number(v).toLocaleString("en-US",{maximumFractionDigits:2});async function run(){try{const r=await fetch("/api/btc-signal?_="+Date.now(),{cache:"no-store"}),d=await r.json(),pa=d.priceAction||{},active=d.status==="ACTIVE"&&["BUY","SELL"].includes(d.action);const state=el("btcFastState");state.textContent=active?(d.action==="BUY"?"شراء":"بيع"):"WAIT";state.className=active?(d.action==="BUY"?"btcFastBuy":"btcFastSell"):"btcFastWait";el("btcFastConfidence").textContent=Math.round(Number(d.confidence)||0)+"/100";el("btcFastContext").textContent=pa.context15||"—";el("btcFastStructure").textContent=pa.structure5||"—";el("btcFastTrigger").textContent=(pa.triggers&&pa.triggers.length?pa.triggers.join(" + "):(pa.breakout5?.type||pa.candle5?.pattern||"WAIT"));el("btcFastBias").textContent=pa.bias1h||"—";el("btcFastPrice").textContent=money(d.price);el("btcFastEntry").textContent=active?money(d.entry):"—";el("btcFastStop").textContent=active?money(d.stopLoss):"—";for(let i=1;i<=4;i++)el("btcFastTp"+i).textContent=active?money(d["target"+i]):"—";el("btcFastLot").textContent=active&&Number(d.lotSizing?.recommendedLot)>0?Number(d.lotSizing.recommendedLot).toFixed(2)+" lot":"—";el("btcFastReason").textContent=d.reason||"—";el("btcFastMeta").textContent="BTC-USD • تحديث كل 5 ثوانٍ • "+(active?"إشارة Price Action مقفلة":"Price Action scan")+" • "+new Date(d.updatedAt||Date.now()).toLocaleTimeString("ar-SA",{timeZone:"Asia/Riyadh",hour:"2-digit",minute:"2-digit",second:"2-digit"});}catch(e){el("btcFastMeta").textContent="تعذر تحميل BTC الآن";}setTimeout(run,5000)}run()})();</script>';
+  const panel='<section id="btcIctFastPanel"><div><h2>BTCUSD — SMC + PRICE ACTION <span class="btcFastTag">15m SMC Context • 5m PA Trigger • 1h Bias Only</span></h2><p id="btcFastMeta" class="btcFastNote">جارٍ تحميل قراءة البيتكوين…</p></div><div class="btcFastGrid"><div class="btcFastCard"><span>الحالة</span><strong id="btcFastState">WAIT</strong></div><div class="btcFastCard"><span>قوة الإعداد</span><strong id="btcFastConfidence">—</strong></div><div class="btcFastCard"><span>15m Context</span><strong id="btcFastContext">—</strong></div><div class="btcFastCard"><span>5m Structure</span><strong id="btcFastStructure">—</strong></div><div class="btcFastCard"><span>5m Trigger</span><strong id="btcFastTrigger">—</strong></div><div class="btcFastCard"><span>1h Bias</span><strong id="btcFastBias">—</strong></div><div class="btcFastCard"><span>السعر</span><strong id="btcFastPrice">—</strong></div><div class="btcFastCard"><span>الدخول</span><strong id="btcFastEntry">—</strong></div><div class="btcFastCard"><span>وقف الخسارة</span><strong id="btcFastStop">—</strong></div><div class="btcFastCard"><span>TP1</span><strong id="btcFastTp1">—</strong></div><div class="btcFastCard"><span>TP2</span><strong id="btcFastTp2">—</strong></div><div class="btcFastCard"><span>TP3</span><strong id="btcFastTp3">—</strong></div><div class="btcFastCard"><span>TP4</span><strong id="btcFastTp4">—</strong></div><div class="btcFastCard"><span>اللوت المقترح</span><strong id="btcFastLot">—</strong></div><div class="btcFastCard"><span>الاستراتيجية</span><strong>SMC + PRICE ACTION</strong></div></div><p id="btcFastReason" class="btcFastNote">SMC يحدد السياق والبنية والسيولة، وPrice Action يؤكد دخول 5m. لا نشترط اكتمال FVG + OB + sweep كلها معًا.</p></section>';
+  const js='<script id="btcIctFastClient">(function(){const el=id=>document.getElementById(id),money=v=>v==null?"—":"$"+Number(v).toLocaleString("en-US",{maximumFractionDigits:2});async function run(){try{const r=await fetch("/api/btc-signal?_="+Date.now(),{cache:"no-store"}),d=await r.json(),pa=d.priceAction||{},smc=d.smc||{},active=d.status==="ACTIVE"&&["BUY","SELL"].includes(d.action);const state=el("btcFastState");state.textContent=active?(d.action==="BUY"?"شراء":"بيع"):"WAIT";state.className=active?(d.action==="BUY"?"btcFastBuy":"btcFastSell"):"btcFastWait";el("btcFastConfidence").textContent=Math.round(Number(d.confidence)||0)+"/100";el("btcFastContext").textContent=smc.context15||pa.context15||"—";el("btcFastStructure").textContent=(smc.confirmations&&smc.confirmations.length?smc.confirmations.join(" + "):(smc.structure5||pa.structure5||"—"));el("btcFastTrigger").textContent=(pa.triggers&&pa.triggers.length?pa.triggers.join(" + "):(pa.breakout5?.type||pa.candle5?.pattern||"WAIT"));el("btcFastBias").textContent=pa.bias1h||"—";el("btcFastPrice").textContent=money(d.price);el("btcFastEntry").textContent=active?money(d.entry):"—";el("btcFastStop").textContent=active?money(d.stopLoss):"—";for(let i=1;i<=4;i++)el("btcFastTp"+i).textContent=active?money(d["target"+i]):"—";el("btcFastLot").textContent=active&&Number(d.lotSizing?.recommendedLot)>0?Number(d.lotSizing.recommendedLot).toFixed(2)+" lot":"—";el("btcFastReason").textContent=d.reason||"—";el("btcFastMeta").textContent="BTC-USD • تحديث كل 5 ثوانٍ • "+(active?"إشارة SMC + Price Action مقفلة":"SMC + Price Action scan")+" • "+new Date(d.updatedAt||Date.now()).toLocaleTimeString("ar-SA",{timeZone:"Asia/Riyadh",hour:"2-digit",minute:"2-digit",second:"2-digit"});}catch(e){el("btcFastMeta").textContent="تعذر تحميل BTC الآن";}setTimeout(run,5000)}run()})();</script>';
   return html.replace('</head>',css+'</head>').replace('</body>',panel+js+'</body>');
 }
