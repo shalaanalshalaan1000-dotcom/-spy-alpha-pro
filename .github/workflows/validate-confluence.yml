@@ -1,0 +1,39 @@
+name: Validate gold confluence engine
+
+on:
+  push:
+    paths:
+      - 'gold-confluence-model.js'
+      - 'gold-site-signal-engine-v9.js'
+      - 'gold-site-ui-start.js'
+      - 'gold-unified-start.js'
+      - 'site-indicator-start.js'
+      - 'telegram-xau-bot-v3.js'
+      - '.github/workflows/validate-confluence.yml'
+  pull_request:
+    paths:
+      - 'gold-confluence-model.js'
+      - 'gold-site-signal-engine-v9.js'
+      - 'gold-site-ui-start.js'
+      - 'gold-unified-start.js'
+      - 'site-indicator-start.js'
+      - 'telegram-xau-bot-v3.js'
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate JavaScript syntax
+        run: |
+          node --check gold-confluence-model.js
+          node --check gold-site-signal-engine-v9.js
+          node --check gold-site-ui-start.js
+          node --check gold-unified-start.js
+          node --check site-indicator-start.js
+          node --check telegram-xau-bot-v3.js
+      - name: Run repository tests
+        run: npm test
