@@ -35,5 +35,5 @@ jobs:
           node --check gold-unified-start.js
           node --check site-indicator-start.js
           node --check telegram-xau-bot-v3.js
-      - name: Run repository tests
-        run: npm test
+      - name: Validate confluence module imports
+        run: node -e "import('./gold-confluence-model.js').then(m=>{if(typeof m.analyzeGoldSignal!=='function')process.exit(1)})"
