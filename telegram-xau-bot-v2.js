@@ -13,6 +13,8 @@ const XAU_ACCOUNT_BALANCE_USD=Math.max(1,Number(process.env.XAU_ACCOUNT_BALANCE_
 const XAU_SAFE_RISK_USD=Math.max(1,Number(process.env.XAU_SAFE_RISK_USD||5));
 const XAU_MAX_RISK_USD=Math.max(XAU_SAFE_RISK_USD,Number(process.env.XAU_MAX_RISK_USD||10));
 const BOOT_GRACE_MS=15_000;
+const JOURNAL_URL=String(process.env.TELEGRAM_JOURNAL_URL||'http://127.0.0.1:3002/api/performance/journal').trim();
+let telegramUpdateOffset=0;
 
 let ready=false;
 const sent={side:null,key:null,above:false,messageId:null,lastText:null,lastEditMs:0,announcedAtMs:0,targets:[false,false,false,false],managedStops:[false,false,false,false]};
@@ -185,12 +187,128 @@ async function startup(){
   if(!BOT_TOKEN||!CHAT_ID){console.error('[telegram-xau-confirmed] token/chat missing');return false;}
   try{
     const me=await tg('getMe');
+    await tg('setMyCommands',{commands:[
+      {command:'evaluate',description:'📊 تقييم الصفقات المنتهية'}
+    ]});
     ready=true;
-    console.log(`[telegram-xau-confirmed] authenticated @${me?.result?.username||'unknown'} siteMirror=true`);
+    console.log(`[telegram-xau-confirmed] authenticated @${me?.result?.username||'unknown'} siteMirror=true; /evaluate enabled`);
     return true;
   }catch(e){
     console.error('[telegram-xau-confirmed] startup',e?.message||e);
     return false;
+  }
+}
+
+function directionalMove(side,entry,price){
+  const e=num(entry),p=num(price);
+  if(e==null||p==null||!['BUY','SELL'].includes(side))return null;
+  return side==='BUY'?p-e:e-p;
+}
+function targetHitsCount(t){
+  if(Array.isArray(t?.targetHits))return t.targetHits.filter(Boolean).length;
+  let hits=0;for(let i=1;i<=4;i++)if(t?.[`tp${i}`]===true)hits++;return hits;
+}
+function tradeReview(t){
+  const side=sideOf(t)||String(t?.side||'—'),entry=entryOf(t),exit=num(t?.exitPrice),initialStop=num(t?.originalStopLoss)??num(t?.stopLoss);
+  const risk=entry!=null&&initialStop!=null?Math.abs(entry-initialStop):null;
+  const tp1=targetOf(t,1);
+  const rr=risk&&risk>0&&tp1!=null?(side==='BUY'?(tp1-entry)/risk:(entry-tp1)/risk):num(t?.liveTp1R);
+  const realizedR=num(t?.realizedR)??(risk&&risk>0?directionalMove(side,entry,exit)/risk:null);
+  const mfe=risk&&risk>0?directionalMove(side,entry,num(t?.bestPrice))/risk:null;
+  const conf=confidenceOf(t),hits=targetHitsCount(t),outcome=String(t?.outcome||'—'),result=String(t?.result||'—').toUpperCase();
+  let score=50;
+  score+=conf>=80?8:conf>=70?5:conf>=65?3:-5;
+  if(rr!=null)score+=rr>=1.25?12:rr>=.8?7:rr>=.5?3:-10;
+  score+=result==='WIN'?15:result==='BREAKEVEN'?5:result==='LOSS'?-12:0;
+  score+=Math.min(12,hits*4);
+  if(outcome==='MANAGED_STOP')score+=8;
+  if(mfe!=null&&mfe>=1)score+=5;
+  score=Math.max(0,Math.min(100,Math.round(score)));
+  const label=score>=80?'ممتاز':score>=70?'جيد':score>=60?'مقبول':'ضعيف';
+  const notes=[];
+  if(rr!=null&&rr<.5)notes.push('العائد إلى TP1 كان ضيقًا مقارنة بالوقف');
+  if(result==='LOSS'&&mfe!=null&&mfe<.35)notes.push('الحركة لم تمتد لصالح الصفقة؛ التوقيت/الاتجاه يحتاج مراجعة');
+  else if(result==='LOSS'&&mfe!=null&&mfe>=.8)notes.push('الصفقة تحركت جيدًا ثم انعكست؛ راجع تأمين الربح وإدارة الوقف');
+  if(outcome==='MANAGED_STOP')notes.push('إدارة الوقف حمت الصفقة بعد تحقيق هدف');
+  if(result==='WIN'&&hits>0)notes.push(`تحققت ${hits} أهداف قبل الإغلاق`);
+  if(!notes.length)notes.push(result==='WIN'?'تنفيذ متماسك وفق بيانات الصفقة المسجلة':'لا توجد بيانات كافية لتحديد سبب واحد للفشل');
+  return {side,entry,exit,risk,rr,realizedR,mfe,conf,hits,outcome,result,score,label,notes};
+}
+function reviewLine(t,index){
+  const r=tradeReview(t);
+  const when=t?.closedAt?new Intl.DateTimeFormat('ar-SA',{timeZone:'Asia/Riyadh',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(t.closedAt)):'—';
+  const rr=r.rr==null?'—':r.rr.toFixed(2)+'R';
+  const real=r.realizedR==null?'—':(r.realizedR>0?'+':'')+r.realizedR.toFixed(2)+'R';
+  return `${index+1}) ${r.side} • ${r.result} • ${r.score}/100 (${r.label})
+🕒 ${when} | Entry ${n(r.entry)} → Exit ${n(r.exit)}
+📐 TP1 RR: ${rr} | Realized: ${real} | TP hits: ${r.hits}
+🔎 ${r.notes.join(' • ')}`;
+}
+async function fetchJournal(){
+  const r=await fetch(JOURNAL_URL,{headers:{accept:'application/json'},cache:'no-store',signal:AbortSignal.timeout(7000)});
+  if(!r.ok)throw new Error(`journal HTTP ${r.status}`);
+  const d=await r.json();
+  if(!d||!Array.isArray(d.trades))throw new Error('journal payload invalid');
+  return d;
+}
+function evaluationMessage(journal){
+  const closed=journal.trades.filter(t=>String(t?.status||'').toUpperCase()==='CLOSED').sort((a,b)=>Number(b?.closedAtMs||Date.parse(b?.closedAt)||0)-Number(a?.closedAtMs||Date.parse(a?.closedAt)||0));
+  if(!closed.length)return '📊 تقييم الصفقات\n\nلا توجد صفقات مغلقة مسجلة حتى الآن.';
+  const wins=closed.filter(t=>String(t?.result||'').toUpperCase()==='WIN').length;
+  const losses=closed.filter(t=>String(t?.result||'').toUpperCase()==='LOSS').length;
+  const be=closed.filter(t=>String(t?.result||'').toUpperCase()==='BREAKEVEN').length;
+  const rs=closed.map(t=>num(t?.realizedR)).filter(v=>v!=null);
+  const netR=rs.reduce((a,b)=>a+b,0),avgR=rs.length?netR/rs.length:null;
+  const winRate=closed.length?wins/closed.length*100:0;
+  const recent=closed.slice(0,5);
+  return `📊 XAUUSD — تقييم الصفقات المنتهية
+عدد الصفقات: ${closed.length}
+✅ فوز: ${wins} | ❌ خسارة: ${losses} | ⚪ تعادل: ${be}
+🎯 Win rate: ${winRate.toFixed(1)}%
+📈 Net R: ${netR>=0?'+':''}${netR.toFixed(2)}R | Avg: ${avgR==null?'—':(avgR>=0?'+':'')+avgR.toFixed(2)+'R'}
+
+آخر ${recent.length} صفقات:
+${recent.map(reviewLine).join('\n\n')}
+
+ملاحظة: التقييم مبني على بيانات الصفقة المسجلة (الدخول/الوقف/الأهداف/الحركة والنتيجة)، وليس ضمانًا لجودة أي صفقة مستقبلية.`;
+}
+async function sendBotMenu(){
+  await tg('sendMessage',{
+    chat_id:CHAT_ID,
+    text:'اختر من البوت:',
+    disable_web_page_preview:true,
+    reply_markup:{keyboard:[[{text:'📊 تقييم الصفقات'}]],resize_keyboard:true,persistent:true}
+  });
+}
+async function handleBotUpdate(update){
+  const msg=update?.message;
+  if(!msg)return;
+  if(String(msg.chat?.id)!==String(CHAT_ID))return;
+  const text=String(msg.text||'').trim();
+  if(/^\/start(?:@\w+)?$/i.test(text)){await sendBotMenu();return;}
+  if(/^\/evaluate(?:@\w+)?$/i.test(text)||text==='📊 تقييم الصفقات'){
+    try{
+      const journal=await fetchJournal();
+      await tg('sendMessage',{chat_id:CHAT_ID,text:evaluationMessage(journal),disable_web_page_preview:true});
+    }catch(e){
+      await tg('sendMessage',{chat_id:CHAT_ID,text:`⚠️ تعذر قراءة سجل الصفقات الآن: ${String(e?.message||e)}`,disable_web_page_preview:true});
+    }
+  }
+}
+async function botCommandLoop(){
+  while(true){
+    try{
+      if(!(await startup())){await new Promise(r=>setTimeout(r,5000));continue;}
+      const d=await tg('getUpdates',{offset:telegramUpdateOffset||undefined,timeout:5,allowed_updates:['message']});
+      const updates=Array.isArray(d?.result)?d.result:[];
+      for(const update of updates){
+        telegramUpdateOffset=Math.max(telegramUpdateOffset,Number(update?.update_id||0)+1);
+        await handleBotUpdate(update);
+      }
+    }catch(e){
+      console.error('[telegram-xau-commands]',e?.message||e);
+      await new Promise(r=>setTimeout(r,1500));
+    }
   }
 }
 function targetMessage(s){
@@ -313,6 +431,9 @@ async function tick(){
 }
 
 console.log(`[telegram-xau-confirmed] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} one-active-trade lock; site-mirror=on; confidence-filter=off; TP/SL lifecycle alerts=on`);
-if(process.env.NODE_ENV!=='test')(async function loop(){while(true){await tick();await new Promise(r=>setTimeout(r,POLL_MS));}})();
+if(process.env.NODE_ENV!=='test'){
+  (async function loop(){while(true){await tick();await new Promise(r=>setTimeout(r,POLL_MS));}})();
+  (async function commands(){await botCommandLoop();})();
+}
 
-export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage};
+export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeReview,evaluationMessage};
