@@ -192,9 +192,9 @@ for (const [from, to] of replacements) {
   if(!source.includes(maybeAnchor))throw new Error('opening-session patch: maybeCreate anchor missing');
   source=source.replace(maybeAnchor,"function maybeCreate(m,q,now){\n refreshDailyQuota(now);\n const openSession=refreshOpeningSession(now);\n state.lastEntryGuard=null;");
 
-  const signalAnchor="tradeStyle:'MULTI_MODEL_CONFLUENCE',priceAction:m.priceAction||null,technicalRead:m.technicalRead||null,maxDailySignals:MAX_DAILY_SIGNALS,dailySignalNumber:state.dailySignalCount+1,newsRiskAtEntry:state.lastNewsRisk,";
+  const signalAnchor="tradeStyle:'MULTI_MODEL_CONFLUENCE',priceAction:m.priceAction||null,importantCandles:m.importantCandles||null,technicalRead:m.technicalRead||null,maxDailySignals:MAX_DAILY_SIGNALS,dailySignalNumber:state.dailySignalCount+1,newsRiskAtEntry:state.lastNewsRisk,";
   if(!source.includes(signalAnchor))throw new Error('opening-session patch: signal anchor missing');
-  source=source.replace(signalAnchor,"tradeStyle:'MULTI_MODEL_CONFLUENCE',openingSession:openSession?.id||m?.ict?.session||'ALL_MARKET',maxDailySignals:MAX_DAILY_SIGNALS,dailySignalNumber:state.dailySignalCount+1,newsRiskAtEntry:state.lastNewsRisk,");
+  source=source.replace(signalAnchor,"tradeStyle:'MULTI_MODEL_CONFLUENCE',priceAction:m.priceAction||null,importantCandles:m.importantCandles||null,technicalRead:m.technicalRead||null,openingSession:openSession?.id||m?.ict?.session||'ALL_MARKET',maxDailySignals:MAX_DAILY_SIGNALS,dailySignalNumber:state.dailySignalCount+1,newsRiskAtEntry:state.lastNewsRisk,");
 
   const countAnchor="state.dailySignalCount+=1;state.lastSignalAtMs=now;";
   if(!source.includes(countAnchor))throw new Error('opening-session patch: count anchor missing');
