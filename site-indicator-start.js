@@ -5,7 +5,7 @@ import { renderTradeJournalPage } from './trade-journal.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_INNER_PORT || 3100);
-const BUILD_TAG = 'site-indicator-v14-btc-wyckoff';
+const BUILD_TAG = 'site-indicator-v15-asset-separated';
 
 const app = spawn(process.execPath, ['gold-unified-start.js'], {
   env: { ...process.env, PORT: String(INNER_PORT) },
@@ -110,7 +110,7 @@ function injectIndicator(html) {
 @media(max-width:760px){.siteIndicatorMeta{grid-template-columns:1fr 1fr}}
 </style>`;
 
-  const panel = `<section id="siteOwnedIndicator"><div class="siteIndicatorTop"><h3>مؤشر الموقع — المصدر الوحيد للإشارة</h3><a class="journalLink" href="/journal">Trade Journal</a></div><div id="siteSignalWord" class="siteWait">WAIT</div><div class="siteIndicatorMeta"><div><span>درجة الإعداد</span><strong id="siteSignalConfidence">0/100</strong></div><div><span>السعر</span><strong id="siteSignalPrice">—</strong></div><div><span>الحالة</span><strong id="siteSignalStatus">WAIT</strong></div><div><span>Market Bias</span><strong id="siteMarketBias">—</strong></div><div><span>BUY Zone</span><strong id="siteBuyZone">—</strong></div><div><span>SELL Zone</span><strong id="siteSellZone">—</strong></div><div><span>5m Trigger</span><strong id="siteZoneTrigger">WAIT</strong></div><div><span>Confluence</span><strong id="siteConfluence">WAITING</strong></div><div><span>حالة الأخبار</span><strong id="siteNewsRisk">جارٍ الفحص…</strong></div><div><span>الخبر المؤثر</span><strong id="siteNewsEvent">—</strong></div><div><span>التنفيذ</span><strong id="siteSignalExecutable">غير تنفيذي</strong></div><div><span>المصدر</span><strong>Gold Alpha Site</strong></div><div><span>سبب القرار</span><strong id="siteSignalReason">—</strong></div></div></section>`;
+  const panel = `<section id="siteOwnedIndicator"><div class="siteIndicatorTop"><h3>مؤشر الموقع — XAUUSD فقط</h3><div><a class="journalLink" href="/btc">BTC Wyckoff</a> <a class="journalLink" href="/journal">Trade Journal</a></div></div><div id="siteSignalWord" class="siteWait">WAIT</div><div class="siteIndicatorMeta"><div><span>درجة الإعداد</span><strong id="siteSignalConfidence">0/100</strong></div><div><span>السعر</span><strong id="siteSignalPrice">—</strong></div><div><span>الحالة</span><strong id="siteSignalStatus">WAIT</strong></div><div><span>Market Bias</span><strong id="siteMarketBias">—</strong></div><div><span>BUY Zone</span><strong id="siteBuyZone">—</strong></div><div><span>SELL Zone</span><strong id="siteSellZone">—</strong></div><div><span>5m Trigger</span><strong id="siteZoneTrigger">WAIT</strong></div><div><span>Confluence</span><strong id="siteConfluence">WAITING</strong></div><div><span>حالة الأخبار</span><strong id="siteNewsRisk">جارٍ الفحص…</strong></div><div><span>الخبر المؤثر</span><strong id="siteNewsEvent">—</strong></div><div><span>التنفيذ</span><strong id="siteSignalExecutable">غير تنفيذي</strong></div><div><span>المصدر</span><strong>Gold Alpha Site</strong></div><div><span>سبب القرار</span><strong id="siteSignalReason">—</strong></div></div></section>`;
 
   const js = `<script>
 (function(){
@@ -153,6 +153,17 @@ function injectIndicator(html) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+
+  if (req.method === 'GET' && (url.pathname === '/btc' || url.pathname === '/bitcoin')) {
+    const shell = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BTC Alpha Lab — Wyckoff</title><style>body{margin:0;background:#080d15;color:#eef2f7;font-family:Arial,sans-serif}header{max-width:1280px;margin:0 auto;padding:22px 16px 2px;display:flex;align-items:center;justify-content:space-between;gap:12px}header h1{margin:0;font-size:28px}header p{margin:5px 0 0;color:#a79a84}header a{display:inline-flex;padding:9px 12px;border:1px solid #36516f;border-radius:10px;color:#dce9ff;text-decoration:none;background:#111c2c;font-weight:800}@media(max-width:700px){header{align-items:flex-start;flex-direction:column}}</style></head><body><header><div><h1>Bitcoin Alpha Lab</h1><p>BTCUSD ONLY • WYCKOFF EXPERIMENT • COINBASE SPOT DATA</p></div><a href="/">العودة إلى الذهب XAUUSD</a></header></body></html>`;
+    const html = injectBtcPanel(shell);
+    res.writeHead(200, {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-gold-alpha-build': BUILD_TAG
+    });
+    return res.end(html);
+  }
 
   if (req.method === 'GET' && (url.pathname === '/journal' || url.pathname === '/trade-journal')) {
     res.writeHead(200, {
@@ -209,7 +220,7 @@ const server = http.createServer(async (req, res) => {
     delete headers['content-length'];
 
     if (req.method === 'GET' && url.pathname === '/' && String(headers['content-type'] || '').includes('text/html')) {
-      const html = injectBtcPanel(injectIndicator(out.body.toString('utf8')));
+      const html = injectIndicator(out.body.toString('utf8'));
       headers['content-type'] = 'text/html; charset=utf-8';
       headers['cache-control'] = 'no-store';
       res.writeHead(out.status, headers);
