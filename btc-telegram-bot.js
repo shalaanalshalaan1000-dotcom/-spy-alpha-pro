@@ -159,32 +159,35 @@ async function telegram(method, body) {
 
 function message(signal) {
   const icon = signal.action === 'BUY' ? '🟢' : '🔴';
-  const strategy = signal.strategy || 'WYCKOFF';
-  const w = signal.wyckoff || {};
+  const strategy = signal.strategy || 'BREAKOUT_ENGINE';
+  const b = signal.breakout || {};
+  const setup = b.setup || {};
+  const levels = b.levels5 || {};
   const targets = Array.isArray(signal.targetLabels) ? signal.targetLabels : [];
   const stamp = new Intl.DateTimeFormat('ar-SA', {
     timeZone: 'Asia/Riyadh', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
   }).format(new Date());
 
   const sizing = lotSizingLines(signal.entry, signal.stopLoss);
-  return icon + ' BTCUSD — WYCKOFF CONFIRMED ' + signal.action + '\n' +
-    '🧠 Strategy: ' + strategy + '\n' +
-    '📊 Setup strength: ' + Math.round(Number(signal.confidence) || 0) + '/100\n' +
-    '🗺️ Schematic: ' + (w.schematic || '—') + ' • Phase ' + (w.phase || '—') + '\n' +
-    '⚡ Key event: ' + (w.primaryEvent?.type || '—') + '\n' +
-    '🔎 5m confirmation: ' + (w.trigger5?.type || '—') + '\n' +
-    '⏱️ 1m timing: ' + (w.trigger1?.type || '—') + '\n' +
-    '📦 Trading range: ' + n(w.range?.support) + ' – ' + n(w.range?.resistance) + '\n' +
-    '💵 Price: ' + n(signal.price) + '\n' +
-    '📍 Entry: ' + n(signal.entry) + '\n' +
-    '🛑 SL: ' + n(signal.stopLoss) + '\n' +
-    '🎯 TP1: ' + n(signal.target1) + ' • ' + (targets[0] || 'Wyckoff level') + '\n' +
-    '🎯 TP2: ' + n(signal.target2) + ' • ' + (targets[1] || 'Wyckoff level') + '\n' +
-    '🎯 TP3: ' + n(signal.target3) + ' • ' + (targets[2] || 'Wyckoff level') + '\n' +
-    '🎯 TP4: ' + n(signal.target4) + ' • ' + (targets[3] || 'Wyckoff level') + '\n\n' +
-    sizing.join('\n') + '\n' +
-    '🧪 BTC Wyckoff experiment • signals only\n' +
-    '🕒 ' + stamp + ' بتوقيت السعودية\n' +
+  return icon + ' BTCUSD — BREAKOUT CONFIRMED ' + signal.action + '\\n' +
+    '🧠 Strategy: ' + strategy + '\\n' +
+    '📊 Setup strength: ' + Math.round(Number(signal.confidence) || 0) + '/100\\n' +
+    '⚡ Type: ' + (setup.type ? String(setup.type).replaceAll('_', ' ') : '—') + '\\n' +
+    '🧭 15m bias: ' + (b.bias?.bias || '—') + '\\n' +
+    '📍 Break level: ' + n(setup.level) + '\\n' +
+    '📈 5m volume: ' + (validNumber(b.volume?.ratio) ? Number(b.volume.ratio).toFixed(2) + 'x' : '—') + '\\n' +
+    '⏱️ 1m timing: ' + (b.micro?.aligned ? (b.micro?.type || 'ALIGNED') : 'WAIT') + '\\n' +
+    '📦 5m range: ' + n(levels.support) + ' – ' + n(levels.resistance) + '\\n' +
+    '💵 Price: ' + n(signal.price) + '\\n' +
+    '📍 Entry: ' + n(signal.entry) + '\\n' +
+    '🛑 SL: ' + n(signal.stopLoss) + '\\n' +
+    '🎯 TP1: ' + n(signal.target1) + ' • ' + (targets[0] || 'PA target') + '\\n' +
+    '🎯 TP2: ' + n(signal.target2) + ' • ' + (targets[1] || 'PA target') + '\\n' +
+    '🎯 TP3: ' + n(signal.target3) + ' • ' + (targets[2] || 'PA target') + '\\n' +
+    '🎯 TP4: ' + n(signal.target4) + ' • ' + (targets[3] || 'PA target') + '\\n\\n' +
+    sizing.join('\\n') + '\\n' +
+    '🧪 BTC Breakout experiment • closed 5m confirmation • signals only\\n' +
+    '🕒 ' + stamp + ' بتوقيت السعودية\\n' +
     '⚪ إشارات فقط — لا تداول آلي';
 }
 
@@ -240,7 +243,7 @@ async function tick() {
   previousActive = true;
 }
 
-console.log(`[btc-telegram] ${BOT_TOKEN && CHAT_ID ? 'enabled' : 'disabled: token/chat id missing'}; source=${SIGNAL_URL}; mode=wyckoff`);
+console.log(`[btc-telegram] ${BOT_TOKEN && CHAT_ID ? 'enabled' : 'disabled: token/chat id missing'}; source=${SIGNAL_URL}; mode=breakout`);
 
 if (process.env.NODE_ENV !== 'test' && BOT_TOKEN && CHAT_ID) {
   (async function loop() {
