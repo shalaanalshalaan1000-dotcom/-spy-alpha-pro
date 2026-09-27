@@ -1,10 +1,10 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
-import { getBtcSignal } from './btc-wyckoff.js';
+import { getBtcSignal } from './btc-breakout.js';
 
 const PORT = Number(process.env.PORT || 10000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_SITE_INNER_PORT || 3200);
-const BUILD = 'gold-alpha-btc-wyckoff-v1';
+const BUILD = 'gold-alpha-btc-breakout-v1';
 let stopping = false;
 
 const child = spawn(process.execPath, ['site-indicator-start.js'], {
@@ -119,7 +119,7 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify(payload));
     } catch (error) {
       res.writeHead(200, {'content-type':'application/json; charset=utf-8','cache-control':'no-store'});
-      return res.end(JSON.stringify({symbol:'BTCUSD',status:'WAIT',action:'WAIT',executable:false,executionMode:'SIGNALS_ONLY',confidence:0,strategy:'WAIT',reason:`BTC data unavailable: ${String(error?.message || error)}`,updatedAt:new Date().toISOString()}));
+      return res.end(JSON.stringify({symbol:'BTCUSD',status:'WAIT',action:'WAIT',executable:false,executionMode:'SIGNALS_ONLY',confidence:0,strategy:'BREAKOUT_ENGINE',reason:`BTC breakout data unavailable: ${String(error?.message || error)}`,updatedAt:new Date().toISOString()}));
     }
   }
 
@@ -142,6 +142,6 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => console.log(`[render-start] ${BUILD} listening on ${PORT}; gold-inner=${INNER_PORT}; BTCUSD wyckoff signals-only=on`));
+server.listen(PORT, '0.0.0.0', () => console.log(`[render-start] ${BUILD} listening on ${PORT}; gold-inner=${INNER_PORT}; BTCUSD breakout signals-only=on`));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
