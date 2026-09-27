@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+
 const SIGNAL_URL = String(process.env.BTC_TELEGRAM_SIGNAL_URL || 'https://spy-alpha-pro-1.onrender.com/api/btc-signal').trim();
 const BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
 const CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || '').trim();
@@ -7,6 +9,7 @@ const BTC_CONTRACT_SIZE = Math.max(0.000001, Number(process.env.EXNESS_BTC_CONTR
 const BTC_LOT_STEP = Math.max(0.001, Number(process.env.EXNESS_BTC_LOT_STEP || 0.01));
 const BTC_SAFE_RISK_USD = Math.max(1, Number(process.env.BTC_SAFE_RISK_USD || 5));
 const BTC_MAX_RISK_USD = Math.max(BTC_SAFE_RISK_USD, Number(process.env.BTC_MAX_RISK_USD || 10));
+const BTC_JOURNAL_PATH = String(process.env.BTC_TRADE_JOURNAL_PATH || '/tmp/gold-alpha-btc-trades.json').trim();
 
 let primed = false;
 let previousActive = false;
@@ -73,14 +76,81 @@ function reached(side, price, target) {
   return side === 'BUY' ? p >= t : side === 'SELL' ? p <= t : false;
 }
 
+function readBtcJournal() {
+  try {
+    const rows = JSON.parse(fs.readFileSync(BTC_JOURNAL_PATH, 'utf8'));
+    return Array.isArray(rows) ? rows : [];
+  } catch { return []; }
+}
+
+function writeBtcJournal(rows) {
+  try {
+    const tmp = BTC_JOURNAL_PATH + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(rows.slice(-300)), 'utf8');
+    fs.renameSync(tmp, BTC_JOURNAL_PATH);
+  } catch (error) {
+    console.error('[btc-journal] write failed', error?.message || error);
+  }
+}
+
+function closeBtcJournalTrade(trade, outcome, exitPrice, closedAtMs = Date.now()) {
+  if (!trade) return;
+  const entry = Number(trade.entry);
+  const originalStopLoss = Number(trade.originalStopLoss);
+  const risk = Math.abs(entry - originalStopLoss);
+  const directionalMove = trade.side === 'BUY' ? Number(exitPrice) - entry : entry - Number(exitPrice);
+  const realizedR = risk > 0 ? directionalMove / risk : 0;
+  const result = realizedR > 0.05 ? 'WIN' : realizedR >= -0.05 ? 'BREAKEVEN' : 'LOSS';
+  const targets = Array.isArray(trade.targets) ? trade.targets : [];
+  const targetHits = Array.isArray(trade.sentTargets) ? trade.sentTargets : [false,false,false,false];
+  const row = {
+    status: 'CLOSED',
+    asset: 'BTCUSD',
+    key: trade.key,
+    setupId: trade.key,
+    side: trade.side,
+    action: trade.side,
+    strategy: trade.strategy || 'PRICE_ACTION_ONLY',
+    confidence: Number(trade.confidence) || 0,
+    signalConfidence: Number(trade.confidence) || 0,
+    entry,
+    triggerPrice: entry,
+    originalStopLoss,
+    stopLoss: Number(trade.stopLoss),
+    target1: Number(targets[0]),
+    target2: Number(targets[1]),
+    target3: Number(targets[2]),
+    target4: Number(targets[3]),
+    targetHits,
+    managementStage: Number(trade.managementStage) || 0,
+    bestPrice: Number.isFinite(Number(trade.bestPrice)) ? Number(trade.bestPrice) : entry,
+    outcome,
+    result,
+    exitPrice: Number(exitPrice),
+    realizedUsd: Number(directionalMove.toFixed(2)),
+    realizedR: Number(realizedR.toFixed(2)),
+    issuedAt: new Date(trade.announcedAtMs).toISOString(),
+    issuedAtMs: trade.announcedAtMs,
+    closedAt: new Date(closedAtMs).toISOString(),
+    closedAtMs
+  };
+  const rows = readBtcJournal().filter(x => x?.key !== row.key || x?.closedAtMs !== row.closedAtMs);
+  rows.push(row);
+  writeBtcJournal(rows);
+  console.log(`[btc-journal] closed ${row.side} ${row.result} ${row.realizedR}R outcome=${outcome} key=${row.key}`);
+}
+
 function startTracking(signal, key, announcedAtMs = Date.now()) {
   trackedTrade = {
     key,
     side: signal.action,
+    strategy: signal.strategy || 'PRICE_ACTION_ONLY',
+    confidence: Number(signal.confidence) || 0,
     announcedAtMs,
     entry: Number(signal.entry),
     originalStopLoss: Number(signal.stopLoss),
     stopLoss: Number(signal.stopLoss),
+    bestPrice: Number(signal.entry),
     managementStage: 0,
     targets: [signal.target1, signal.target2, signal.target3, signal.target4].map(Number),
     sentTargets: [false, false, false, false]
@@ -105,6 +175,11 @@ function stopHitMessage(trade) {
 async function sendTrackedTargetHits(signal, send = telegram) {
   if (!trackedTrade) return;
   const livePrice = Number(signal?.price);
+  if (Number.isFinite(livePrice)) {
+    trackedTrade.bestPrice = trackedTrade.side === 'BUY'
+      ? Math.max(Number(trackedTrade.bestPrice) || trackedTrade.entry, livePrice)
+      : Math.min(Number(trackedTrade.bestPrice) || trackedTrade.entry, livePrice);
+  }
   // Latch the stop before delivery: a failed notification must never allow later TPs.
   if (!trackedTrade.stopHitPrice && validNumber(signal?.price) &&
       (trackedTrade.side === 'BUY' ? livePrice <= trackedTrade.stopLoss : livePrice >= trackedTrade.stopLoss)) {
@@ -117,6 +192,12 @@ async function sendTrackedTargetHits(signal, send = telegram) {
       disable_web_page_preview: true
     });
     console.log(`[btc-telegram] SL hit key=${trackedTrade.key} stop=${n(trackedTrade.stopLoss)} live=${n(trackedTrade.stopHitPrice)}`);
+    closeBtcJournalTrade(
+      trackedTrade,
+      Number(trackedTrade.managementStage || 0) > 0 ? 'MANAGED_STOP' : 'SL',
+      Number(trackedTrade.stopLoss),
+      Date.now()
+    );
     trackedTrade = null;
     return;
   }
@@ -139,6 +220,7 @@ async function sendTrackedTargetHits(signal, send = telegram) {
 
   if (trackedTrade.sentTargets.every(Boolean)) {
     console.log(`[btc-telegram] all targets completed key=${trackedTrade.key}`);
+    closeBtcJournalTrade(trackedTrade, 'TP4', trackedTrade.targets[3], Date.now());
     trackedTrade = null;
   }
 }
@@ -254,4 +336,4 @@ if (process.env.NODE_ENV !== 'test' && BOT_TOKEN && CHAT_ID) {
   })();
 }
 
-export { isConfirmed, message, reached, tpHitMessage, startTracking, sendTrackedTargetHits };
+export { isConfirmed, message, reached, tpHitMessage, startTracking, sendTrackedTargetHits, closeBtcJournalTrade, readBtcJournal };
