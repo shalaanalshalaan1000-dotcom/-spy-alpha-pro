@@ -1,3 +1,4 @@
+import { detectImportantCandles, confirmImportantCandle } from './important-candles.js';
 const BTC_CACHE_MS=Math.max(5000,Math.min(30000,Number(process.env.BTC_CACHE_MS||12000)||12000));
 const BTC_CONTRACT_SIZE=Math.max(.000001,Number(process.env.EXNESS_BTC_CONTRACT_SIZE||1));
 const BTC_LOT_STEP=Math.max(.001,Number(process.env.EXNESS_BTC_LOT_STEP||.01));
@@ -267,6 +268,11 @@ function analyze(data){
   if(one.length<80||five.length<80||fifteen.length<80||hour.length<80)throw new Error('BTC history incomplete');
 
   const price=Number(ticker.price??one.at(-1).close),h1=frame(hour,'1h'),m15=frame(fifteen,'15m'),m5=frame(five,'5m');
+  const important5raw=detectImportantCandles(five,{timeframe:'5m',lookback:30});
+  const important5=confirmImportantCandle(important5raw,m5.structure.latest);
+  const important15=detectImportantCandles(fifteen,{timeframe:'15m',lookback:24});
+  const important1=detectImportantCandles(one,{timeframe:'1m',lookback:30});
+  const importantPrimary=important5.primary||important15.primary||important1.primary;
   const a5=atr(five,14)||price*.0015,a1=atr(one,14)||price*.0007;
   const context=m15.structure.side||null,bias1h=h1.structure.side||'NEUTRAL',setup5=m5.structure.side||'NEUTRAL';
   const event5=m5.structure.latest||null,eventFresh=Boolean(event5&&fresh(event5,70*60_000));
@@ -277,7 +283,7 @@ function analyze(data){
   const structureAligned=Boolean(context&&setup5===context);
   const freshStructureTrigger=Boolean(context&&eventFresh&&event5.side===context);
   const breakoutTrigger=Boolean(context&&breakout5.side===context);
-  const candleTrigger=Boolean(context&&candle5.side===context&&candle5.strength>=4);
+  const candleTrigger=Boolean(context&&((candle5.side===context&&candle5.strength>=4)||(importantPrimary?.side===context&&importantPrimary.score>=70&&importantPrimary.ageBars<=2)));
   const displacementTrigger=Boolean(context&&displacementFresh&&disp5?.side===context);
 
   const sweep5=m5.liquiditySweep;
@@ -306,6 +312,7 @@ function analyze(data){
   confidence+=obTouch?4:0;
   confidence+=breakoutTrigger?10:0;
   confidence+=candleTrigger?8:0;
+  confidence+=importantPrimary&&importantPrimary.side===context&&importantPrimary.ageBars<=2?Math.min(8,Math.max(3,Math.round((importantPrimary.score-60)/5))):0;
   confidence+=displacementTrigger?6:0;
   confidence+=bias1h===context?5:bias1h==='NEUTRAL'?0:-4;
   confidence=clamp(Math.round(confidence),20,95);
@@ -334,6 +341,8 @@ function analyze(data){
     candle5,
     breakout5,
     displacement5:disp5,
+    importantCandle:importantPrimary,
+    importantCandles:{primary:importantPrimary,m5:important5,m15:important15,m1:important1,closedOnly:true},
     supportResistance:{m5:sr5,m15:sr15},
     ready:paReady
   };
@@ -347,7 +356,7 @@ function analyze(data){
     target1:null,target2:null,target3:null,target4:null,targetLabels:[],
     riskReward:null,lotSizing:null,executionMode:'SIGNALS_ONLY',
     trend:`1h ${bias1h} / 15m ${context||'NEUTRAL'} / 5m ${setup5}`,
-    smc,priceAction,
+    smc,priceAction,importantCandles:{primary:importantPrimary,m5:important5,m15:important15,m1:important1,closedOnly:true},
     updatedAt:new Date().toISOString(),
     reason:'SMC + PRICE ACTION WAIT — waiting for SMC context and a confirmed Price Action trigger.'
   };
@@ -377,7 +386,8 @@ function analyze(data){
   const paTriggers=[
     breakoutTrigger?breakout5.type:null,
     candleTrigger?candle5.pattern:null,
-    displacementTrigger?'DISPLACEMENT':null
+    displacementTrigger?'DISPLACEMENT':null,
+    importantPrimary&&importantPrimary.side===context&&importantPrimary.ageBars<=2?'KEY_CANDLE_'+importantPrimary.pattern:null
   ].filter(Boolean);
   const smcConfirmations=[
     freshStructureTrigger?event5?.type:null,
