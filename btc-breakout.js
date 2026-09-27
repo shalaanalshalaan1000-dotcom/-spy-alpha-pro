@@ -149,6 +149,43 @@ function setupScore(setup,volRatio,bias,micro,price,stats){
   if(dist>chaseLimit)score-=14;
   return clamp(Math.round(score),20,95);
 }
+function readinessScore(price,levels,stats,volRatio,bias,five,one){
+  const last=five.at(-1);
+  const distUp=Math.abs(levels.resistance-price),distDown=Math.abs(price-levels.support);
+  let watchSide;
+  if(bias.bias==='UP'&&distUp<=distDown*1.35)watchSide='BUY';
+  else if(bias.bias==='DOWN'&&distDown<=distUp*1.35)watchSide='SELL';
+  else watchSide=distUp<=distDown?'BUY':'SELL';
+  const watchLevel=watchSide==='BUY'?levels.resistance:levels.support;
+  const distance=Math.abs(price-watchLevel);
+  const proximityWindow=Math.max(1,stats.medianRange*2,levels.width*.22);
+  const proximity=1-clamp(distance/proximityWindow,0,1);
+  const q=candleQuality(last,watchSide),micro=microTiming(one,watchSide);
+  let score=20+Math.round(proximity*30);
+  if(volRatio>=1.3)score+=14;
+  else if(volRatio>=1.0)score+=10;
+  else if(volRatio>=.7)score+=6;
+  else if(volRatio>=.4)score+=3;
+  if((watchSide==='BUY'&&bias.bias==='UP')||(watchSide==='SELL'&&bias.bias==='DOWN'))score+=10;
+  else if(bias.bias==='NEUTRAL')score+=4;
+  if(q.directional)score+=5;
+  if(q.bodyRatio>=.55)score+=4;
+  if(q.nearExtreme)score+=3;
+  if(micro.aligned)score+=6;
+  score=clamp(Math.round(score),20,69);
+  return{
+    score,watchSide,watchLevel:round(watchLevel),distance:round(distance),
+    proximityPct:round(proximity*100,0),micro,
+    components:{
+      volumeRatio:round(volRatio,2),
+      bias:bias.bias,
+      directional:q.directional,
+      bodyRatio:round(q.bodyRatio,2),
+      nearExtreme:q.nearExtreme,
+      oneMinuteAligned:Boolean(micro.aligned)
+    }
+  };
+}
 function lotForRisk(entry,stop,riskUsd){
   const distance=Math.abs(Number(entry)-Number(stop));if(!(distance>0))return 0;
   const raw=riskUsd/(distance*BTC_CONTRACT_SIZE),steps=Math.floor((raw+1e-12)/BTC_LOT_STEP);
@@ -174,23 +211,26 @@ function analyze(data){
   const price=Number(ticker.price??one.at(-1).close),levels5=robustLevels(five,42,4),levels15=robustLevels(fifteen,36,3);
   if(!levels5||!levels15)throw new Error('BTC price-action levels unavailable');
   const stats5=candleStats(five,30),v=volumeStats(five,24),volRatio=v.avg>0?(five.at(-1).volume/v.avg):1,bias=contextBias(hour,fifteen);
+  const readiness=readinessScore(price,levels5,stats5,volRatio,bias,five,one);
   const setup=chooseSetup(five,levels5,stats5,volRatio);
   const breakout={
-    version:'BTC_BREAKOUT_V1',
+    version:'BTC_BREAKOUT_V2_READINESS',
     model:'PRICE_ACTION_BREAKOUT',
     levels5,levels15,bias,
+    readiness,
+    micro:readiness.micro,
     candle:{medianRange:round(stats5.medianRange),lastRange:round(five.at(-1).high-five.at(-1).low)},
     volume:{last5m:round(five.at(-1).volume,4),average5m:round(v.avg,4),ratio:round(volRatio,2)},
     setup:setup?{type:setup.type,side:setup.side,level:round(setup.level),trap:setup.trap||null,triggerTime:new Date(setup.triggerCandle.t).toISOString()}:null
   };
   const base={
     symbol:'BTCUSD',source:'COINBASE_SPOT',status:'WAIT',action:'WAIT',side:null,strategy:'BREAKOUT_ENGINE',tradeStyle:'PRICE_ACTION_BREAKOUT',
-    confidence:0,contextStrength:0,minimumConfidence:BTC_MIN_CONFIDENCE,scoreMeaning:'READINESS_SCORE_NOT_WIN_PROBABILITY',
+    confidence:readiness.score,readinessScore:readiness.score,watchSide:readiness.watchSide,watchLevel:readiness.watchLevel,contextStrength:readiness.score,minimumConfidence:BTC_MIN_CONFIDENCE,scoreMeaning:'READINESS_SCORE_NOT_WIN_PROBABILITY',
     price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,lotSizing:null,
     executionMode:'SIGNALS_ONLY',trend:'15m '+bias.bias+' / 5m breakout classification',breakout,updatedAt:new Date().toISOString(),
-    reason:'BREAKOUT WAIT — no confirmed 5m breakout setup.'
+    reason:'BREAKOUT WAIT — readiness '+readiness.score+'/100 toward '+readiness.watchSide+' at '+readiness.watchLevel+'.'
   };
-  if(!setup)return{...base,reason:'BREAKOUT WAIT — watching for strong breakout, breakout + retest, or false breakout on a CLOSED 5m candle.'};
+  if(!setup)return{...base,reason:'BREAKOUT WAIT — readiness '+readiness.score+'/100 toward '+readiness.watchSide+' at '+readiness.watchLevel+'; waiting for a CLOSED 5m strong breakout, retest, or false-breakout trigger.'};
 
   const micro=microTiming(one,setup.side),confidence=setupScore(setup,volRatio,bias,micro,price,stats5);
   breakout.micro=micro;
@@ -255,7 +295,7 @@ export async function getBtcSignal(force=false){return lifecycleSignal(await fre
 export function injectBtcPanel(html){
   if(html.includes('btcBreakoutPanel'))return html;
   const css='<style>#btcBreakoutPanel{max-width:1280px;margin:16px auto 28px;padding:16px;border:1px solid #315d73;border-radius:18px;background:linear-gradient(145deg,#0d1720,#0b111b);direction:rtl;color:#eef2f7}#btcBreakoutPanel h2{margin:0;color:#68d3ff;font-size:20px}.btcBoTag{display:inline-block;margin-right:8px;padding:5px 8px;border:1px solid #315d73;border-radius:999px;color:#8ee1ff;font-size:11px}.btcBoGrid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px}.btcBoCard{padding:10px;border:1px solid #343b48;border-radius:11px;background:#0c121d}.btcBoCard span{display:block;color:#95a1b4;font-size:10px}.btcBoCard strong{display:block;margin-top:5px;font-size:15px;direction:ltr;text-align:right}.btcBoBuy{color:#52e5a5}.btcBoSell{color:#ff718c}.btcBoWait{color:#ffd166}.btcBoNote{margin-top:10px;color:#a6b4c5;font-size:11px;line-height:1.7}@media(max-width:900px){.btcBoGrid{grid-template-columns:repeat(2,1fr)}}</style>';
-  const panel='<section id="btcBreakoutPanel"><div><h2>BTCUSD — BREAKOUT ENGINE <span class="btcBoTag">15m Context • CLOSED 5m Confirmation • Price Action + Volume</span></h2><p id="btcBoMeta" class="btcBoNote">جارٍ تحميل قراءة الاختراق…</p></div><div class="btcBoGrid"><div class="btcBoCard"><span>الحالة</span><strong id="btcBoState">WAIT</strong></div><div class="btcBoCard"><span>قوة الإعداد</span><strong id="btcBoConfidence">—</strong></div><div class="btcBoCard"><span>نوع الاختراق</span><strong id="btcBoType">—</strong></div><div class="btcBoCard"><span>15m Bias</span><strong id="btcBoBias">—</strong></div><div class="btcBoCard"><span>Break Level</span><strong id="btcBoLevel">—</strong></div><div class="btcBoCard"><span>5m Volume</span><strong id="btcBoVolume">—</strong></div><div class="btcBoCard"><span>1m Timing</span><strong id="btcBoMicro">—</strong></div><div class="btcBoCard"><span>5m Range</span><strong id="btcBoRange">—</strong></div><div class="btcBoCard"><span>السعر</span><strong id="btcBoPrice">—</strong></div><div class="btcBoCard"><span>الدخول</span><strong id="btcBoEntry">—</strong></div><div class="btcBoCard"><span>وقف الخسارة</span><strong id="btcBoStop">—</strong></div><div class="btcBoCard"><span>TP1</span><strong id="btcBoTp1">—</strong></div><div class="btcBoCard"><span>TP2</span><strong id="btcBoTp2">—</strong></div><div class="btcBoCard"><span>TP3</span><strong id="btcBoTp3">—</strong></div><div class="btcBoCard"><span>TP4</span><strong id="btcBoTp4">—</strong></div><div class="btcBoCard"><span>اللوت المقترح</span><strong id="btcBoLot">—</strong></div><div class="btcBoCard"><span>الاستراتيجية</span><strong>BREAKOUT PA</strong></div></div><p id="btcBoReason" class="btcBoNote">BTC فقط: Strong Breakout / Breakout + Retest / False Breakout. لا دخول قبل إغلاق شمعة 5 دقائق.</p></section>';
-  const js='<script id="btcBreakoutClient">(function(){const el=id=>document.getElementById(id),money=v=>v==null?"—":"$"+Number(v).toLocaleString("en-US",{maximumFractionDigits:2});async function run(){try{const r=await fetch("/api/btc-signal?_="+Date.now(),{cache:"no-store"}),d=await r.json(),b=d.breakout||{},s=b.setup||{},lv=b.levels5||{},active=d.status==="ACTIVE"&&["BUY","SELL"].includes(d.action);const state=el("btcBoState");state.textContent=active?(d.action==="BUY"?"شراء":"بيع"):"WAIT";state.className=active?(d.action==="BUY"?"btcBoBuy":"btcBoSell"):"btcBoWait";el("btcBoConfidence").textContent=Math.round(Number(d.confidence)||0)+"/100";el("btcBoType").textContent=s.type?String(s.type).replaceAll("_"," "):"WAIT";el("btcBoBias").textContent=b.bias?.bias||"—";el("btcBoLevel").textContent=s.level!=null?money(s.level):"—";el("btcBoVolume").textContent=b.volume?.ratio!=null?Number(b.volume.ratio).toFixed(2)+"x":"—";el("btcBoMicro").textContent=b.micro?.aligned?b.micro.type:"WAIT";el("btcBoRange").textContent=lv.support!=null?money(lv.support)+" – "+money(lv.resistance):"—";el("btcBoPrice").textContent=money(d.price);el("btcBoEntry").textContent=active?money(d.entry):"—";el("btcBoStop").textContent=active?money(d.stopLoss):"—";for(let i=1;i<=4;i++)el("btcBoTp"+i).textContent=active?money(d["target"+i]):"—";el("btcBoLot").textContent=active&&Number(d.lotSizing?.recommendedLot)>0?Number(d.lotSizing.recommendedLot).toFixed(2)+" lot":"—";el("btcBoReason").textContent=d.reason||"—";el("btcBoMeta").textContent="BTC-USD • Breakout experiment • تحديث كل 5 ثوانٍ • "+new Date(d.updatedAt||Date.now()).toLocaleTimeString("ar-SA",{timeZone:"Asia/Riyadh",hour:"2-digit",minute:"2-digit",second:"2-digit"});}catch(e){el("btcBoMeta").textContent="تعذر تحميل BTC الآن";}setTimeout(run,5000)}run()})();</script>';
+  const panel='<section id="btcBreakoutPanel"><div><h2>BTCUSD — BREAKOUT ENGINE <span class="btcBoTag">15m Context • CLOSED 5m Confirmation • Price Action + Volume</span></h2><p id="btcBoMeta" class="btcBoNote">جارٍ تحميل قراءة الاختراق…</p></div><div class="btcBoGrid"><div class="btcBoCard"><span>الحالة</span><strong id="btcBoState">WAIT</strong></div><div class="btcBoCard"><span>Readiness / قوة الإعداد</span><strong id="btcBoConfidence">—</strong></div><div class="btcBoCard"><span>نوع الاختراق</span><strong id="btcBoType">—</strong></div><div class="btcBoCard"><span>15m Bias</span><strong id="btcBoBias">—</strong></div><div class="btcBoCard"><span>Break Level</span><strong id="btcBoLevel">—</strong></div><div class="btcBoCard"><span>5m Volume</span><strong id="btcBoVolume">—</strong></div><div class="btcBoCard"><span>1m Timing</span><strong id="btcBoMicro">—</strong></div><div class="btcBoCard"><span>5m Range</span><strong id="btcBoRange">—</strong></div><div class="btcBoCard"><span>السعر</span><strong id="btcBoPrice">—</strong></div><div class="btcBoCard"><span>الدخول</span><strong id="btcBoEntry">—</strong></div><div class="btcBoCard"><span>وقف الخسارة</span><strong id="btcBoStop">—</strong></div><div class="btcBoCard"><span>TP1</span><strong id="btcBoTp1">—</strong></div><div class="btcBoCard"><span>TP2</span><strong id="btcBoTp2">—</strong></div><div class="btcBoCard"><span>TP3</span><strong id="btcBoTp3">—</strong></div><div class="btcBoCard"><span>TP4</span><strong id="btcBoTp4">—</strong></div><div class="btcBoCard"><span>اللوت المقترح</span><strong id="btcBoLot">—</strong></div><div class="btcBoCard"><span>الاستراتيجية</span><strong>BREAKOUT PA</strong></div></div><p id="btcBoReason" class="btcBoNote">BTC فقط: Strong Breakout / Breakout + Retest / False Breakout. لا دخول قبل إغلاق شمعة 5 دقائق.</p></section>';
+  const js='<script id="btcBreakoutClient">(function(){const el=id=>document.getElementById(id),money=v=>v==null?"—":"$"+Number(v).toLocaleString("en-US",{maximumFractionDigits:2});async function run(){try{const r=await fetch("/api/btc-signal?_="+Date.now(),{cache:"no-store"}),d=await r.json(),b=d.breakout||{},s=b.setup||{},lv=b.levels5||{},active=d.status==="ACTIVE"&&["BUY","SELL"].includes(d.action);const state=el("btcBoState");state.textContent=active?(d.action==="BUY"?"شراء":"بيع"):"WAIT";state.className=active?(d.action==="BUY"?"btcBoBuy":"btcBoSell"):"btcBoWait";el("btcBoConfidence").textContent=Math.round(Number(active?d.confidence:(d.readinessScore??d.confidence))||0)+"/100"+(active?" • SETUP":" • READY");el("btcBoType").textContent=s.type?String(s.type).replaceAll("_"," "):("WATCH "+(d.watchSide||b.readiness?.watchSide||"—"));el("btcBoBias").textContent=b.bias?.bias||"—";el("btcBoLevel").textContent=s.level!=null?money(s.level):(d.watchLevel!=null?money(d.watchLevel):(b.readiness?.watchLevel!=null?money(b.readiness.watchLevel):"—"));el("btcBoVolume").textContent=b.volume?.ratio!=null?Number(b.volume.ratio).toFixed(2)+"x":"—";el("btcBoMicro").textContent=b.micro?.aligned?b.micro.type:"WAIT";el("btcBoRange").textContent=lv.support!=null?money(lv.support)+" – "+money(lv.resistance):"—";el("btcBoPrice").textContent=money(d.price);el("btcBoEntry").textContent=active?money(d.entry):"—";el("btcBoStop").textContent=active?money(d.stopLoss):"—";for(let i=1;i<=4;i++)el("btcBoTp"+i).textContent=active?money(d["target"+i]):"—";el("btcBoLot").textContent=active&&Number(d.lotSizing?.recommendedLot)>0?Number(d.lotSizing.recommendedLot).toFixed(2)+" lot":"—";el("btcBoReason").textContent=d.reason||"—";el("btcBoMeta").textContent="BTC-USD • Breakout experiment • تحديث كل 5 ثوانٍ • "+new Date(d.updatedAt||Date.now()).toLocaleTimeString("ar-SA",{timeZone:"Asia/Riyadh",hour:"2-digit",minute:"2-digit",second:"2-digit"});}catch(e){el("btcBoMeta").textContent="تعذر تحميل BTC الآن";}setTimeout(run,5000)}run()})();</script>';
   return html.replace('</head>',css+'</head>').replace('</body>',panel+js+'</body>');
 }
