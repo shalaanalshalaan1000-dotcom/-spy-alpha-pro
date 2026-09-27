@@ -1,11 +1,11 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
-import { getBtcSignal, injectBtcPanel } from './btc-ict-fast.js';
+import { getBtcSignal, injectBtcPanel } from './btc-wyckoff.js';
 import { renderTradeJournalPage } from './trade-journal.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_INNER_PORT || 3100);
-const BUILD_TAG = 'site-indicator-v13-trade-journal';
+const BUILD_TAG = 'site-indicator-v14-btc-wyckoff';
 
 const app = spawn(process.execPath, ['gold-unified-start.js'], {
   env: { ...process.env, PORT: String(INNER_PORT) },
@@ -176,8 +176,8 @@ const server = http.createServer(async (req, res) => {
     } catch (error) {
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
       return res.end(JSON.stringify({
-        status: 'WAIT', action: 'WAIT', confidence: 0, strategy: 'SMC_PRICE_ACTION',
-        degraded: true, reason: 'BTC SMC + Price Action engine unavailable: ' + String(error?.message || error),
+        status: 'WAIT', action: 'WAIT', confidence: 0, strategy: 'WYCKOFF',
+        degraded: true, reason: 'BTC Wyckoff engine unavailable: ' + String(error?.message || error),
         updatedAt: new Date().toISOString()
       }));
     }
