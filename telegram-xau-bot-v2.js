@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+
 const AUTO_URL=process.env.TELEGRAM_SIGNAL_URL||'http://127.0.0.1:3002/api/auto-trade/signal?observe=1';
 const BOT_TOKEN=String(process.env.TELEGRAM_BOT_TOKEN||'').trim();
 const CHAT_ID=String(process.env.TELEGRAM_CHAT_ID||'').trim();
@@ -14,6 +16,7 @@ const XAU_SAFE_RISK_USD=Math.max(1,Number(process.env.XAU_SAFE_RISK_USD||5));
 const XAU_MAX_RISK_USD=Math.max(XAU_SAFE_RISK_USD,Number(process.env.XAU_MAX_RISK_USD||10));
 const BOOT_GRACE_MS=15_000;
 const JOURNAL_URL=String(process.env.TELEGRAM_JOURNAL_URL||'http://127.0.0.1:3002/api/performance/journal').trim();
+const BTC_JOURNAL_PATH=String(process.env.BTC_TRADE_JOURNAL_PATH||'/tmp/gold-alpha-btc-trades.json').trim();
 let telegramUpdateOffset=0;
 
 let ready=false;
@@ -188,7 +191,7 @@ async function startup(){
   try{
     const me=await tg('getMe');
     await tg('setMyCommands',{commands:[
-      {command:'evaluate',description:'📊 تقييم الصفقات المنتهية'}
+      {command:'evaluate',description:'📊 تقييم صفقات الذهب والبيتكوين'}
     ]});
     ready=true;
     console.log(`[telegram-xau-confirmed] authenticated @${me?.result?.username||'unknown'} siteMirror=true; /evaluate enabled`);
@@ -251,17 +254,17 @@ async function fetchJournal(){
   if(!d||!Array.isArray(d.trades))throw new Error('journal payload invalid');
   return d;
 }
-function evaluationMessage(journal){
-  const closed=journal.trades.filter(t=>String(t?.status||'').toUpperCase()==='CLOSED').sort((a,b)=>Number(b?.closedAtMs||Date.parse(b?.closedAt)||0)-Number(a?.closedAtMs||Date.parse(a?.closedAt)||0));
-  if(!closed.length)return '📊 تقييم الصفقات\n\nلا توجد صفقات مغلقة مسجلة حتى الآن.';
+function assetEvaluationMessage(assetLabel,trades,emptyNote='لا توجد صفقات مغلقة مسجلة حتى الآن.'){
+  const closed=(Array.isArray(trades)?trades:[]).filter(t=>String(t?.status||'').toUpperCase()==='CLOSED').sort((a,b)=>Number(b?.closedAtMs||Date.parse(b?.closedAt)||0)-Number(a?.closedAtMs||Date.parse(a?.closedAt)||0));
+  if(!closed.length)return `📊 ${assetLabel} — تقييم الصفقات المنتهية\n\n${emptyNote}`;
   const wins=closed.filter(t=>String(t?.result||'').toUpperCase()==='WIN').length;
   const losses=closed.filter(t=>String(t?.result||'').toUpperCase()==='LOSS').length;
   const be=closed.filter(t=>String(t?.result||'').toUpperCase()==='BREAKEVEN').length;
   const rs=closed.map(t=>num(t?.realizedR)).filter(v=>v!=null);
   const netR=rs.reduce((a,b)=>a+b,0),avgR=rs.length?netR/rs.length:null;
   const winRate=closed.length?wins/closed.length*100:0;
-  const recent=closed.slice(0,5);
-  return `📊 XAUUSD — تقييم الصفقات المنتهية
+  const recent=closed.slice(0,3);
+  return `📊 ${assetLabel} — تقييم الصفقات المنتهية
 عدد الصفقات: ${closed.length}
 ✅ فوز: ${wins} | ❌ خسارة: ${losses} | ⚪ تعادل: ${be}
 🎯 Win rate: ${winRate.toFixed(1)}%
@@ -270,7 +273,16 @@ function evaluationMessage(journal){
 آخر ${recent.length} صفقات:
 ${recent.map(reviewLine).join('\n\n')}
 
-ملاحظة: التقييم مبني على بيانات الصفقة المسجلة (الدخول/الوقف/الأهداف/الحركة والنتيجة)، وليس ضمانًا لجودة أي صفقة مستقبلية.`;
+ملاحظة: التقييم مبني على بيانات الصفقة المسجلة، وليس ضمانًا لجودة أي صفقة مستقبلية.`;
+}
+function evaluationMessage(journal){
+  return assetEvaluationMessage('XAUUSD',journal?.trades||[]);
+}
+function readBtcClosedTrades(){
+  try{
+    const rows=JSON.parse(fs.readFileSync(BTC_JOURNAL_PATH,'utf8'));
+    return Array.isArray(rows)?rows:[];
+  }catch{return [];}
 }
 async function sendBotMenu(){
   await tg('sendMessage',{
@@ -289,7 +301,17 @@ async function handleBotUpdate(update){
   if(/^\/evaluate(?:@\w+)?$/i.test(text)||text==='📊 تقييم الصفقات'){
     try{
       const journal=await fetchJournal();
-      await tg('sendMessage',{chat_id:CHAT_ID,text:evaluationMessage(journal),disable_web_page_preview:true});
+      const btcTrades=readBtcClosedTrades();
+      await tg('sendMessage',{chat_id:CHAT_ID,text:assetEvaluationMessage('XAUUSD',journal?.trades||[]),disable_web_page_preview:true});
+      await tg('sendMessage',{
+        chat_id:CHAT_ID,
+        text:assetEvaluationMessage(
+          'BTCUSD',
+          btcTrades,
+          'لا توجد صفقة BTC مغلقة محفوظة منذ تفعيل سجل البيتكوين. أول صفقة تنتهي بـ TP أو SL ستظهر هنا تلقائيًا.'
+        ),
+        disable_web_page_preview:true
+      });
     }catch(e){
       await tg('sendMessage',{chat_id:CHAT_ID,text:`⚠️ تعذر قراءة سجل الصفقات الآن: ${String(e?.message||e)}`,disable_web_page_preview:true});
     }
@@ -436,4 +458,4 @@ if(process.env.NODE_ENV!=='test'){
   (async function commands(){await botCommandLoop();})();
 }
 
-export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeReview,evaluationMessage};
+export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades};
