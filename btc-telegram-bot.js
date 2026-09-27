@@ -252,12 +252,15 @@ function message(signal) {
   }).format(new Date());
 
   const sizing = lotSizingLines(signal.entry, signal.stopLoss);
+  const keyCandle = signal.importantCandles?.primary || pa.importantCandle || null;
+  const keyCandleLine = keyCandle ? `🕯️ Key candle: ${keyCandle.pattern} • ${keyCandle.side} • ${Math.round(Number(keyCandle.score)||0)}/100 • ${keyCandle.status||'CANDIDATE'}\n` : '';
   return `${icon} BTCUSD — PRICE ACTION CONFIRMED ${signal.action}\n` +
     `🧠 Strategy: ${strategy}\n` +
     `📊 Setup strength: ${Math.round(Number(signal.confidence) || 0)}/100\n` +
     `🧭 15m context: ${pa.context15 || '—'}\n` +
     `🔎 5m structure: ${pa.structure5 || '—'}\n` +
     `⚡ 5m trigger: ${triggers}\n` +
+    keyCandleLine +
     `🕐 1h bias: ${pa.bias1h || '—'} (bias only)\n` +
     `💵 Price: ${n(signal.price)}\n` +
     `📍 Entry: ${n(signal.entry)}\n` +
