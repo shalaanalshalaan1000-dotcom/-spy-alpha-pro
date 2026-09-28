@@ -5,7 +5,7 @@ import { configureTelegramWebhook, handleTelegramWebhook } from './telegram-comm
 
 const PORT = Number(process.env.PORT || 3000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_INNER_PORT || 3100);
-const BUILD_TAG = 'site-indicator-v15-gold-only';
+const BUILD_TAG = 'site-indicator-v16-top-down-mtf';
 
 const app = spawn(process.execPath, ['gold-unified-start.js'], {
   env: { ...process.env, PORT: String(INNER_PORT) },
@@ -90,6 +90,7 @@ function mapIndicator(source = {}) {
     newsRisk,
     luxalgo: source.luxalgo || null,
     confluence: source.confluence || null,
+    multiTimeframe: source.multiTimeframe || source.confluence?.multiTimeframe || null,
     importantCandles: source.importantCandles || null,
     reason: blockedByNews ? (newsRisk.reason || 'USD news blackout') : (source.reason || 'بانتظار اكتمال شروط إشارة الموقع'),
     updatedAt: source.updatedAt || new Date().toISOString()
@@ -111,7 +112,7 @@ function injectIndicator(html) {
 @media(max-width:760px){.siteIndicatorMeta{grid-template-columns:1fr 1fr}}
 </style>`;
 
-  const panel = `<section id="siteOwnedIndicator"><div class="siteIndicatorTop"><h3>مؤشر الموقع — المصدر الوحيد للإشارة</h3><a class="journalLink" href="/journal">Trade Journal</a></div><div id="siteSignalWord" class="siteWait">WAIT</div><div class="siteIndicatorMeta"><div><span>درجة الإعداد</span><strong id="siteSignalConfidence">0/100</strong></div><div><span>السعر</span><strong id="siteSignalPrice">—</strong></div><div><span>الحالة</span><strong id="siteSignalStatus">WAIT</strong></div><div><span>Market Bias</span><strong id="siteMarketBias">—</strong></div><div><span>BUY Zone</span><strong id="siteBuyZone">—</strong></div><div><span>SELL Zone</span><strong id="siteSellZone">—</strong></div><div><span>5m Trigger</span><strong id="siteZoneTrigger">WAIT</strong></div><div><span>الشمعة المهمة</span><strong id="siteKeyCandle">—</strong></div><div><span>Confluence</span><strong id="siteConfluence">WAITING</strong></div><div><span>حالة الأخبار</span><strong id="siteNewsRisk">جارٍ الفحص…</strong></div><div><span>الخبر المؤثر</span><strong id="siteNewsEvent">—</strong></div><div><span>التنفيذ</span><strong id="siteSignalExecutable">غير تنفيذي</strong></div><div><span>المصدر</span><strong>Gold Alpha Site</strong></div><div><span>سبب القرار</span><strong id="siteSignalReason">—</strong></div></div></section>`;
+  const panel = `<section id="siteOwnedIndicator"><div class="siteIndicatorTop"><h3>مؤشر الموقع — المصدر الوحيد للإشارة</h3><a class="journalLink" href="/journal">Trade Journal</a></div><div id="siteSignalWord" class="siteWait">WAIT</div><div class="siteIndicatorMeta"><div><span>درجة الإعداد</span><strong id="siteSignalConfidence">0/100</strong></div><div><span>السعر</span><strong id="siteSignalPrice">—</strong></div><div><span>الحالة</span><strong id="siteSignalStatus">WAIT</strong></div><div><span>Market Bias</span><strong id="siteMarketBias">—</strong></div><div><span>BUY Zone</span><strong id="siteBuyZone">—</strong></div><div><span>SELL Zone</span><strong id="siteSellZone">—</strong></div><div><span>5m Trigger</span><strong id="siteZoneTrigger">WAIT</strong></div><div><span>الشمعة المهمة</span><strong id="siteKeyCandle">—</strong></div><div><span>Confluence</span><strong id="siteConfluence">WAITING</strong></div><div><span>Macro Bias</span><strong id="siteMacroBias">—</strong></div><div><span>Top-down TFs</span><strong id="siteTimeframeChain">—</strong></div><div><span>حالة الأخبار</span><strong id="siteNewsRisk">جارٍ الفحص…</strong></div><div><span>الخبر المؤثر</span><strong id="siteNewsEvent">—</strong></div><div><span>التنفيذ</span><strong id="siteSignalExecutable">غير تنفيذي</strong></div><div><span>المصدر</span><strong>Gold Alpha Site</strong></div><div><span>سبب القرار</span><strong id="siteSignalReason">—</strong></div></div></section>`;
 
   const js = `<script>
 (function(){
@@ -133,6 +134,9 @@ function injectIndicator(html) {
    const kc=s.importantCandles?.primary||null;document.getElementById('siteKeyCandle').textContent=kc?(kc.pattern+' • '+kc.side+' • '+Math.round(Number(kc.score)||0)+'/100 • '+(kc.status||'CANDIDATE')):'—';
    const cf=s.confluence||{},scores=cf.scores||{};
    document.getElementById('siteConfluence').textContent='BUY '+Math.round(Number(scores.BUY)||0)+'/100 • SELL '+Math.round(Number(scores.SELL)||0)+'/100';
+   const mtf=s.multiTimeframe||{},tf=mtf.reads||{};
+   document.getElementById('siteMacroBias').textContent=(mtf.side||'NEUTRAL')+' • HTF '+(mtf.macroAligned??0)+'/4 • Intraday '+(mtf.intradayAligned??0)+'/3';
+   document.getElementById('siteTimeframeChain').textContent='MN1 '+(tf.MN1?.side||'—')+' • W1 '+(tf.W1?.side||'—')+' • 2D '+(tf.D2?.side||'—')+' • D1 '+(tf.D1?.side||'—')+' • H4 '+(tf.H4?.side||'—')+' • H1 '+(tf.H1?.side||'—')+' • M15 '+(tf.M15?.side||'—')+' • M5 '+(tf.M5?.side||'—')+' • M1 '+(tf.M1?.side||'—');
    document.getElementById('siteSignalExecutable').textContent=s.executable?'تنفيذي':'قراءة فقط';
    const nr=s.newsRisk||{};
    const newsLabel=nr.blockEntries?'⛔ إيقاف صفقات — خبر مؤثر':nr.dayHasHighImpactUsd?'⚠️ يوم أخبار USD':'✅ أخبار طبيعية';
