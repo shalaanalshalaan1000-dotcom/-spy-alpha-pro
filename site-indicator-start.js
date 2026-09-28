@@ -2,6 +2,7 @@ import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { getBtcSignal, injectBtcPanel } from './btc-ict-fast.js';
 import { renderTradeJournalPage } from './trade-journal.js';
+import { configureTelegramWebhook, handleTelegramWebhook } from './telegram-command-webhook.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_INNER_PORT || 3100);
@@ -156,6 +157,10 @@ function injectIndicator(html) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
 
+  if (req.method === 'POST' && url.pathname === '/api/telegram/webhook') {
+    return handleTelegramWebhook(req, res);
+  }
+
   if (req.method === 'GET' && (url.pathname === '/journal' || url.pathname === '/trade-journal')) {
     res.writeHead(200, {
       'content-type': 'text/html; charset=utf-8',
@@ -226,6 +231,9 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => console.log(`Site indicator ${BUILD_TAG} listening on ${PORT}; inner=${INNER_PORT}`));
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Site indicator ${BUILD_TAG} listening on ${PORT}; inner=${INNER_PORT}`);
+  configureTelegramWebhook().catch(error => console.error('[telegram-webhook] setup failed', error?.message || error));
+});
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
