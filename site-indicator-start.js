@@ -1,12 +1,11 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
-import { getBtcSignal, injectBtcPanel } from './btc-ict-fast.js';
 import { renderTradeJournalPage } from './trade-journal.js';
 import { configureTelegramWebhook, handleTelegramWebhook } from './telegram-command-webhook.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_INNER_PORT || 3100);
-const BUILD_TAG = 'site-indicator-v14-important-candles';
+const BUILD_TAG = 'site-indicator-v15-gold-only';
 
 const app = spawn(process.execPath, ['gold-unified-start.js'], {
   env: { ...process.env, PORT: String(INNER_PORT) },
@@ -171,23 +170,18 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'GET' && (url.pathname === '/api/btc-signal' || url.pathname === '/api/btc')) {
-    try {
-      const payload = await getBtcSignal(url.searchParams.get('force') === '1');
-      res.writeHead(200, {
-        'content-type': 'application/json; charset=utf-8',
-        'cache-control': 'no-store',
-        'access-control-allow-origin': '*',
-        'x-gold-alpha-build': BUILD_TAG
-      });
-      return res.end(JSON.stringify(payload));
-    } catch (error) {
-      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-      return res.end(JSON.stringify({
-        status: 'WAIT', action: 'WAIT', confidence: 0, strategy: 'SMC_PRICE_ACTION',
-        degraded: true, reason: 'BTC SMC + Price Action engine unavailable: ' + String(error?.message || error),
-        updatedAt: new Date().toISOString()
-      }));
-    }
+    res.writeHead(410, {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+      'access-control-allow-origin': '*',
+      'x-gold-alpha-build': BUILD_TAG
+    });
+    return res.end(JSON.stringify({
+      ok: false,
+      status: 'DISABLED',
+      symbol: 'BTCUSD',
+      reason: 'BTC trading and signals are disabled. Gold-only mode is active.'
+    }));
   }
 
   if (req.method === 'GET' && url.pathname === '/api/site-indicator') {
@@ -216,7 +210,7 @@ const server = http.createServer(async (req, res) => {
     delete headers['content-length'];
 
     if (req.method === 'GET' && url.pathname === '/' && String(headers['content-type'] || '').includes('text/html')) {
-      const html = injectBtcPanel(injectIndicator(out.body.toString('utf8')));
+      const html = injectIndicator(out.body.toString('utf8'));
       headers['content-type'] = 'text/html; charset=utf-8';
       headers['cache-control'] = 'no-store';
       res.writeHead(out.status, headers);
