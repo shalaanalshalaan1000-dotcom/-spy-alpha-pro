@@ -33,6 +33,12 @@ for (const [from, to] of replacements) {
   source = source.replace(from, to);
 }
 
+// Commands are handled by the HTTPS webhook on the public site. Long polling via getUpdates
+// causes 409 conflicts during Render zero-downtime deploy overlap, so it is disabled here.
+const commandLoop="  (async function commands(){await botCommandLoop();})();";
+if(!source.includes(commandLoop))throw new Error('telegram v3 command-loop anchor missing');
+source=source.replace(commandLoop,"  console.log('[telegram-xau-commands] webhook mode; getUpdates disabled');");
+
 
 {
   const oldReturn="return t.every((v,i)=>valid(v)&&(side==='BUY'?v>(i?t[i-1]:entry):v<(i?t[i-1]:entry)));";
