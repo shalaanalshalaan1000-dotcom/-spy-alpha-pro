@@ -206,5 +206,35 @@ for (const [from, to] of replacements) {
   if(source.includes(catchAnchor))source=source.replace(catchAnchor,"}catch(e){state.lastError=String(e?.message||e);console.error('[signal-engine-error]',e?.stack||e);return json(res,503,{error:'Signal engine unavailable',detail:state.lastError,build:BUILD,noAI:true});}});");
 }
 
+
+{
+  const htfStateAnchor="lastReconnectAttempt:0,dailySignalDate:null,dailySignalCount:0,lastSignalAtMs:0,lastNewsRisk:null,candidateLock:null,candidateLockBucket:null,openSessionKey:null,openSessionSignalCount:0};";
+  if(!source.includes(htfStateAnchor))throw new Error('top-down patch: state anchor missing');
+  source=source.replace(htfStateAnchor,"lastReconnectAttempt:0,dailySignalDate:null,dailySignalCount:0,lastSignalAtMs:0,lastNewsRisk:null,candidateLock:null,candidateLockBucket:null,openSessionKey:null,openSessionSignalCount:0,higherTimeframes:{D1:[],D2:[],W1:[],MN1:[]}};");
+
+  const ingestStart=source.indexOf("function ingestTimescale(msg){"),ingestEnd=source.indexOf("\nfunction connectTradingView()",ingestStart);
+  if(ingestStart<0||ingestEnd<0)throw new Error('top-down patch: ingestTimescale anchor missing');
+  const ingestFn="function mergeHigherTimeframe(kind,rows,maxBars){const merged=new Map((state.higherTimeframes?.[kind]||[]).map(b=>[b.t,b]));for(const row of rows){const v=row?.v;if(!Array.isArray(v)||v.length<5)continue;const t=n(v[0]),open=n(v[1]),high=n(v[2]),low=n(v[3]),close=n(v[4]),volume=n(v[5]);if(t==null||![open,high,low,close].every(Number.isFinite)||close<=0)continue;const ms=t>1e12?t:t*1000;merged.set(ms,{t:ms,open,high,low,close,volume:volume!=null&&volume>=0?volume:null});}state.higherTimeframes[kind]=[...merged.values()].sort((a,b)=>a.t-b.t).slice(-maxBars);}\nfunction ingestTimescale(msg){\n const payload=msg?.p?.[1];if(!payload||typeof payload!=='object')return;\n let newestT=0,newestClose=null,added=0;\n for(const [seriesId,series] of Object.entries(payload)){\n  const rows=Array.isArray(series?.s)?series.s:[];\n  if(seriesId==='sd1'){mergeHigherTimeframe('D1',rows,450);continue;}\n  if(seriesId==='s2d'){mergeHigherTimeframe('D2',rows,260);continue;}\n  if(seriesId==='sw1'){mergeHigherTimeframe('W1',rows,200);continue;}\n  if(seriesId==='sm1'){mergeHigherTimeframe('MN1',rows,96);continue;}\n  if(seriesId!=='s1')continue;\n  for(const row of rows){const v=row?.v;if(!Array.isArray(v)||v.length<5)continue;const t=n(v[0]),open=n(v[1]),high=n(v[2]),low=n(v[3]),close=n(v[4]),volume=n(v[5]);if(t==null||close==null||close<=0)continue;const ms=t>1e12?t:t*1000;add(ms,close,close,close,{open,high,low,close},volume);added++;if(ms>=newestT){newestT=ms;newestClose=close;}}\n }\n if(added)normalize();\n if(newestClose!=null&&!freshQuote(state.quote)){const now=Date.now();state.quote={price:newestClose,bid:newestClose,ask:newestClose,t:newestT,provider:'TRADINGVIEW_OANDA_BAR',degraded:true,symbol:TV_SYMBOL};state.lastTvAt=now;state.lastError=null;if(!state.loggedQuote){state.loggedQuote=true;console.log('[tv-bar] first chart fallback '+TV_SYMBOL+' '+newestClose);}}\n}";
+  source=source.slice(0,ingestStart)+ingestFn+source.slice(ingestEnd);
+
+  const seriesAnchor="send('create_series',[cs,'s1','s1','symbol_1','1',5000]);";
+  if(!source.includes(seriesAnchor))throw new Error('top-down patch: 1m series anchor missing');
+  source=source.replace(seriesAnchor,seriesAnchor+"send('create_series',[cs,'sd1','sd1','symbol_1','D',450]);send('create_series',[cs,'s2d','s2d','symbol_1','2D',260]);send('create_series',[cs,'sw1','sw1','symbol_1','W',200]);send('create_series',[cs,'sm1','sm1','symbol_1','M',96]);");
+
+  const modelAnchor="const rawModel=analyzeGoldSignal(state.samples,q.price,now);";
+  if(!source.includes(modelAnchor))throw new Error('top-down patch: model call anchor missing');
+  source=source.replace(modelAnchor,"const rawModel=analyzeGoldSignal(state.samples,q.price,now,state.higherTimeframes);");
+
+  const responseAnchor="signalConfidence:Number(state.signal?.confidence??model.confidence??0),minConfidence:MIN_CONFIDENCE,dailySignalCount:state.dailySignalCount,maxDailySignals:MAX_DAILY_SIGNALS,tradeStyle:'MULTI_MODEL_CONFLUENCE',newsRisk,volatilityPolicy:policy,";
+  if(!source.includes(responseAnchor))throw new Error('top-down patch: response anchor missing');
+  source=source.replace(responseAnchor,"signalConfidence:Number(state.signal?.confidence??model.confidence??0),minConfidence:MIN_CONFIDENCE,dailySignalCount:state.dailySignalCount,maxDailySignals:MAX_DAILY_SIGNALS,tradeStyle:'MULTI_MODEL_CONFLUENCE',multiTimeframe:model.multiTimeframe||model.confluence?.multiTimeframe||state.signal?.multiTimeframe||null,newsRisk,volatilityPolicy:policy,");
+
+  const signalAnchor="tradeStyle:'MULTI_MODEL_CONFLUENCE',priceAction:m.priceAction||null,importantCandles:m.importantCandles||null,technicalRead:m.technicalRead||null,openingSession:openSession?.id||m?.ict?.session||'ALL_MARKET',";
+  if(!source.includes(signalAnchor))throw new Error('top-down patch: signal payload anchor missing');
+  source=source.replace(signalAnchor,"tradeStyle:'MULTI_MODEL_CONFLUENCE',multiTimeframe:m.multiTimeframe||m.confluence?.multiTimeframe||null,priceAction:m.priceAction||null,importantCandles:m.importantCandles||null,technicalRead:m.technicalRead||null,openingSession:openSession?.id||m?.ict?.session||'ALL_MARKET',");
+
+  source=source.replace("const BUILD='site-signal-noai-v61-important-candles';","const BUILD='site-signal-noai-v62-top-down-mtf';");
+}
+
 fs.writeFileSync(runtimeUrl, source, 'utf8');
 await import(`${runtimeUrl.href}?v=${Date.now()}`);
