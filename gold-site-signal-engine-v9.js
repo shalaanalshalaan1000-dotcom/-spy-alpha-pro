@@ -139,7 +139,7 @@ for (const [from, to] of replacements) {
   const validFn="function validLevels(m){const s=m.candidateAction,lo=n(m.entryLow),hi=n(m.entryHigh),sl=n(m.stopLoss),t=[m.target1,m.target2,m.target3,m.target4].map(n);if(!['BUY','SELL'].includes(s)||lo==null||hi==null||sl==null||lo<=0||hi<=0||sl<=0||lo>hi||t[0]==null)return false;if(s==='BUY'&&!(sl<lo&&t[0]>hi))return false;if(s==='SELL'&&!(sl>hi&&t[0]<lo))return false;let prev=t[0];for(let i=1;i<t.length;i++){if(t[i]==null)continue;if(s==='BUY'&&t[i]<=prev)return false;if(s==='SELL'&&t[i]>=prev)return false;prev=t[i];}return true;}";
   source=source.slice(0,validStart)+validFn+source.slice(validEnd);
 
-  const stopStart=source.indexOf("function structuralStop("),stopEnd=source.indexOf("\nfunction maybeCreate",stopStart);
+  const stopStart=source.indexOf("function structuralStop("),stopEnd=source.indexOf("\nfunction m5Bucket",stopStart);
   if(stopStart<0||stopEnd<0)throw new Error('confluence patch: structuralStop anchor missing');
   const stopFn="function structuralStop(side,entry,modelStop,now=Date.now()){const policy=volatilityPolicy(now),stop=n(modelStop);if(stop==null||!Number.isFinite(entry))return{ok:false,reason:'INVALID_MOMENTUM_STOP',policy};if(side==='BUY'&&stop>=entry)return{ok:false,reason:'INVALID_MOMENTUM_STOP_SIDE',policy};if(side==='SELL'&&stop<=entry)return{ok:false,reason:'INVALID_MOMENTUM_STOP_SIDE',policy};const risk=Math.abs(entry-stop);if(risk<.45)return{ok:false,reason:'MOMENTUM_STOP_TOO_TIGHT',stop:round(stop,3),risk:round(risk,3),policy};return{ok:true,stop:round(stop,3),risk:round(risk,3),swing:null,buffer:0,minDistance:0,policy,source:'ICT_ORIGIN_TO_LIQUIDITY_MODEL'};}";
   source=source.slice(0,stopStart)+stopFn+source.slice(stopEnd);
