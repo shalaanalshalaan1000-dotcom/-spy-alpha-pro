@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { telegramSendState, setTelegramSendingEnabled } from './telegram-send-control.js';
 
 const BOT_TOKEN=String(process.env.TELEGRAM_BOT_TOKEN||'').trim();
 const CHAT_ID=String(process.env.TELEGRAM_CHAT_ID||'').trim();
@@ -97,7 +98,23 @@ async function handleUpdate(update){
   const msg=update?.message;if(!msg||String(msg.chat?.id)!==String(CHAT_ID))return;
   const text=String(msg.text||'').trim();
   if(/^\/start(?:@\w+)?$/i.test(text)){
-    await send('اختر من البوت:',{keyboard:[[{text:'📊 تقييم الصفقات'}]],resize_keyboard:true,persistent:true});
+    const st=telegramSendState();
+    await send(`اختر من البوت:\nحالة الإرسال: ${st.enabled?'🟢 يعمل':'⏸ متوقف'}`,{keyboard:[[{text:'📊 تقييم الصفقات'}],[{text:'⏸ إيقاف الإرسال'},{text:'▶️ تشغيل الإرسال'}],[{text:'ℹ️ حالة الإرسال'}]],resize_keyboard:true,persistent:true});
+    return;
+  }
+  if(/^\/signals_off(?:@\w+)?$/i.test(text)||text==='⏸ إيقاف الإرسال'){
+    const st=setTelegramSendingEnabled(false,'telegram-command');
+    await send('⏸ تم إيقاف إرسال تنبيهات الذهب من البوت. التحليل والموقع مستمران، ولن تُرسل إشارات دخول أو أهداف/وقف أو تنبيهات جلسات حتى تعيد التشغيل.');
+    return;
+  }
+  if(/^\/signals_on(?:@\w+)?$/i.test(text)||text==='▶️ تشغيل الإرسال'){
+    const st=setTelegramSendingEnabled(true,'telegram-command');
+    await send('▶️ تم تشغيل إرسال تنبيهات الذهب من البوت.');
+    return;
+  }
+  if(/^\/signals_status(?:@\w+)?$/i.test(text)||text==='ℹ️ حالة الإرسال'){
+    const st=telegramSendState();
+    await send(`حالة إرسال البوت: ${st.enabled?'🟢 يعمل':'⏸ متوقف'}${st.updatedAt?'\nآخر تغيير: '+new Intl.DateTimeFormat('ar-SA',{timeZone:'Asia/Riyadh',dateStyle:'short',timeStyle:'short'}).format(new Date(st.updatedAt)):''}`);
     return;
   }
   if(/^\/evaluate(?:@\w+)?$/i.test(text)||text==='📊 تقييم الصفقات'){
@@ -110,7 +127,7 @@ async function handleUpdate(update){
 
 export async function configureTelegramWebhook(){
   if(!BOT_TOKEN||!CHAT_ID||!WEBHOOK_SECRET||!APP_BASE_URL){console.warn('[telegram-webhook] disabled: missing token/chat/secret/base URL');return false;}
-  await telegram('setMyCommands',{commands:[{command:'evaluate',description:'📊 تقييم صفقات الذهب'}]});
+  await telegram('setMyCommands',{commands:[{command:'evaluate',description:'📊 تقييم صفقات الذهب'},{command:'signals_off',description:'⏸ إيقاف إرسال التنبيهات'},{command:'signals_on',description:'▶️ تشغيل إرسال التنبيهات'},{command:'signals_status',description:'ℹ️ حالة إرسال البوت'}]});
   await telegram('setWebhook',{
     url:`${APP_BASE_URL}/api/telegram/webhook`,
     secret_token:WEBHOOK_SECRET,
