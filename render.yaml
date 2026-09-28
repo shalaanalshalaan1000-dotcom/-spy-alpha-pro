@@ -68,7 +68,7 @@ services:
       - key: GOLD_M5_ENTRY_WINDOW_MS
         value: "150000"
       - key: XAU_ACCOUNT_BALANCE_USD
-        value: "178"
+        value: "50"
       - key: XAU_SAFE_RISK_USD
         value: "5"
       - key: XAU_MAX_RISK_USD
