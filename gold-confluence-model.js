@@ -71,6 +71,19 @@ function nearestTargets(side,entry,bars,minMove,risk){
 }
 function fallbackStop(side,entry,bars,atr1){const m5=bars.m5.slice(-5),m1=bars.m1.slice(-10),buffer=clamp((atr1||.5)*.35,.18,.55);const candidates=[];if(m5.length)candidates.push(side==='BUY'?Math.min(...m5.map(b=>b.low))-buffer:Math.max(...m5.map(b=>b.high))+buffer);if(m1.length)candidates.push(side==='BUY'?Math.min(...m1.map(b=>b.low))-buffer:Math.max(...m1.map(b=>b.high))+buffer);const valid=candidates.filter(v=>side==='BUY'?v<entry:v>entry).sort((a,b)=>Math.abs(a-entry)-Math.abs(b-entry));let stop=valid.find(v=>Math.abs(v-entry)>=.55&&Math.abs(v-entry)<=4.5)??valid[0];if(!Number.isFinite(stop)||Math.abs(stop-entry)<.55)stop=entry+(side==='BUY'?-1:1)*Math.max(.75,(atr1||.5)*1.5);return round(stop);}
 function validPlan(m,side){return Boolean(m&&m.status==='CANDIDATE'&&m.candidateAction===side&&n(m.entryLow)!=null&&n(m.entryHigh)!=null&&n(m.stopLoss)!=null&&n(m.target1)!=null);}
+function activeConfirmedLiquidityReversal(key){
+  if(!key||!['BUY','SELL'].includes(key.side)||key.status!=='CONFIRMED'||Number(key.score)<88||Number(key.ageBars)>4)return false;
+  const patterns=Array.isArray(key.patterns)?key.patterns:[key.pattern].filter(Boolean);
+  return patterns.some(x=>['LIQUIDITY_SWEEP','FAILED_BREAKDOWN','FAILED_BREAKOUT'].includes(x));
+}
+function liquidityReversalInvalidated(key,lastM5){
+  if(!key||!lastM5)return false;
+  const close=n(lastM5.close),low=n(key.low),high=n(key.high);
+  if(close==null)return false;
+  if(key.side==='BUY')return low!=null&&close<low;
+  if(key.side==='SELL')return high!=null&&close>high;
+  return false;
+}
 
 export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const price=n(rawPrice),classic=analyzeClassicModel(samples,rawPrice,now),ict=analyzeIctModel(samples,rawPrice,now);
@@ -97,6 +110,11 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const breakdown=Object.fromEntries(Object.entries(components).map(([k,v])=>[k,{BUY:v.BUY,SELL:v.SELL,reasons:v.reasons}]));
   const confluence={version:'CONFLUENCE_V1',weights:{structure:24,trend:18,momentum:14,priceAction:16,liquidity:12,location:6,volatility:10},scores:totals,lead,selectedSide:side,breakdown,fibonacci:fib,structure:{h1:sideOf(dir1h),m15:sideOf(dir15),m5:sideOf(dir5)},trend:{ema20_5:round(ema20_5),ema50_5:round(ema50_5),ema10_15:round(ema10_15),ema20_15:round(ema20_15)},momentum:{rsi14:round(rsi,1),macd:ind?.macd||null,stochastic:ind?.stochastic533||null,m5:round(mom5),m15:round(mom15)},priceAction:{candle,breakout,importantCandle:importantM5.primary},importantCandles:base.importantCandles,liquidity:{buySweep:sweepBuy,sellSweep:sweepSell,legacyIctCandidate:ict?.status==='CANDIDATE'?ict?.candidateAction:null},liquidityMap:heatmap,legacyModels:{classic:{status:classic?.status,side:classic?.candidateAction,confidence:classic?.confidence,strategy:classic?.strategy},ict:{status:ict?.status,side:ict?.candidateAction,confidence:ict?.confidence,strategy:ict?.strategy}}};
   base.confluence=confluence;base.contextBias=side;base.confidence=confidence;
+  const key=importantM5.primary,lastM5=m5.at(-1),hardConflict=activeConfirmedLiquidityReversal(key)&&key.side!==side&&!liquidityReversalInvalidated(key,lastM5);
+  if(hardConflict){
+    const invalidationLevel=key.side==='BUY'?n(key.low):n(key.high);
+    return{...base,status:'WAIT',action:'WAIT',candidateAction:'WAIT',side:null,hardConflict:true,conflict:{type:'OPPOSING_CONFIRMED_LIQUIDITY_REVERSAL',selectedSide:side,keyCandleSide:key.side,keyCandlePattern:key.pattern,keyCandleScore:Number(key.score)||0,invalidationLevel:round(invalidationLevel)},reason:`CONFLUENCE CONFLICT — confirmed ${key.side} ${key.pattern} ${Number(key.score)||0}/100 remains structurally valid; ${side} is blocked until a closed 5m candle invalidates ${round(invalidationLevel)}.`};
+  }
   if(confidence<65||lead<8)return{...base,status:'WAIT',candidateAction:lead>=4?side:'WAIT',reason:`CONFLUENCE WAIT — BUY ${totals.BUY}/100 • SELL ${totals.SELL}/100 • lead ${lead}; need ≥65 and lead ≥8`};
 
   const sourcePlan=validPlan(classic,side)?classic:validPlan(ict,side)?ict:null;let entry=n(sourcePlan?.entry)??price,entryLow=n(sourcePlan?.entryLow),entryHigh=n(sourcePlan?.entryHigh),stop=n(sourcePlan?.stopLoss),targets=[n(sourcePlan?.target1),n(sourcePlan?.target2),n(sourcePlan?.target3),n(sourcePlan?.target4)],labels=Array.isArray(sourcePlan?.targetLabels)?sourcePlan.targetLabels.slice(0,4):[];
