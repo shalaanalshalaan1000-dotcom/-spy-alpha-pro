@@ -6,7 +6,6 @@ const WEBHOOK_SECRET=String(process.env.TELEGRAM_WEBHOOK_SECRET||'').trim();
 const APP_BASE_URL=String(process.env.APP_BASE_URL||'').trim().replace(/\/$/,'');
 const INNER_PORT=Number(process.env.GOLD_ALPHA_INNER_PORT||3100);
 const JOURNAL_URL=String(process.env.TELEGRAM_JOURNAL_URL||`http://127.0.0.1:${INNER_PORT}/api/performance/journal`).trim();
-const BTC_JOURNAL_PATH=String(process.env.BTC_TRADE_JOURNAL_PATH||'/tmp/gold-alpha-btc-trades.json').trim();
 const seenUpdates=new Map();
 
 function num(v){if(v==null||v===''||typeof v==='boolean')return null;const x=Number(v);return Number.isFinite(x)?x:null;}
@@ -91,7 +90,6 @@ async function fetchGoldJournal(){
   if(!r.ok)throw new Error(`journal HTTP ${r.status}`);
   const d=await r.json();if(!d||!Array.isArray(d.trades))throw new Error('journal payload invalid');return d.trades;
 }
-function readBtcTrades(){try{const rows=JSON.parse(fs.readFileSync(BTC_JOURNAL_PATH,'utf8'));return Array.isArray(rows)?rows:[];}catch{return[];}}
 
 async function handleUpdate(update){
   const id=Number(update?.update_id);
@@ -104,16 +102,15 @@ async function handleUpdate(update){
   }
   if(/^\/evaluate(?:@\w+)?$/i.test(text)||text==='📊 تقييم الصفقات'){
     try{
-      const gold=await fetchGoldJournal(),btc=readBtcTrades();
+      const gold=await fetchGoldJournal();
       await send(evaluationMessage('XAUUSD',gold));
-      await send(evaluationMessage('BTCUSD',btc,'لا توجد صفقة BTC مغلقة محفوظة منذ تفعيل سجل البيتكوين.'));
     }catch(e){await send(`⚠️ تعذر قراءة سجل الصفقات الآن: ${String(e?.message||e)}`);}
   }
 }
 
 export async function configureTelegramWebhook(){
   if(!BOT_TOKEN||!CHAT_ID||!WEBHOOK_SECRET||!APP_BASE_URL){console.warn('[telegram-webhook] disabled: missing token/chat/secret/base URL');return false;}
-  await telegram('setMyCommands',{commands:[{command:'evaluate',description:'📊 تقييم صفقات الذهب والبيتكوين'}]});
+  await telegram('setMyCommands',{commands:[{command:'evaluate',description:'📊 تقييم صفقات الذهب'}]});
   await telegram('setWebhook',{
     url:`${APP_BASE_URL}/api/telegram/webhook`,
     secret_token:WEBHOOK_SECRET,
