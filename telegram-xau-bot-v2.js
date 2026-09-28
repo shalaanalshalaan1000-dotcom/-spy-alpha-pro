@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { telegramSendState, telegramSendingEnabled } from './telegram-send-control.js';
 
 const AUTO_URL=process.env.TELEGRAM_SIGNAL_URL||'http://127.0.0.1:3002/api/auto-trade/signal?observe=1';
 const BOT_TOKEN=String(process.env.TELEGRAM_BOT_TOKEN||'').trim();
@@ -18,6 +19,7 @@ const BOOT_GRACE_MS=15_000;
 const JOURNAL_URL=String(process.env.TELEGRAM_JOURNAL_URL||'http://127.0.0.1:3002/api/performance/journal').trim();
 const BTC_JOURNAL_PATH=String(process.env.BTC_TRADE_JOURNAL_PATH||'/tmp/gold-alpha-btc-trades.json').trim();
 let telegramUpdateOffset=0;
+let lastSendControlEnabled=null;
 
 let ready=false;
 const sent={side:null,key:null,above:false,messageId:null,lastText:null,lastEditMs:0,announcedAtMs:0,targets:[false,false,false,false],managedStops:[false,false,false,false]};
@@ -85,6 +87,14 @@ function fiveMinuteCloseConfirmed(s,now=Date.now()){
 function startedThisRun(s){
   const issued=issuedAtOf(s);
   return issued!=null&&issued>=BOOT_MS-BOOT_GRACE_MS;
+}
+function signalAfterSendEnable(s){
+  const st=telegramSendState();
+  if(!st.enabled)return false;
+  const enabledAt=Date.parse(st.updatedAt||'');
+  if(!Number.isFinite(enabledAt))return true;
+  const issued=issuedAtOf(s);
+  return issued!=null&&issued>=enabledAt-2000;
 }
 function terminalMatchesLock(lock,s){
   if(!lock?.active||!lock?.key||!s?.terminalEvent)return false;
@@ -191,7 +201,10 @@ async function startup(){
   try{
     const me=await tg('getMe');
     await tg('setMyCommands',{commands:[
-      {command:'evaluate',description:'📊 تقييم صفقات الذهب والبيتكوين'}
+      {command:'evaluate',description:'📊 تقييم صفقات الذهب والبيتكوين'},
+      {command:'signals_off',description:'⏸ إيقاف إرسال التنبيهات'},
+      {command:'signals_on',description:'▶️ تشغيل إرسال التنبيهات'},
+      {command:'signals_status',description:'ℹ️ حالة إرسال البوت'}
     ]});
     ready=true;
     console.log(`[telegram-xau-confirmed] authenticated @${me?.result?.username||'unknown'} siteMirror=true; /evaluate enabled`);
@@ -289,7 +302,7 @@ async function sendBotMenu(){
     chat_id:CHAT_ID,
     text:'اختر من البوت:',
     disable_web_page_preview:true,
-    reply_markup:{keyboard:[[{text:'📊 تقييم الصفقات'}]],resize_keyboard:true,persistent:true}
+    reply_markup:{keyboard:[[{text:'📊 تقييم الصفقات'}],[{text:'⏸ إيقاف الإرسال'},{text:'▶️ تشغيل الإرسال'}],[{text:'ℹ️ حالة الإرسال'}]],resize_keyboard:true,persistent:true}
   });
 }
 async function handleBotUpdate(update){
@@ -389,6 +402,18 @@ function resetSent(){
 async function tick(){
   try{
     if(!(await startup()))return;
+    const sendControl=telegramSendState();
+    if(!sendControl.enabled){
+      if(lastSendControlEnabled!==false){
+        resetSent();
+        clearTradeLock();
+        console.log('[telegram-xau-confirmed] outbound sending muted by bot control');
+      }
+      lastSendControlEnabled=false;
+      return;
+    }
+    if(lastSendControlEnabled===false)console.log('[telegram-xau-confirmed] outbound sending resumed by bot control');
+    lastSendControlEnabled=true;
     await maybeSendSessionOpenAlert(Date.now());
     const r=await fetch(AUTO_URL,{cache:'no-store',signal:AbortSignal.timeout(7000)});
     if(!r.ok)throw new Error(`signal ${r.status}`);
@@ -408,7 +433,7 @@ async function tick(){
 
     const active=isConfirmedActive(s),side=sideOf(s),confidence=confidenceOf(s),entry=entryOf(s),sl=stopOf(s),key=signalKey(s);
     const sameLockedTrade=tradeLock.active&&tradeLock.key===key;
-    const eligibleNewTrade=!tradeLock.active&&startedThisRun(s);
+    const eligibleNewTrade=!tradeLock.active&&startedThisRun(s)&&signalAfterSendEnable(s);
     const ok=canSendSignal(s,now)&&lockAllowsSignal(tradeLock,s)&&(sameLockedTrade||eligibleNewTrade);
 
     if(ok){
