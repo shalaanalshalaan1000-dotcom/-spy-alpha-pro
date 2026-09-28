@@ -44,7 +44,7 @@ services:
       - key: CAPITAL_DEMO
         value: "false"
       - key: TELEGRAM_ENABLED
-        value: "true"
+        value: "false"
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_WEBHOOK_SECRET
