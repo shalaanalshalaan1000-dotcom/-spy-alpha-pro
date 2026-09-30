@@ -44,7 +44,7 @@ services:
       - key: CAPITAL_DEMO
         value: "false"
       - key: TELEGRAM_ENABLED
-        value: "false"
+        value: "true"
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_WEBHOOK_SECRET
@@ -53,6 +53,12 @@ services:
         sync: false
       - key: TELEGRAM_MIN_CONFIDENCE
         value: "82"
+      - key: TELEGRAM_SESSION_LEVEL_ALERTS_ENABLED
+        value: "true"
+      - key: TELEGRAM_TRADE_SIGNALS_ENABLED
+        value: "false"
+      - key: TELEGRAM_SESSION_BREAK_BUFFER_USD
+        value: "0.10"
       - key: GOLD_TELEGRAM_MIN_CONFIDENCE
         value: "75"
       - key: GOLD_TELEGRAM_MIN_RR
