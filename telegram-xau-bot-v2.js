@@ -223,13 +223,24 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
     sessionStatusSeen.set(statusKey,'CLOSED');
 
     if(m15){
+      const allClosed=rows.filter(r=>String(r?.status||'').toUpperCase()==='CLOSED'&&valid(r.high)&&valid(r.low));
+      const reclaimedLowerLow=allClosed.some(r=>Number(r.low)<Number(x.low)&&m15.low<Number(r.low)-SESSION_BREAK_BUFFER_USD&&m15.close>=Number(r.low)-SESSION_BREAK_BUFFER_USD);
+      const reclaimedHigherHigh=allClosed.some(r=>Number(r.high)>Number(x.high)&&m15.high>Number(r.high)+SESSION_BREAK_BUFFER_USD&&m15.close<=Number(r.high)+SESSION_BREAK_BUFFER_USD);
       for(const side of ['HIGH','LOW']){
         const key=`${x.id}:${x.date}:${side}`,seenKey=`M15:${key}:${m15.t}`;
         if(sessionLevelAlertKeys.has(seenKey))continue;
         const level=Number(side==='HIGH'?x.high:x.low),threshold=side==='HIGH'?level+SESSION_BREAK_BUFFER_USD:level-SESSION_BREAK_BUFFER_USD;
-        const broke=side==='HIGH'?m15.close>threshold:m15.close<threshold;
+        const rawBreak=side==='HIGH'?m15.close>threshold:m15.close<threshold;
+        const conflicted=side==='LOW'?reclaimedLowerLow:reclaimedHigherHigh;
+        const broke=rawBreak&&!conflicted;
         const swept=side==='HIGH'?(m15.high>threshold&&m15.close<=threshold):(m15.low<threshold&&m15.close>=threshold);
-        if(broke){
+        if(rawBreak&&conflicted){
+          const mixKey=`MIXED:${key}:${m15.t}`;
+          if(!sessionLevelAlertKeys.has(mixKey)){
+            await send(`⚠️ XAUUSD — MULTI-SESSION MIXED RECLAIM\n${side==='LOW'?'تم كسر مستوى جلسة أعلى لكن مستوى جلسة أدنى تم سحبه ثم استعادته':'تم كسر مستوى جلسة أدنى لكن مستوى جلسة أعلى تم سحبه ثم استعادته'}\n📍 ${x.label||x.id}: ${n(level)}\n🕯️ M15 close: ${n(m15.close)}\n🚫 لا SELL/BUY continuation من هذا المستوى وحده\n⏳ انتظر M5 confirmation + reclaim/rejection واضح قبل أي دخول.`);
+            sessionLevelAlertKeys.add(mixKey);
+          }
+        }else if(broke){
           const breakKey=`BREAK:${key}`;
           if(!sessionLevelAlertKeys.has(breakKey)){
             await send(sessionBreakMessage(x,side,m15));
