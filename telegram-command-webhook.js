@@ -9,6 +9,7 @@ const INNER_PORT=Number(process.env.GOLD_ALPHA_INNER_PORT||3100);
 const JOURNAL_URL=String(process.env.TELEGRAM_JOURNAL_URL||`http://127.0.0.1:${INNER_PORT}/api/performance/journal`).trim();
 const SIGNAL_URL=String(process.env.TELEGRAM_SIGNAL_URL||`http://127.0.0.1:${INNER_PORT}/api/auto-trade/signal?observe=1`).trim();
 const TRADE_SIGNALS_ENABLED=String(process.env.TELEGRAM_TRADE_SIGNALS_ENABLED||'true').toLowerCase()!=='false';
+const SESSION_LEVEL_ALERTS_ENABLED=String(process.env.TELEGRAM_SESSION_LEVEL_ALERTS_ENABLED||'true').toLowerCase()!=='false';
 const seenUpdates=new Map();
 
 function num(v){if(v==null||v===''||typeof v==='boolean')return null;const x=Number(v);return Number.isFinite(x)?x:null;}
@@ -120,7 +121,7 @@ async function handleUpdate(update){
   }
   if(/^\/signals_off(?:@\w+)?$/i.test(text)||text==='⏸ إيقاف الإرسال'){
     const st=setTelegramSendingEnabled(false,'telegram-command');
-    await send('⏸ تم إيقاف إرسال تنبيهات الذهب من البوت. التحليل والموقع مستمران، ولن تُرسل إشارات دخول أو أهداف/وقف أو تنبيهات جلسات حتى تعيد التشغيل.');
+    await send(`⏸ تم إيقاف تنبيهات الصفقات والأهداف/الوقف.\n📍 تنبيهات قمم وقيعان الجلسات ${SESSION_LEVEL_ALERTS_ENABLED?'تبقى مفعلة دائمًا':'غير مفعلة حاليًا'}.`);
     return;
   }
   if(/^\/signals_on(?:@\w+)?$/i.test(text)||text==='▶️ تشغيل الإرسال'){
@@ -130,7 +131,7 @@ async function handleUpdate(update){
   }
   if(/^\/signals_status(?:@\w+)?$/i.test(text)||text==='ℹ️ حالة الإرسال'){
     const st=telegramSendState();
-    await send(`حالة إرسال البوت: ${st.enabled?'🟢 يعمل':'⏸ متوقف'}\n📍 مستويات الجلسات: ${st.enabled?'مفعلة':'متوقفة'}\n📈 إشارات الدخول: ${TRADE_SIGNALS_ENABLED?'مفعلة':'موقوفة من إعداد المشروع'}${st.updatedAt?'\nآخر تغيير: '+new Intl.DateTimeFormat('ar-SA',{timeZone:'Asia/Riyadh',dateStyle:'short',timeStyle:'short'}).format(new Date(st.updatedAt)):''}`);
+    await send(`حالة تنبيهات الصفقات: ${st.enabled&&TRADE_SIGNALS_ENABLED?'🟢 تعمل':'⏸ متوقفة'}\n📍 مستويات الجلسات M15: ${SESSION_LEVEL_ALERTS_ENABLED?'🟢 تعمل دائمًا':'⏸ متوقفة'}\n📈 إشارات الدخول: ${TRADE_SIGNALS_ENABLED?'مسموحة من الإعداد':'موقوفة من إعداد المشروع'}${st.updatedAt?'\nآخر تغيير لمفتاح الصفقات: '+new Intl.DateTimeFormat('ar-SA',{timeZone:'Asia/Riyadh',dateStyle:'short',timeStyle:'short'}).format(new Date(st.updatedAt)):''}`);
     return;
   }
   if(/^\/sessions(?:@\w+)?$/i.test(text)||text==='📍 مستويات الجلسات'){
