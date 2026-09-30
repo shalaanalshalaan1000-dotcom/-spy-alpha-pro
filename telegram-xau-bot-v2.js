@@ -34,6 +34,13 @@ const SESSION_SL_BUFFER_USD=Math.max(0.10,Number(process.env.TELEGRAM_SESSION_SL
 const sessionLevelAlertKeys=new Set();
 const sessionStatusSeen=new Map();
 const sessionBreakState=new Map();
+const SESSION_ALERT_FRESH_MS=Math.max(60_000,Number(process.env.TELEGRAM_SESSION_ALERT_FRESH_MS||180_000));
+function closedBarIsFresh(bar,spanMs,now=Date.now()){
+  const t=Number(bar?.t);
+  if(!Number.isFinite(t)||!(spanMs>0))return false;
+  const closeAt=t+spanMs;
+  return now>=closeAt&&now-closeAt<=SESSION_ALERT_FRESH_MS;
+}
 const SESSION_OPEN_ALERTS=[
   {
     id:'LONDON',
@@ -239,7 +246,7 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
     }
     sessionStatusSeen.set(statusKey,'CLOSED');
 
-    if(m15){
+    if(m15&&closedBarIsFresh(m15,900000,now)){
       const allClosed=rows.filter(r=>String(r?.status||'').toUpperCase()==='CLOSED'&&valid(r.high)&&valid(r.low));
       const reclaimedLowerLow=allClosed.some(r=>Number(r.low)<Number(x.low)&&m15.low<Number(r.low)-SESSION_BREAK_BUFFER_USD&&m15.close>=Number(r.low)-SESSION_BREAK_BUFFER_USD);
       const reclaimedHigherHigh=allClosed.some(r=>Number(r.high)>Number(x.high)&&m15.high>Number(r.high)+SESSION_BREAK_BUFFER_USD&&m15.close<=Number(r.high)+SESSION_BREAK_BUFFER_USD);
