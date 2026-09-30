@@ -97,6 +97,31 @@ function sessionLevelSummaryMessage(s){
   const lines=rows.map(x=>`${x.icon||'📍'} ${x.label||x.id} • ${x.status||'—'}\n⬆️ High: ${n(x.high)}\n⬇️ Low: ${n(x.low)}\n📏 Range: ${n(x.range)} • M15\n🕒 ${x.startLocal||'—'}–${x.endLocal||'—'} ${x.timeZone||''}`);
   return `📍 XAUUSD — SESSION HIGH / LOW\n\n${lines.join('\n\n')}\n\nهذه مستويات سيولة/مرجع وليست إشارة دخول بحد ذاتها.`;
 }
+
+function agentDeskMessage(s){
+  const stack=s?.agentStack||{},a=stack?.agents||{},trading=a?.trading||{},feed=trading?.feed||{},risk=a?.risk||{},manager=a?.tradeManager||{},decision=stack?.decision||{};
+  const blockers=Array.isArray(trading?.blockers)&&trading.blockers.length?trading.blockers.join(' • '):'لا يوجد veto إضافي';
+  const protection=manager?.suggestedProtection?.to!=null?('MOVE SL → '+n(manager.suggestedProtection.to)):'—';
+  return `🤖 XAUUSD — AGENT DESK
+الحالة: ${trading?.state||'WAIT'} • الاتجاه: ${trading?.side||decision?.side||'WAIT'}
+الجاهزية اليدوية لـ MT5: ${trading?.advisoryReady?'✅ READY':'⏳ WAIT'}
+التنفيذ الآلي: ${trading?.executable?'✅ ON':'⏸ OFF'}
+
+🧠 BRAIN: ${feed.brain||'NEUTRAL'}
+🧭 STATE ENGINE: ${feed.stateEngine||'—'}
+📈 MARKET: ${feed.market||'—'}
+🎯 SETUP: ${feed.setup||'—'}
+🛡️ RISK: ${feed.risk||'—'} • Lot ${risk?.recommendedLot!=null?Number(risk.recommendedLot).toFixed(2):'—'}
+📍 SESSION: ${feed.session||'—'}
+📰 RESEARCH: ${feed.research||'—'}
+🧰 TRADE MANAGER: ${feed.tradeManager||'—'}
+🔒 TRAILING / PROTECTION: ${protection}
+✅ FINAL CHECK: ${feed.finalCheck||'—'}
+
+🚫 Blockers: ${blockers}
+
+كل الوكلاء يغذون TRADING_AGENT؛ تيليغرام يعرض القرار الموحّد، وليس قرار وكيل منفرد.`;
+}
 async function fetchGoldSignal(){
   const r=await fetch(SIGNAL_URL,{headers:{accept:'application/json'},cache:'no-store',signal:AbortSignal.timeout(7000)});
   if(!r.ok)throw new Error(`signal HTTP ${r.status}`);
@@ -116,7 +141,7 @@ async function handleUpdate(update){
   const text=String(msg.text||'').trim();
   if(/^\/start(?:@\w+)?$/i.test(text)){
     const st=telegramSendState();
-    await send(`اختر من البوت:\nحالة الإرسال: ${st.enabled?'🟢 يعمل':'⏸ متوقف'}`,{keyboard:[[{text:'📍 مستويات الجلسات'}],[{text:'📊 تقييم الصفقات'}],[{text:'⏸ إيقاف الإرسال'},{text:'▶️ تشغيل الإرسال'}],[{text:'ℹ️ حالة الإرسال'}]],resize_keyboard:true,persistent:true});
+    await send(`اختر من البوت:\nحالة الإرسال: ${st.enabled?'🟢 يعمل':'⏸ متوقف'}`,{keyboard:[[{text:'🤖 حالة الوكلاء'}],[{text:'📍 مستويات الجلسات'}],[{text:'📊 تقييم الصفقات'}],[{text:'⏸ إيقاف الإرسال'},{text:'▶️ تشغيل الإرسال'}],[{text:'ℹ️ حالة الإرسال'}]],resize_keyboard:true,persistent:true});
     return;
   }
   if(/^\/signals_off(?:@\w+)?$/i.test(text)||text==='⏸ إيقاف الإرسال'){
@@ -134,6 +159,11 @@ async function handleUpdate(update){
     await send(`حالة تنبيهات الصفقات: ${st.enabled&&TRADE_SIGNALS_ENABLED?'🟢 تعمل':'⏸ متوقفة'}\n📍 مستويات الجلسات M15: ${SESSION_LEVEL_ALERTS_ENABLED?'🟢 تعمل دائمًا':'⏸ متوقفة'}\n📈 إشارات الدخول: ${TRADE_SIGNALS_ENABLED?'مسموحة من الإعداد':'موقوفة من إعداد المشروع'}${st.updatedAt?'\nآخر تغيير لمفتاح الصفقات: '+new Intl.DateTimeFormat('ar-SA',{timeZone:'Asia/Riyadh',dateStyle:'short',timeStyle:'short'}).format(new Date(st.updatedAt)):''}`);
     return;
   }
+  if(/^\/agents(?:@\w+)?$/i.test(text)||text==='🤖 حالة الوكلاء'){
+    try{const s=await fetchGoldSignal();await send(agentDeskMessage(s));}
+    catch(e){await send(`⚠️ تعذر قراءة حالة الوكلاء الآن: ${String(e?.message||e)}`);}
+    return;
+  }
   if(/^\/sessions(?:@\w+)?$/i.test(text)||text==='📍 مستويات الجلسات'){
     try{const s=await fetchGoldSignal();await send(sessionLevelSummaryMessage(s));}
     catch(e){await send(`⚠️ تعذر قراءة مستويات الجلسات الآن: ${String(e?.message||e)}`);}
@@ -149,7 +179,7 @@ async function handleUpdate(update){
 
 export async function configureTelegramWebhook(){
   if(!BOT_TOKEN||!CHAT_ID||!WEBHOOK_SECRET||!APP_BASE_URL){console.warn('[telegram-webhook] disabled: missing token/chat/secret/base URL');return false;}
-  await telegram('setMyCommands',{commands:[{command:'sessions',description:'📍 قمم وقيعان طوكيو ولندن ونيويورك'},{command:'evaluate',description:'📊 تقييم صفقات الذهب'},{command:'signals_off',description:'⏸ إيقاف إرسال التنبيهات'},{command:'signals_on',description:'▶️ تشغيل إرسال التنبيهات'},{command:'signals_status',description:'ℹ️ حالة إرسال البوت'}]});
+  await telegram('setMyCommands',{commands:[{command:'agents',description:'🤖 حالة جميع الوكلاء وقرار التداول'},{command:'sessions',description:'📍 قمم وقيعان طوكيو ولندن ونيويورك'},{command:'evaluate',description:'📊 تقييم صفقات الذهب'},{command:'signals_off',description:'⏸ إيقاف إرسال التنبيهات'},{command:'signals_on',description:'▶️ تشغيل إرسال التنبيهات'},{command:'signals_status',description:'ℹ️ حالة إرسال البوت'}]});
   await telegram('setWebhook',{
     url:`${APP_BASE_URL}/api/telegram/webhook`,
     secret_token:WEBHOOK_SECRET,
