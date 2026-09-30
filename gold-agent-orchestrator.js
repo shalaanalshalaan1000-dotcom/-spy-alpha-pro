@@ -85,8 +85,16 @@ function setupAgent(source = {}, market, now = Date.now()) {
 
   let stage = 'WAIT';
   if (terminal) stage = 'INVALIDATED';
-  else if (status === 'MANAGING' || source.entered === true) stage = 'MANAGING';
-  else if (source.executable === true && validSide(source.action) && confidence >= minConfidence) stage = 'CONFIRMED';
+  else if (status === 'MANAGING' || source.brokerConfirmed === true) stage = 'MANAGING';
+  else if (
+    side && hasEntry && confidence >= minConfidence && market.ready &&
+    (
+      source.executable === true ||
+      source.triggered === true ||
+      source.entered === true ||
+      ['ACTIVE','SIGNAL','CONFIRMED'].includes(status)
+    )
+  ) stage = 'CONFIRMED';
   else if (side && hasEntry && confidence >= minConfidence && market.ready) stage = 'ARMED';
   else if (side) stage = 'WATCHING';
 
@@ -482,7 +490,16 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
 export function applyAgentExecutionGate(source = {}, now = Date.now()) {
   const stack = orchestrateGoldAgents(source, now);
   if (stack.decision.executable) {
-    return {...source, agentStack:stack, agentDecision:stack.decision, agentSchema:stack.decisionSchema};
+    return {
+      ...source,
+      status: 'CONFIRMED',
+      action: stack.decision.action,
+      executable: true,
+      executionMode: 'AGENT_BRAIN_REFLEX',
+      agentStack: stack,
+      agentDecision: stack.decision,
+      agentSchema: stack.decisionSchema
+    };
   }
   const managing = String(source.status || '').toUpperCase() === 'MANAGING';
   return {
