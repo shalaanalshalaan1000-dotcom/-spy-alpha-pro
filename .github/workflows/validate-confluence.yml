@@ -10,6 +10,8 @@ on:
       - 'gold-agent-orchestrator.js'
       - 'test/gold-agent-orchestrator.test.js'
       - 'site-indicator-start.js'
+      - 'telegram-xau-bot-v2.js'
+      - 'telegram-xau-bot-v2.js'
       - 'telegram-xau-bot-v3.js'
       - 'btc-ict-fast.js'
       - 'btc-murphy-model.js'
@@ -47,6 +49,7 @@ jobs:
           node --check gold-unified-start.js
           node --check gold-agent-orchestrator.js
           node --check site-indicator-start.js
+          node --check telegram-xau-bot-v2.js
           node --check telegram-xau-bot-v3.js
           node --check btc-ict-fast.js
           node --check btc-murphy-model.js
@@ -54,6 +57,8 @@ jobs:
           node --check render-start.js
       - name: Validate XAU agent regression tests
         run: node --test test/gold-agent-orchestrator.test.js
+      - name: Run regression tests
+        run: npm test
       - name: Validate confluence module imports
         run: |
           node -e "import('./gold-confluence-model.js').then(m=>{if(typeof m.analyzeGoldSignal!=='function')process.exit(1)})"
