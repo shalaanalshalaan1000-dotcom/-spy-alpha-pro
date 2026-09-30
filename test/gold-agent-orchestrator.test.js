@@ -61,10 +61,12 @@ test('brain/reflex stack is fail-closed while execution permission is off', () =
   process.env.AGENT_EXECUTION_ENABLED='false';
   resetGoldAgentMemory();
   const stack=orchestrateGoldAgents(base);
-  assert.equal(stack.architecture,'GOLD_AGENT_STACK_V2_BRAIN_REFLEX');
+  assert.equal(stack.architecture,'GOLD_AGENT_STACK_V3_TRADING_HUB');
   assert.equal(stack.decision.ready,true);
   assert.equal(stack.decision.executable,false);
-  assert.ok(stack.decision.reason.includes('EXECUTION_PERMISSION_OFF'));
+  assert.equal(stack.agents.trading.advisoryReady,true);
+  assert.equal(stack.agents.trading.manualAction,'BUY');
+  assert.equal(stack.agents.trading.executable,false);
   const gated=applyAgentExecutionGate(base);
   assert.equal(gated.action,'WAIT');
   assert.equal(gated.executable,false);
@@ -81,7 +83,8 @@ test('reflex authorizes only a confirmed fresh setup inside deterministic risk l
   const live=applyAgentExecutionGate(base);
   assert.equal(live.action,'BUY');
   assert.equal(live.executable,true);
-  assert.equal(live.executionMode,'AGENT_BRAIN_REFLEX');
+  assert.equal(live.executionMode,'AGENT_TRADING_HUB');
+  assert.equal(live.agentStack.agents.trading.action,'BUY');
 });
 
 test('stale data and wide spread are hard vetoes', () => {
@@ -95,4 +98,22 @@ test('stale data and wide spread are hard vetoes', () => {
   const wide=orchestrateGoldAgents({...base,bid:4299,ask:4301});
   assert.equal(wide.decision.executable,false);
   assert.ok(wide.agents.risk.vetoes.includes('SPREAD_TOO_WIDE'));
+});
+
+
+test('all specialist agents feed the trading agent and Telegram brief', () => {
+  configure();
+  process.env.AGENT_EXECUTION_ENABLED='false';
+  resetGoldAgentMemory();
+  const stack=orchestrateGoldAgents(base);
+  const trading=stack.agents.trading;
+  assert.equal(trading.name,'TRADING_AGENT');
+  assert.equal(trading.feed.brain,'LONG');
+  assert.equal(trading.feed.market,'READY');
+  assert.equal(trading.feed.setup,'CONFIRMED');
+  assert.equal(trading.feed.risk,'PASS');
+  assert.equal(trading.feed.research,'CLEAR');
+  assert.equal(trading.feed.finalCheck,'PASS');
+  assert.equal(stack.telegramBrief.title,'XAUUSD AGENT DESK');
+  assert.equal(stack.telegramBrief.advisoryReady,true);
 });
