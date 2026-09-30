@@ -30,6 +30,7 @@ const SESSION_LEVEL_ALERTS_ENABLED=String(process.env.TELEGRAM_SESSION_LEVEL_ALE
 const TRADE_SIGNALS_ENABLED=String(process.env.TELEGRAM_TRADE_SIGNALS_ENABLED||'true').toLowerCase()!=='false';
 const SESSION_BREAK_BUFFER_USD=Math.max(0.05,Number(process.env.TELEGRAM_SESSION_BREAK_BUFFER_USD||0.10));
 const sessionLevelAlertKeys=new Set();
+const sessionStatusSeen=new Map();
 let lastSessionPrice=null;
 const SESSION_OPEN_ALERTS=[
   {
@@ -186,13 +187,16 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
   const rows=sessionLevelsOf(s),price=num(s?.price);
   for(const x of rows){
     if(!x?.id||!x?.date||!valid(x.high)||!valid(x.low))continue;
-    if(String(x.status||'').toUpperCase()==='CLOSED'){
+    const status=String(x.status||'').toUpperCase(),statusKey=`${x.id}:${x.date}`,previousStatus=sessionStatusSeen.get(statusKey)||null;
+    if(status==='OPEN')sessionStatusSeen.set(statusKey,'OPEN');
+    if(status==='CLOSED'){
       const finalKey=`FINAL:${x.id}:${x.date}`;
-      if(!sessionLevelAlertKeys.has(finalKey)){
+      if(previousStatus==='OPEN'&&!sessionLevelAlertKeys.has(finalKey)){
         await send(sessionFinalMessage(x));
         sessionLevelAlertKeys.add(finalKey);
         console.log(`[telegram-session-level] final ${finalKey} H=${n(x.high)} L=${n(x.low)}`);
       }
+      sessionStatusSeen.set(statusKey,'CLOSED');
       if(price!=null&&lastSessionPrice!=null){
         const highKey=`HIGH:${x.id}:${x.date}`,lowKey=`LOW:${x.id}:${x.date}`;
         const hi=Number(x.high)+SESSION_BREAK_BUFFER_USD,lo=Number(x.low)-SESSION_BREAK_BUFFER_USD;
