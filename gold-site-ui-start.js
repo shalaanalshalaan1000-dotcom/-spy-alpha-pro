@@ -86,7 +86,7 @@ function patchSiteSignalUi(source) {
   if(/TARGET WAIT|MAIN_TARGET_BELOW_MIN_R|TP1_TOO_CLOSE/.test(u))return 'لا توجد سيولة خارجية مناسبة تبعد 5$ أو أكثر';
   if(/USD_NEWS_BLACKOUT|NEWS RISK/.test(u))return 'فلتر الأخبار يمنع الدخول مؤقتًا';
    if(/ICT CONTEXT WAIT/.test(u))return 'السيولة مرصودة؛ ننتظر MSS/Displacement أو تأكيد بنيوي مكافئ قبل التنفيذ';
-   if(st==='CANDIDATE')return raw?.candidateLocked?'خطة ICT مثبتة — Entry / SL / Targets ثابتة؛ ننتظر منطقة التنفيذ':(raw?.ict?.entryMode==='CONFIRMED_CONTINUATION'?'Continuation confirmed — ننتظر تثبيت خطة الدخول':'Origin FVG محددة؛ ننتظر رجوع السعر إلى منطقة الدخول');
+   if(st==='CANDIDATE')return raw?.candidateLocked?'خطة Confluence مثبتة — Entry / SL / Targets ثابتة؛ ننتظر منطقة التنفيذ':(raw?.ict?.entryMode==='CONFIRMED_CONTINUATION'?'Continuation confirmed — ننتظر تثبيت خطة الدخول':'Origin FVG محددة؛ ننتظر رجوع السعر إلى منطقة الدخول');
   return 'بانتظار MSS أو Displacement قوي ثم FVG/OB على 1m/5m';
  }
  async function refresh(){
