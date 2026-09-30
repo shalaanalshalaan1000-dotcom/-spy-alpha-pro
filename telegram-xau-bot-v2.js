@@ -449,25 +449,33 @@ function resetSent(){
 async function tick(){
   try{
     if(!(await startup()))return;
+    const now=Date.now();
+    let s=null;
+    if(SESSION_LEVEL_ALERTS_ENABLED){
+      const sessionResponse=await fetch(AUTO_URL,{cache:'no-store',signal:AbortSignal.timeout(7000)});
+      if(!sessionResponse.ok)throw new Error(`signal ${sessionResponse.status}`);
+      s=await sessionResponse.json();
+      await maybeSendSessionLevelAlerts(s,now);
+    }
     const sendControl=telegramSendState();
     if(!sendControl.enabled){
       if(lastSendControlEnabled!==false){
         resetSent();
         clearTradeLock();
-        console.log('[telegram-xau-confirmed] outbound sending muted by bot control');
+        console.log('[telegram-xau-confirmed] trade alerts muted by bot control; session-level alerts remain active');
       }
       lastSendControlEnabled=false;
       return;
     }
-    if(lastSendControlEnabled===false)console.log('[telegram-xau-confirmed] outbound sending resumed by bot control');
+    if(lastSendControlEnabled===false)console.log('[telegram-xau-confirmed] trade alerts resumed by bot control');
     lastSendControlEnabled=true;
-    await maybeSendSessionOpenAlert(Date.now());
-    const r=await fetch(AUTO_URL,{cache:'no-store',signal:AbortSignal.timeout(7000)});
-    if(!r.ok)throw new Error(`signal ${r.status}`);
-    const s=await r.json();
-    const now=Date.now();
-    await maybeSendSessionLevelAlerts(s,now);
+    await maybeSendSessionOpenAlert(now);
     if(!TRADE_SIGNALS_ENABLED)return;
+    if(!s){
+      const r=await fetch(AUTO_URL,{cache:'no-store',signal:AbortSignal.timeout(7000)});
+      if(!r.ok)throw new Error(`signal ${r.status}`);
+      s=await r.json();
+    }
     cleanupRecent(now);
 
     if(terminalMatchesLock(tradeLock,s)){
