@@ -42,3 +42,12 @@ test('rapid quotes accumulate samples rather than indefinitely replacing one',()
 test('zero stop and missing values cannot pass level validation',()=>{
  assert.equal(e.validLevels({...good,candidateAction:'BUY',entryLow:4299.9,entryHigh:4300.1,stopLoss:0}),false);
 });
+
+
+test('session breakout logic only uses completed M15 candles and suppresses stale replay',()=>{
+ const enginePatch=fs.readFileSync(new URL('../gold-site-signal-engine-v9.js',import.meta.url),'utf8');
+ const telegramBot=fs.readFileSync(new URL('../telegram-xau-bot-v2.js',import.meta.url),'utf8');
+ assert.match(enginePatch,/lastClosedM15=completedTimeframeBars\(900000,now\)\.at\(-1\)\|\|null/);
+ assert.match(telegramBot,/closedBarIsFresh\(m15,900000,now\)/);
+ assert.match(telegramBot,/TELEGRAM_SESSION_ALERT_FRESH_MS\|\|180_000/);
+});
