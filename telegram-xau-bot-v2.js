@@ -29,9 +29,11 @@ const sessionAlertKeys=new Set();
 const SESSION_LEVEL_ALERTS_ENABLED=String(process.env.TELEGRAM_SESSION_LEVEL_ALERTS_ENABLED||'true').toLowerCase()!=='false';
 const TRADE_SIGNALS_ENABLED=String(process.env.TELEGRAM_TRADE_SIGNALS_ENABLED||'true').toLowerCase()!=='false';
 const SESSION_BREAK_BUFFER_USD=Math.max(0.05,Number(process.env.TELEGRAM_SESSION_BREAK_BUFFER_USD||0.10));
+const SESSION_RETEST_TOLERANCE_USD=Math.max(0.10,Number(process.env.TELEGRAM_SESSION_RETEST_TOLERANCE_USD||0.60));
+const SESSION_SL_BUFFER_USD=Math.max(0.10,Number(process.env.TELEGRAM_SESSION_SL_BUFFER_USD||0.25));
 const sessionLevelAlertKeys=new Set();
 const sessionStatusSeen=new Map();
-let lastSessionPrice=null;
+const sessionBreakState=new Map();
 const SESSION_OPEN_ALERTS=[
   {
     id:'LONDON',
@@ -169,6 +171,11 @@ function sessionLevelsOf(s){
   const x=s?.sessionLevels?.sessions;
   return x&&typeof x==='object'?Object.values(x):[];
 }
+function sessionCandle(s,key){
+  const b=s?.sessionLevels?.[key];
+  if(!b||!valid(b.open)||!valid(b.high)||!valid(b.low)||!valid(b.close)||!Number.isFinite(Number(b.t)))return null;
+  return {t:Number(b.t),open:Number(b.open),high:Number(b.high),low:Number(b.low),close:Number(b.close)};
+}
 function sessionLevelSummaryMessage(s){
   const rows=sessionLevelsOf(s);
   if(!rows.length)return '📍 XAUUSD — مستويات الجلسات\nلا توجد بيانات جلسات كافية حتى الآن.';
@@ -178,34 +185,86 @@ function sessionLevelSummaryMessage(s){
 function sessionFinalMessage(x){
   return `${x.icon||'📍'} XAUUSD — ${x.label||x.id} RANGE FINAL\n✅ تم تثبيت قمة وقاع الجلسة\n⬆️ High: ${n(x.high)}\n⬇️ Low: ${n(x.low)}\n📏 Range: ${n(x.range)}\n🗓️ ${x.date||'—'} • M15 (${x.startLocal||'—'}–${x.endLocal||'—'} ${x.timeZone||''})`;
 }
-function sessionBreakMessage(x,side,price){
-  const high=side==='HIGH',level=high?x.high:x.low;
-  return `${high?'🚨⬆️':'🚨⬇️'} XAUUSD — ${x.label||x.id} ${high?'HIGH':'LOW'} TAKEN\n${high?'تم تجاوز قمة الجلسة':'تم كسر قاع الجلسة'}\n📍 المستوى: ${n(level)}\n💵 السعر: ${n(price)}\n🧭 هذا تنبيه سيولة/مستوى، وليس إشارة دخول بحد ذاته.`;
+function sessionBreakMessage(x,side,bar){
+  const high=side==='HIGH',level=Number(high?x.high:x.low),provisional=high?bar.low-SESSION_SL_BUFFER_USD:bar.high+SESSION_SL_BUFFER_USD;
+  return `${high?'🚨⬆️':'🚨⬇️'} XAUUSD — ${x.label||x.id} BREAK CONFIRMED\n✅ M15 أغلق ${high?'فوق القمة':'تحت القاع'}\n📍 المستوى: ${n(level)}\n🕯️ M15 close: ${n(bar.close)}\n⏳ الدخول: WAIT FOR M5 RETEST\n🛑 Invalidation مبدئي: ${n(provisional)}\n⚠️ الوقف النهائي يثبت بعد شمعة إعادة الاختبار M5؛ لا دخول لمجرد الكسر.`;
+}
+function sessionSweepMessage(x,side,bar){
+  const high=side==='HIGH',level=Number(high?x.high:x.low);
+  return `🧹 XAUUSD — ${x.label||x.id} LIQUIDITY SWEEP\n${high?'أخذ سيولة فوق القمة ثم أغلق M15 داخلها':'أخذ سيولة تحت القاع ثم أغلق M15 داخلها'}\n📍 المستوى: ${n(level)}\n🕯️ High/Low: ${n(high?bar.high:bar.low)} • Close: ${n(bar.close)}\n🚫 ليس Breakout مؤكدًا؛ لا نستخدم خطة retest breakout.`;
+}
+function sessionRetestMessage(x,side,bar,st){
+  const buy=side==='HIGH',level=Number(st.level),range=Math.max(0,bar.high-bar.low),buffer=Math.max(SESSION_SL_BUFFER_USD,Math.min(.75,range*.15));
+  const sl=buy?bar.low-buffer:bar.high+buffer;
+  const entry=bar.close,risk=Math.abs(entry-sl);
+  const zoneLo=buy?level-SESSION_RETEST_TOLERANCE_USD:level-SESSION_RETEST_TOLERANCE_USD;
+  const zoneHi=buy?level+SESSION_RETEST_TOLERANCE_USD:level+SESSION_RETEST_TOLERANCE_USD;
+  return `${buy?'🟢':'🔴'} XAUUSD — ${x.label||x.id} RETEST CONFIRMED\n✅ ${buy?'BUY':'SELL'} after M15 break + M5 retest\n📍 المستوى المكسور: ${n(level)}\n🎯 منطقة إعادة الاختبار: ${n(zoneLo)} – ${n(zoneHi)}\n💵 Entry reference: ${n(entry)}\n🛑 SL: ${n(sl)}\n📏 مسافة الوقف: $${risk.toFixed(2)}\n🧱 الوقف خلف ${buy?'قاع':'قمة'} شمعة إعادة الاختبار M5 + buffer\n⚠️ إذا تحرك السعر بعيدًا عن منطقة الـretest، لا تطارد الدخول.`;
+}
+function sessionFailedBreakMessage(x,side,bar,st){
+  const buy=side==='HIGH';
+  return `⚠️ XAUUSD — ${x.label||x.id} BREAK FAILED\nكسر M15 السابق لم يثبت بعده retest صالح؛ أغلقت M5 ${buy?'تحت':'فوق'} المستوى.\n📍 المستوى: ${n(st.level)} • M5 close: ${n(bar.close)}\n🚫 ألغِ خطة الدخول والـSL السابقة وانتظر بنية جديدة.`;
 }
 async function maybeSendSessionLevelAlerts(s,now=Date.now()){
   if(!SESSION_LEVEL_ALERTS_ENABLED)return;
-  const rows=sessionLevelsOf(s),price=num(s?.price);
+  const rows=sessionLevelsOf(s),m15=sessionCandle(s,'lastClosedM15'),m5=sessionCandle(s,'lastClosedM5');
   for(const x of rows){
     if(!x?.id||!x?.date||!valid(x.high)||!valid(x.low))continue;
     const status=String(x.status||'').toUpperCase(),statusKey=`${x.id}:${x.date}`,previousStatus=sessionStatusSeen.get(statusKey)||null;
     if(status==='OPEN')sessionStatusSeen.set(statusKey,'OPEN');
-    if(status==='CLOSED'){
-      const finalKey=`FINAL:${x.id}:${x.date}`;
-      if(previousStatus==='OPEN'&&!sessionLevelAlertKeys.has(finalKey)){
-        await send(sessionFinalMessage(x));
-        sessionLevelAlertKeys.add(finalKey);
-        console.log(`[telegram-session-level] final ${finalKey} H=${n(x.high)} L=${n(x.low)}`);
+    if(status!=='CLOSED')continue;
+
+    const finalKey=`FINAL:${x.id}:${x.date}`;
+    if(previousStatus==='OPEN'&&!sessionLevelAlertKeys.has(finalKey)){
+      await send(sessionFinalMessage(x));
+      sessionLevelAlertKeys.add(finalKey);
+      console.log(`[telegram-session-level] final ${finalKey} H=${n(x.high)} L=${n(x.low)}`);
+    }
+    sessionStatusSeen.set(statusKey,'CLOSED');
+
+    if(m15){
+      for(const side of ['HIGH','LOW']){
+        const key=`${x.id}:${x.date}:${side}`,seenKey=`M15:${key}:${m15.t}`;
+        if(sessionLevelAlertKeys.has(seenKey))continue;
+        const level=Number(side==='HIGH'?x.high:x.low),threshold=side==='HIGH'?level+SESSION_BREAK_BUFFER_USD:level-SESSION_BREAK_BUFFER_USD;
+        const broke=side==='HIGH'?m15.close>threshold:m15.close<threshold;
+        const swept=side==='HIGH'?(m15.high>threshold&&m15.close<=threshold):(m15.low<threshold&&m15.close>=threshold);
+        if(broke){
+          const breakKey=`BREAK:${key}`;
+          if(!sessionLevelAlertKeys.has(breakKey)){
+            await send(sessionBreakMessage(x,side,m15));
+            sessionLevelAlertKeys.add(breakKey);
+            sessionBreakState.set(key,{side,level,breakBarT:m15.t,breakCloseAt:m15.t+900000,retestSent:false,failed:false});
+            console.log(`[telegram-session-level] M15 break ${key} close=${n(m15.close)}`);
+          }
+        }else if(swept){
+          const sweepKey=`SWEEP:${key}:${m15.t}`;
+          if(!sessionLevelAlertKeys.has(sweepKey)){await send(sessionSweepMessage(x,side,m15));sessionLevelAlertKeys.add(sweepKey);}
+        }
+        sessionLevelAlertKeys.add(seenKey);
       }
-      sessionStatusSeen.set(statusKey,'CLOSED');
-      if(price!=null&&lastSessionPrice!=null){
-        const highKey=`HIGH:${x.id}:${x.date}`,lowKey=`LOW:${x.id}:${x.date}`;
-        const hi=Number(x.high)+SESSION_BREAK_BUFFER_USD,lo=Number(x.low)-SESSION_BREAK_BUFFER_USD;
-        if(lastSessionPrice<=hi&&price>hi&&!sessionLevelAlertKeys.has(highKey)){await send(sessionBreakMessage(x,'HIGH',price));sessionLevelAlertKeys.add(highKey);}
-        if(lastSessionPrice>=lo&&price<lo&&!sessionLevelAlertKeys.has(lowKey)){await send(sessionBreakMessage(x,'LOW',price));sessionLevelAlertKeys.add(lowKey);}
+    }
+
+    if(m5){
+      for(const side of ['HIGH','LOW']){
+        const key=`${x.id}:${x.date}:${side}`,st=sessionBreakState.get(key);
+        if(!st||st.retestSent||st.failed||m5.t<st.breakCloseAt)continue;
+        const level=Number(st.level),buy=side==='HIGH';
+        const retestTouch=buy?m5.low<=level+SESSION_RETEST_TOLERANCE_USD:m5.high>=level-SESSION_RETEST_TOLERANCE_USD;
+        const held=buy?m5.close>level:m5.close<level;
+        const failed=buy?m5.close<level-SESSION_BREAK_BUFFER_USD:m5.close>level+SESSION_BREAK_BUFFER_USD;
+        if(retestTouch&&held){
+          await send(sessionRetestMessage(x,side,m5,st));
+          st.retestSent=true;st.retestBarT=m5.t;sessionBreakState.set(key,st);
+          console.log(`[telegram-session-level] M5 retest ${key} entry=${n(m5.close)}`);
+        }else if(failed){
+          await send(sessionFailedBreakMessage(x,side,m5,st));
+          st.failed=true;sessionBreakState.set(key,st);
+          console.log(`[telegram-session-level] failed break ${key} close=${n(m5.close)}`);
+        }
       }
     }
   }
-  if(price!=null)lastSessionPrice=price;
 }
 
 function canSendSignal(s,now=Date.now()){
