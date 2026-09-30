@@ -585,7 +585,7 @@ export function applyAgentExecutionGate(source = {}, now = Date.now()) {
       status: 'CONFIRMED',
       action: stack.decision.action,
       executable: true,
-      executionMode: 'AGENT_BRAIN_REFLEX',
+      executionMode: 'AGENT_TRADING_HUB',
       agentStack: stack,
       agentDecision: stack.decision,
       agentSchema: stack.decisionSchema
