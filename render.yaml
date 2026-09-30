@@ -9,6 +9,10 @@ services:
         sync: false
       - key: MIN_CONFIDENCE
         value: "75"
+      - key: AGENT_MIN_CONFIDENCE
+        value: "75"
+      - key: AGENT_EXECUTION_ENABLED
+        value: "false"
       - key: GOLD_MAX_DAILY_SIGNALS
         value: "10"
       - key: GOLD_REQUIRE_NEWS_FEED
