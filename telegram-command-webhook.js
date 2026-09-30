@@ -7,6 +7,8 @@ const WEBHOOK_SECRET=String(process.env.TELEGRAM_WEBHOOK_SECRET||'').trim();
 const APP_BASE_URL=String(process.env.APP_BASE_URL||'').trim().replace(/\/$/,'');
 const INNER_PORT=Number(process.env.GOLD_ALPHA_INNER_PORT||3100);
 const JOURNAL_URL=String(process.env.TELEGRAM_JOURNAL_URL||`http://127.0.0.1:${INNER_PORT}/api/performance/journal`).trim();
+const SIGNAL_URL=String(process.env.TELEGRAM_SIGNAL_URL||`http://127.0.0.1:${INNER_PORT}/api/auto-trade/signal?observe=1`).trim();
+const TRADE_SIGNALS_ENABLED=String(process.env.TELEGRAM_TRADE_SIGNALS_ENABLED||'true').toLowerCase()!=='false';
 const seenUpdates=new Map();
 
 function num(v){if(v==null||v===''||typeof v==='boolean')return null;const x=Number(v);return Number.isFinite(x)?x:null;}
@@ -86,6 +88,20 @@ ${recent.map(reviewLine).join('\n\n')}
 ملاحظة: التقييم مبني على بيانات الصفقة المسجلة، وليس ضمانًا لجودة أي صفقة مستقبلية.`;
 }
 
+
+function sessionLevelSummaryMessage(s){
+  const sessions=s?.sessionLevels?.sessions;
+  const rows=sessions&&typeof sessions==='object'?Object.values(sessions):[];
+  if(!rows.length)return '📍 XAUUSD — مستويات الجلسات\nلا توجد بيانات كافية بعد.';
+  const lines=rows.map(x=>`${x.icon||'📍'} ${x.label||x.id} • ${x.status||'—'}\n⬆️ High: ${n(x.high)}\n⬇️ Low: ${n(x.low)}\n📏 Range: ${n(x.range)} • M15\n🕒 ${x.startLocal||'—'}–${x.endLocal||'—'} ${x.timeZone||''}`);
+  return `📍 XAUUSD — SESSION HIGH / LOW\n\n${lines.join('\n\n')}\n\nهذه مستويات سيولة/مرجع وليست إشارة دخول بحد ذاتها.`;
+}
+async function fetchGoldSignal(){
+  const r=await fetch(SIGNAL_URL,{headers:{accept:'application/json'},cache:'no-store',signal:AbortSignal.timeout(7000)});
+  if(!r.ok)throw new Error(`signal HTTP ${r.status}`);
+  return r.json();
+}
+
 async function fetchGoldJournal(){
   const r=await fetch(JOURNAL_URL,{headers:{accept:'application/json'},cache:'no-store',signal:AbortSignal.timeout(7000)});
   if(!r.ok)throw new Error(`journal HTTP ${r.status}`);
@@ -99,7 +115,7 @@ async function handleUpdate(update){
   const text=String(msg.text||'').trim();
   if(/^\/start(?:@\w+)?$/i.test(text)){
     const st=telegramSendState();
-    await send(`اختر من البوت:\nحالة الإرسال: ${st.enabled?'🟢 يعمل':'⏸ متوقف'}`,{keyboard:[[{text:'📊 تقييم الصفقات'}],[{text:'⏸ إيقاف الإرسال'},{text:'▶️ تشغيل الإرسال'}],[{text:'ℹ️ حالة الإرسال'}]],resize_keyboard:true,persistent:true});
+    await send(`اختر من البوت:\nحالة الإرسال: ${st.enabled?'🟢 يعمل':'⏸ متوقف'}`,{keyboard:[[{text:'📍 مستويات الجلسات'}],[{text:'📊 تقييم الصفقات'}],[{text:'⏸ إيقاف الإرسال'},{text:'▶️ تشغيل الإرسال'}],[{text:'ℹ️ حالة الإرسال'}]],resize_keyboard:true,persistent:true});
     return;
   }
   if(/^\/signals_off(?:@\w+)?$/i.test(text)||text==='⏸ إيقاف الإرسال'){
@@ -109,12 +125,17 @@ async function handleUpdate(update){
   }
   if(/^\/signals_on(?:@\w+)?$/i.test(text)||text==='▶️ تشغيل الإرسال'){
     const st=setTelegramSendingEnabled(true,'telegram-command');
-    await send('▶️ تم تشغيل إرسال تنبيهات الذهب من البوت.');
+    await send(`▶️ تم تشغيل تنبيهات البوت.${TRADE_SIGNALS_ENABLED?'':'\n📍 تنبيهات الجلسات تعمل، بينما إشارات الدخول ما زالت موقوفة حسب إعداد المشروع.'}`);
     return;
   }
   if(/^\/signals_status(?:@\w+)?$/i.test(text)||text==='ℹ️ حالة الإرسال'){
     const st=telegramSendState();
-    await send(`حالة إرسال البوت: ${st.enabled?'🟢 يعمل':'⏸ متوقف'}${st.updatedAt?'\nآخر تغيير: '+new Intl.DateTimeFormat('ar-SA',{timeZone:'Asia/Riyadh',dateStyle:'short',timeStyle:'short'}).format(new Date(st.updatedAt)):''}`);
+    await send(`حالة إرسال البوت: ${st.enabled?'🟢 يعمل':'⏸ متوقف'}\n📍 مستويات الجلسات: ${st.enabled?'مفعلة':'متوقفة'}\n📈 إشارات الدخول: ${TRADE_SIGNALS_ENABLED?'مفعلة':'موقوفة من إعداد المشروع'}${st.updatedAt?'\nآخر تغيير: '+new Intl.DateTimeFormat('ar-SA',{timeZone:'Asia/Riyadh',dateStyle:'short',timeStyle:'short'}).format(new Date(st.updatedAt)):''}`);
+    return;
+  }
+  if(/^\/sessions(?:@\w+)?$/i.test(text)||text==='📍 مستويات الجلسات'){
+    try{const s=await fetchGoldSignal();await send(sessionLevelSummaryMessage(s));}
+    catch(e){await send(`⚠️ تعذر قراءة مستويات الجلسات الآن: ${String(e?.message||e)}`);}
     return;
   }
   if(/^\/evaluate(?:@\w+)?$/i.test(text)||text==='📊 تقييم الصفقات'){
@@ -127,7 +148,7 @@ async function handleUpdate(update){
 
 export async function configureTelegramWebhook(){
   if(!BOT_TOKEN||!CHAT_ID||!WEBHOOK_SECRET||!APP_BASE_URL){console.warn('[telegram-webhook] disabled: missing token/chat/secret/base URL');return false;}
-  await telegram('setMyCommands',{commands:[{command:'evaluate',description:'📊 تقييم صفقات الذهب'},{command:'signals_off',description:'⏸ إيقاف إرسال التنبيهات'},{command:'signals_on',description:'▶️ تشغيل إرسال التنبيهات'},{command:'signals_status',description:'ℹ️ حالة إرسال البوت'}]});
+  await telegram('setMyCommands',{commands:[{command:'sessions',description:'📍 قمم وقيعان طوكيو ولندن ونيويورك'},{command:'evaluate',description:'📊 تقييم صفقات الذهب'},{command:'signals_off',description:'⏸ إيقاف إرسال التنبيهات'},{command:'signals_on',description:'▶️ تشغيل إرسال التنبيهات'},{command:'signals_status',description:'ℹ️ حالة إرسال البوت'}]});
   await telegram('setWebhook',{
     url:`${APP_BASE_URL}/api/telegram/webhook`,
     secret_token:WEBHOOK_SECRET,
