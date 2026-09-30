@@ -26,6 +26,11 @@ const sent={side:null,key:null,above:false,messageId:null,lastText:null,lastEdit
 const tradeLock={active:false,key:null,side:null,startedAtMs:0};
 const recentKeys=new Map();
 const sessionAlertKeys=new Set();
+const SESSION_LEVEL_ALERTS_ENABLED=String(process.env.TELEGRAM_SESSION_LEVEL_ALERTS_ENABLED||'true').toLowerCase()!=='false';
+const TRADE_SIGNALS_ENABLED=String(process.env.TELEGRAM_TRADE_SIGNALS_ENABLED||'true').toLowerCase()!=='false';
+const SESSION_BREAK_BUFFER_USD=Math.max(0.05,Number(process.env.TELEGRAM_SESSION_BREAK_BUFFER_USD||0.10));
+const sessionLevelAlertKeys=new Set();
+let lastSessionPrice=null;
 const SESSION_OPEN_ALERTS=[
   {
     id:'LONDON',
@@ -158,6 +163,47 @@ async function maybeSendSessionOpenAlert(now=Date.now()){
   }
 }
 
+
+function sessionLevelsOf(s){
+  const x=s?.sessionLevels?.sessions;
+  return x&&typeof x==='object'?Object.values(x):[];
+}
+function sessionLevelSummaryMessage(s){
+  const rows=sessionLevelsOf(s);
+  if(!rows.length)return '📍 XAUUSD — مستويات الجلسات\nلا توجد بيانات جلسات كافية حتى الآن.';
+  const lines=rows.map(x=>`${x.icon||'📍'} ${x.label||x.id} • ${x.status||'—'}\n⬆️ High: ${n(x.high)}\n⬇️ Low: ${n(x.low)}\n📏 Range: ${n(x.range)} • M15`);
+  return `📍 XAUUSD — SESSION HIGH / LOW\n${lines.join('\n\n')}\n\nالمستويات محسوبة من M15 وبالتوقيت المحلي لكل سوق.`;
+}
+function sessionFinalMessage(x){
+  return `${x.icon||'📍'} XAUUSD — ${x.label||x.id} RANGE FINAL\n✅ تم تثبيت قمة وقاع الجلسة\n⬆️ High: ${n(x.high)}\n⬇️ Low: ${n(x.low)}\n📏 Range: ${n(x.range)}\n🗓️ ${x.date||'—'} • M15 (${x.startLocal||'—'}–${x.endLocal||'—'} ${x.timeZone||''})`;
+}
+function sessionBreakMessage(x,side,price){
+  const high=side==='HIGH',level=high?x.high:x.low;
+  return `${high?'🚨⬆️':'🚨⬇️'} XAUUSD — ${x.label||x.id} ${high?'HIGH':'LOW'} TAKEN\n${high?'تم تجاوز قمة الجلسة':'تم كسر قاع الجلسة'}\n📍 المستوى: ${n(level)}\n💵 السعر: ${n(price)}\n🧭 هذا تنبيه سيولة/مستوى، وليس إشارة دخول بحد ذاته.`;
+}
+async function maybeSendSessionLevelAlerts(s,now=Date.now()){
+  if(!SESSION_LEVEL_ALERTS_ENABLED)return;
+  const rows=sessionLevelsOf(s),price=num(s?.price);
+  for(const x of rows){
+    if(!x?.id||!x?.date||!valid(x.high)||!valid(x.low))continue;
+    if(String(x.status||'').toUpperCase()==='CLOSED'){
+      const finalKey=`FINAL:${x.id}:${x.date}`;
+      if(!sessionLevelAlertKeys.has(finalKey)){
+        await send(sessionFinalMessage(x));
+        sessionLevelAlertKeys.add(finalKey);
+        console.log(`[telegram-session-level] final ${finalKey} H=${n(x.high)} L=${n(x.low)}`);
+      }
+      if(price!=null&&lastSessionPrice!=null){
+        const highKey=`HIGH:${x.id}:${x.date}`,lowKey=`LOW:${x.id}:${x.date}`;
+        const hi=Number(x.high)+SESSION_BREAK_BUFFER_USD,lo=Number(x.low)-SESSION_BREAK_BUFFER_USD;
+        if(lastSessionPrice<=hi&&price>hi&&!sessionLevelAlertKeys.has(highKey)){await send(sessionBreakMessage(x,'HIGH',price));sessionLevelAlertKeys.add(highKey);}
+        if(lastSessionPrice>=lo&&price<lo&&!sessionLevelAlertKeys.has(lowKey)){await send(sessionBreakMessage(x,'LOW',price));sessionLevelAlertKeys.add(lowKey);}
+      }
+    }
+  }
+  if(price!=null)lastSessionPrice=price;
+}
+
 function canSendSignal(s,now=Date.now()){
   const side=sideOf(s),entry=entryOf(s),sl=stopOf(s),p=num(s?.price),t=targetsOf(s),age=num(s?.quoteAgeMs),at=Date.parse(s?.updatedAt);
   if(s?.degraded||s?.liveFeedFresh!==true||age==null||age<0||age>20000||!Number.isFinite(at)||now-at>20000||at>now+5000)return false;
@@ -202,6 +248,7 @@ async function startup(){
     const me=await tg('getMe');
     await tg('setMyCommands',{commands:[
       {command:'evaluate',description:'📊 تقييم صفقات الذهب والبيتكوين'},
+      {command:'sessions',description:'📍 قمم وقيعان طوكيو ولندن ونيويورك'},
       {command:'signals_off',description:'⏸ إيقاف إرسال التنبيهات'},
       {command:'signals_on',description:'▶️ تشغيل إرسال التنبيهات'},
       {command:'signals_status',description:'ℹ️ حالة إرسال البوت'}
@@ -418,7 +465,10 @@ async function tick(){
     const r=await fetch(AUTO_URL,{cache:'no-store',signal:AbortSignal.timeout(7000)});
     if(!r.ok)throw new Error(`signal ${r.status}`);
     const s=await r.json();
-    const now=Date.now();cleanupRecent(now);
+    const now=Date.now();
+    await maybeSendSessionLevelAlerts(s,now);
+    if(!TRADE_SIGNALS_ENABLED)return;
+    cleanupRecent(now);
 
     if(terminalMatchesLock(tradeLock,s)){
       const terminal=s.terminalEvent;
@@ -477,10 +527,10 @@ async function tick(){
   }catch(e){console.error('[telegram-xau-confirmed]',e?.message||e);}
 }
 
-console.log(`[telegram-xau-confirmed] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} one-active-trade lock; site-mirror=on; confidence-filter=off; TP/SL lifecycle alerts=on`);
+console.log(`[telegram-xau-confirmed] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} session-level-alerts=${SESSION_LEVEL_ALERTS_ENABLED?'on':'off'}; trade-signals=${TRADE_SIGNALS_ENABLED?'on':'off'}; one-active-trade lock; TP/SL lifecycle alerts=on`);
 if(process.env.NODE_ENV!=='test'){
   (async function loop(){while(true){await tick();await new Promise(r=>setTimeout(r,POLL_MS));}})();
   (async function commands(){await botCommandLoop();})();
 }
 
-export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades};
+export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage};
