@@ -438,6 +438,89 @@ function selfImprovementAgent() {
   };
 }
 
+function tradingAgent({
+  brain,
+  reflex,
+  stateEngine,
+  market,
+  setup,
+  risk,
+  tradeManager,
+  session,
+  research,
+  journal,
+  selfImprovement,
+  finalCheck
+} = {}) {
+  const side = ['BUY','SELL'].includes(setup?.side) ? setup.side : 'WAIT';
+  const managing = setup?.stage === 'MANAGING' || tradeManager?.action === 'MANAGE';
+  const stopped = tradeManager?.stopped === true || tradeManager?.action === 'EXIT_STATE';
+  const advisoryReady = Boolean(
+    setup?.stage === 'CONFIRMED' &&
+    market?.ready &&
+    risk?.allowed &&
+    !research?.blockEntries &&
+    finalCheck?.pass &&
+    !stopped
+  );
+  const executionEnabled = reflex?.executionEnabled === true;
+  const executable = Boolean(advisoryReady && executionEnabled && !managing);
+  const blockers = [...new Set([
+    ...(Array.isArray(reflex?.vetoes) ? reflex.vetoes.filter(x => x !== 'EXECUTION_PERMISSION_OFF') : []),
+    ...(!finalCheck?.pass ? ['FINAL_CHECK_FAILED'] : []),
+    ...(stopped ? ['TRADE_STOPPED'] : [])
+  ])];
+
+  let state = 'WAIT';
+  if (stopped) state = 'EXIT';
+  else if (managing) state = 'MANAGING';
+  else if (advisoryReady) state = 'READY';
+  else if (setup?.stage === 'ARMED') state = 'ARMED';
+  else if (setup?.stage === 'WATCHING') state = 'WATCHING';
+
+  const feed = {
+    brain: brain?.direction || 'NEUTRAL',
+    stateEngine: stateEngine?.regime || 'TRANSITION',
+    market: market?.ready ? 'READY' : 'WAIT',
+    setup: setup?.stage || 'WAIT',
+    risk: risk?.allowed ? 'PASS' : 'VETO',
+    session: session?.detectedFromSetup ? 'ACTIVE_CONTEXT' : 'CONTEXT',
+    research: research?.blockEntries ? 'VETO' : 'CLEAR',
+    tradeManager: tradeManager?.action || 'OBSERVE',
+    finalCheck: finalCheck?.pass ? 'PASS' : 'HOLD',
+    journal: Array.isArray(journal?.recentEvents) ? journal.recentEvents.length : 0,
+    selfImprovement: selfImprovement?.mode || 'REVIEW_ONLY'
+  };
+
+  const telegramBrief = {
+    title: 'XAUUSD AGENT DESK',
+    state,
+    side,
+    confidence: round(setup?.confidence, 0),
+    advisoryReady,
+    executable,
+    feed,
+    blockers,
+    protection: tradeManager?.suggestedProtection || null
+  };
+
+  return {
+    name: 'TRADING_AGENT',
+    role: 'SINGLE_CONSUMER_OF_ALL_AGENT_OUTPUTS',
+    state,
+    side,
+    advisoryReady,
+    executionEnabled,
+    executable,
+    action: executable ? side : (managing ? 'MANAGE' : stopped ? 'EXIT_STATE' : 'WAIT'),
+    manualAction: advisoryReady && !executionEnabled ? side : (managing ? 'MANAGE' : stopped ? 'EXIT_STATE' : 'WAIT'),
+    blockers,
+    feed,
+    telegramBrief,
+    rule: 'Every specialist agent feeds this trading agent. Only this agent emits the consolidated trade decision and Telegram brief.'
+  };
+}
+
 function journalAgent(setup, risk, tradeManager) {
   return {
     name: 'JOURNAL_AGENT',
@@ -464,25 +547,32 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
   const finalCheck = finalCheckAgent(stateEngine, setup, risk, reflex);
   const journal = journalAgent(setup, risk, tradeManager);
   const selfImprovement = selfImprovementAgent();
+  const trading = tradingAgent({
+    brain, reflex, stateEngine, market, setup, risk, tradeManager,
+    session, research, journal, selfImprovement, finalCheck
+  });
 
   return {
-    architecture: 'GOLD_AGENT_STACK_V2_BRAIN_REFLEX',
+    architecture: 'GOLD_AGENT_STACK_V3_TRADING_HUB',
     layers: {
-      BRAIN: 'Research + strategy derivation + thesis',
-      REFLEX: 'Deterministic state + risk + live execution gate'
+      SPECIALISTS: 'Market + setup + state + session + research + risk + journal + review',
+      TRADING_AGENT: 'Single consolidated consumer and decision publisher',
+      EXECUTION: 'Deterministic permission gate; manual MT5 remains possible when execution permission is off'
     },
     symbol: 'XAUUSD',
-    mode: reflex.executionEnabled ? 'EXECUTION_PERMISSION_ON' : 'OBSERVE_ONLY',
+    mode: reflex.executionEnabled ? 'EXECUTION_PERMISSION_ON' : 'MANUAL_MT5_TELEGRAM',
     decision: {
       stage: setup.stage,
       side: setup.side,
-      ready: reflex.allGatesPassed,
-      executable: reflex.executable,
-      action: reflex.action,
-      reason: reflex.vetoes.length ? reflex.vetoes.join(' | ') : 'All deterministic gates passed'
+      ready: trading.advisoryReady,
+      executable: trading.executable,
+      action: trading.action,
+      manualAction: trading.manualAction,
+      reason: trading.blockers.length ? trading.blockers.join(' | ') : (trading.advisoryReady ? 'All specialist-agent gates passed' : 'Waiting for specialist-agent agreement')
     },
     decisionSchema: schema,
-    agents: {brain, reflex, stateEngine, market, setup, risk, tradeManager, session, research, journal, selfImprovement, finalCheck},
+    telegramBrief: trading.telegramBrief,
+    agents: {brain, reflex, stateEngine, market, setup, risk, tradeManager, session, research, journal, selfImprovement, finalCheck, trading},
     updatedAt: new Date(now).toISOString()
   };
 }
