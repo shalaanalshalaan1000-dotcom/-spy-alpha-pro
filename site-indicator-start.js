@@ -151,7 +151,10 @@ function injectIndicator(html) {
    document.getElementById('siteNewsEvent').textContent=ev?.title||'لا يوجد خبر أمريكي مؤثر قريب';
    const ad=s.agentDecision||{},ags=s.agents||{},risk=ags.risk||{},tm=ags.tradeManager||{};
    document.getElementById('siteAgentStage').textContent=(ad.stage||'WAIT')+' • '+(ad.side||'WAIT');
-   document.getElementById('siteRiskAgent').textContent=risk.recommendedLot!=null?('Lot '+Number(risk.recommendedLot).toFixed(2)+' • Risk 
+   document.getElementById('siteRiskAgent').textContent=risk.recommendedLot!=null?('Lot '+Number(risk.recommendedLot).toFixed(2)+' • Risk USD '+Number(risk.estimatedRiskUsd||0).toFixed(2)):(risk.allowed?'READY':'WAIT');
+   document.getElementById('siteTradeManager').textContent=(tm.action||'OBSERVE')+(tm.suggestedProtection?' • MOVE SL TO BE':'');
+   document.getElementById('siteAgentMode').textContent=s.agentMode||'OBSERVE_ONLY';
+   document.getElementById('siteSignalReason').textContent=(ad.reason?('[Agents] '+ad.reason+' • '):'')+(s.reason||'—');
   }catch(e){const word=document.getElementById('siteSignalWord');if(word){word.textContent='WAIT';word.className='siteWait';}}
  }
  // Three seconds is fast enough for a 5m execution model and cuts needless internal polling by ~67%.
