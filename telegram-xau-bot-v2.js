@@ -176,6 +176,12 @@ function sessionCandle(s,key){
   if(!b||!valid(b.open)||!valid(b.high)||!valid(b.low)||!valid(b.close)||!Number.isFinite(Number(b.t)))return null;
   return {t:Number(b.t),open:Number(b.open),high:Number(b.high),low:Number(b.low),close:Number(b.close)};
 }
+function sessionModelSide(s){
+  if(['BUY','SELL'].includes(s?.candidateAction))return s.candidateAction;
+  if(['BUY','SELL'].includes(s?.action))return s.action;
+  if(['BUY','SELL'].includes(s?.side))return s.side;
+  return null;
+}
 function sessionLevelSummaryMessage(s){
   const rows=sessionLevelsOf(s);
   if(!rows.length)return '📍 XAUUSD — مستويات الجلسات\nلا توجد بيانات جلسات كافية حتى الآن.';
@@ -186,8 +192,8 @@ function sessionFinalMessage(x){
   return `${x.icon||'📍'} XAUUSD — ${x.label||x.id} RANGE FINAL\n✅ تم تثبيت قمة وقاع الجلسة\n⬆️ High: ${n(x.high)}\n⬇️ Low: ${n(x.low)}\n📏 Range: ${n(x.range)}\n🗓️ ${x.date||'—'} • M15 (${x.startLocal||'—'}–${x.endLocal||'—'} ${x.timeZone||''})`;
 }
 function sessionBreakMessage(x,side,bar){
-  const high=side==='HIGH',level=Number(high?x.high:x.low),provisional=high?bar.low-SESSION_SL_BUFFER_USD:bar.high+SESSION_SL_BUFFER_USD;
-  return `${high?'🚨⬆️':'🚨⬇️'} XAUUSD — ${x.label||x.id} BREAK CONFIRMED\n✅ M15 أغلق ${high?'فوق القمة':'تحت القاع'}\n📍 المستوى: ${n(level)}\n🕯️ M15 close: ${n(bar.close)}\n⏳ الدخول: WAIT FOR M5 RETEST\n🛑 Invalidation مبدئي: ${n(provisional)}\n⚠️ الوقف النهائي يثبت بعد شمعة إعادة الاختبار M5؛ لا دخول لمجرد الكسر.`;
+  const high=side==='HIGH',level=Number(high?x.high:x.low);
+  return `${high?'🚨⬆️':'🚨⬇️'} XAUUSD — ${x.label||x.id} LEVEL BROKEN — NO ENTRY YET\n✅ M15 أغلق ${high?'فوق القمة':'تحت القاع'}\n📍 المستوى: ${n(level)}\n🕯️ M15 close: ${n(bar.close)}\n⏳ الآن ننتظر M5: retest + hold للاستمرار، أو reclaim لاكتشاف false break.\n🚫 لا دخول ولا SL لمجرد الكسر.`;
 }
 function sessionSweepMessage(x,side,bar){
   const high=side==='HIGH',level=Number(high?x.high:x.low);
@@ -197,13 +203,24 @@ function sessionRetestMessage(x,side,bar,st){
   const buy=side==='HIGH',level=Number(st.level),range=Math.max(0,bar.high-bar.low),buffer=Math.max(SESSION_SL_BUFFER_USD,Math.min(.75,range*.15));
   const sl=buy?bar.low-buffer:bar.high+buffer;
   const entry=bar.close,risk=Math.abs(entry-sl);
-  const zoneLo=buy?level-SESSION_RETEST_TOLERANCE_USD:level-SESSION_RETEST_TOLERANCE_USD;
-  const zoneHi=buy?level+SESSION_RETEST_TOLERANCE_USD:level+SESSION_RETEST_TOLERANCE_USD;
-  return `${buy?'🟢':'🔴'} XAUUSD — ${x.label||x.id} RETEST CONFIRMED\n✅ ${buy?'BUY':'SELL'} after M15 break + M5 retest\n📍 المستوى المكسور: ${n(level)}\n🎯 منطقة إعادة الاختبار: ${n(zoneLo)} – ${n(zoneHi)}\n💵 Entry reference: ${n(entry)}\n🛑 SL: ${n(sl)}\n📏 مسافة الوقف: $${risk.toFixed(2)}\n🧱 الوقف خلف ${buy?'قاع':'قمة'} شمعة إعادة الاختبار M5 + buffer\n⚠️ إذا تحرك السعر بعيدًا عن منطقة الـretest، لا تطارد الدخول.`;
+  const zoneLo=level-SESSION_RETEST_TOLERANCE_USD;
+  const zoneHi=level+SESSION_RETEST_TOLERANCE_USD;
+  return `${buy?'🟢':'🔴'} XAUUSD — ${x.label||x.id} RETEST CONFIRMED\n✅ ${buy?'BUY':'SELL'} continuation after M15 break + M5 retest/hold\n📍 المستوى المكسور: ${n(level)}\n🎯 منطقة إعادة الاختبار: ${n(zoneLo)} – ${n(zoneHi)}\n💵 Entry reference: ${n(entry)}\n🛑 SL: ${n(sl)}\n📏 مسافة الوقف: $${risk.toFixed(2)}\n🧱 الوقف خلف ${buy?'قاع':'قمة'} شمعة إعادة الاختبار M5 + buffer\n⚠️ إذا تحرك السعر بعيدًا عن منطقة الـretest، لا تطارد الدخول.`;
 }
 function sessionFailedBreakMessage(x,side,bar,st){
-  const buy=side==='HIGH';
-  return `⚠️ XAUUSD — ${x.label||x.id} BREAK FAILED\nكسر M15 السابق لم يثبت بعده retest صالح؛ أغلقت M5 ${buy?'تحت':'فوق'} المستوى.\n📍 المستوى: ${n(st.level)} • M5 close: ${n(bar.close)}\n🚫 ألغِ خطة الدخول والـSL السابقة وانتظر بنية جديدة.`;
+  const failedHighBreak=side==='HIGH',reversal=failedHighBreak?'SELL':'BUY';
+  return `🧹 XAUUSD — ${x.label||x.id} FALSE BREAK / LIQUIDITY SWEEP DETECTED\n✅ M15 كسر ${failedHighBreak?'القمة':'القاع'} لكن M5 استعاد المستوى وأغلق ${failedHighBreak?'تحته':'فوقه'}.\n📍 المستوى: ${n(st.level)} • M5 close: ${n(bar.close)}\n❌ تم إلغاء خطة ${failedHighBreak?'BUY':'SELL'} breakout بالكامل.\n⏳ REVERSAL WATCH: ننتظر ${reversal} M5 structure shift/MSS ثم retest.\n🚫 لا Entry ولا SL حتى يكتمل التأكيد.`;
+}
+function sessionReversalMssMessage(x,side,bar,st){
+  const buy=side==='LOW',expected=buy?'BUY':'SELL',trigger=buy?bar.high:bar.low;
+  return `🔄 XAUUSD — ${x.label||x.id} ${expected} STRUCTURE SHIFT DETECTED\n✅ بعد false break ظهر M5 shift موافق للانعكاس\n📍 Session level: ${n(st.level)}\n🧭 MSS trigger: ${n(trigger)}\n📊 Model side: ${expected} • confidence ${Math.round(Number(st.reversalConfidence)||0)}%\n⏳ WAIT FOR M5 RETEST — لا دخول قبل إعادة الاختبار.`;
+}
+function sessionReversalSetupMessage(x,side,bar,st){
+  const buy=side==='LOW',expected=buy?'BUY':'SELL',range=Math.max(0,bar.high-bar.low),buffer=Math.max(SESSION_SL_BUFFER_USD,Math.min(.75,range*.15));
+  const sweepExtreme=Number(st.sweepExtreme),entry=bar.close;
+  const sl=buy?Math.min(Number.isFinite(sweepExtreme)?sweepExtreme:bar.low,bar.low)-buffer:Math.max(Number.isFinite(sweepExtreme)?sweepExtreme:bar.high,bar.high)+buffer;
+  const risk=Math.abs(entry-sl),target=buy?Number(x.high):Number(x.low),targetOk=Number.isFinite(target)&&(buy?target>entry:target<entry);
+  return `${buy?'🟢':'🔴'} XAUUSD — ${x.label||x.id} FALSE-BREAK REVERSAL SETUP\n✅ ${expected} confirmed: reclaim → M5 structure shift → retest/hold\n📍 Swept level: ${n(st.level)}\n🧭 MSS trigger: ${n(st.reversalTrigger)}\n💵 Entry reference: ${n(entry)}\n🛑 Structural SL: ${n(sl)}\n📏 مسافة الوقف: $${risk.toFixed(2)}\n${targetOk?`🎯 Primary liquidity target: ${n(target)} (${buy?'session high':'session low'})\n`:''}🧱 SL خلف sweep extreme / retest structure، وليس رقمًا ثابتًا عند لحظة الكسر.`;
 }
 async function maybeSendSessionLevelAlerts(s,now=Date.now()){
   if(!SESSION_LEVEL_ALERTS_ENABLED)return;
@@ -245,7 +262,7 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
           if(!sessionLevelAlertKeys.has(breakKey)){
             await send(sessionBreakMessage(x,side,m15));
             sessionLevelAlertKeys.add(breakKey);
-            sessionBreakState.set(key,{side,level,breakBarT:m15.t,breakCloseAt:m15.t+900000,retestSent:false,failed:false});
+            sessionBreakState.set(key,{side,level,breakBarT:m15.t,breakCloseAt:m15.t+900000,breakHigh:m15.high,breakLow:m15.low,sweepExtreme:side==='HIGH'?m15.high:m15.low,retestSent:false,failed:false,reversalMss:false,reversalSent:false});
             console.log(`[telegram-session-level] M15 break ${key} close=${n(m15.close)}`);
           }
         }else if(swept){
@@ -259,19 +276,54 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
     if(m5){
       for(const side of ['HIGH','LOW']){
         const key=`${x.id}:${x.date}:${side}`,st=sessionBreakState.get(key);
-        if(!st||st.retestSent||st.failed||m5.t<st.breakCloseAt)continue;
-        const level=Number(st.level),buy=side==='HIGH';
-        const retestTouch=buy?m5.low<=level+SESSION_RETEST_TOLERANCE_USD:m5.high>=level-SESSION_RETEST_TOLERANCE_USD;
-        const held=buy?m5.close>level:m5.close<level;
-        const failed=buy?m5.close<level-SESSION_BREAK_BUFFER_USD:m5.close>level+SESSION_BREAK_BUFFER_USD;
+        if(!st||st.retestSent||m5.t<st.breakCloseAt)continue;
+        const level=Number(st.level),continuationBuy=side==='HIGH';
+
+        if(st.failed){
+          const reversalBuy=side==='LOW',expected=reversalBuy?'BUY':'SELL',modelSide=sessionModelSide(s),conf=confidenceOf(s),minConf=Math.max(75,Number(process.env.GOLD_TELEGRAM_MIN_CONFIDENCE||process.env.TELEGRAM_MIN_CONFIDENCE||75));
+          if(!st.reversalMss){
+            if(m5.t<=Number(st.failedBarT||0))continue;
+            const structureShift=reversalBuy?m5.close>Number(st.failedBarHigh)+SESSION_BREAK_BUFFER_USD:m5.close<Number(st.failedBarLow)-SESSION_BREAK_BUFFER_USD;
+            if(modelSide===expected&&conf>=minConf&&structureShift){
+              st.reversalMss=true;
+              st.reversalMssBarT=m5.t;
+              st.reversalTrigger=reversalBuy?m5.high:m5.low;
+              st.reversalConfidence=conf;
+              sessionBreakState.set(key,st);
+              await send(sessionReversalMssMessage(x,side,m5,st));
+              console.log(`[telegram-session-level] reversal MSS ${key} side=${expected} trigger=${n(st.reversalTrigger)}`);
+            }
+            continue;
+          }
+          if(st.reversalSent||m5.t<=Number(st.reversalMssBarT||0))continue;
+          const trigger=Number(st.reversalTrigger);
+          const retestTouch=reversalBuy?m5.low<=trigger+SESSION_RETEST_TOLERANCE_USD:m5.high>=trigger-SESSION_RETEST_TOLERANCE_USD;
+          const held=reversalBuy?m5.close>trigger:m5.close<trigger;
+          if(modelSide===expected&&conf>=minConf&&retestTouch&&held){
+            await send(sessionReversalSetupMessage(x,side,m5,st));
+            st.reversalSent=true;st.retestSent=true;st.reversalRetestBarT=m5.t;sessionBreakState.set(key,st);
+            console.log(`[telegram-session-level] reversal setup ${key} side=${expected} entry=${n(m5.close)}`);
+          }
+          continue;
+        }
+
+        const retestTouch=continuationBuy?m5.low<=level+SESSION_RETEST_TOLERANCE_USD:m5.high>=level-SESSION_RETEST_TOLERANCE_USD;
+        const held=continuationBuy?m5.close>level:m5.close<level;
+        const failed=continuationBuy?m5.close<level-SESSION_BREAK_BUFFER_USD:m5.close>level+SESSION_BREAK_BUFFER_USD;
         if(retestTouch&&held){
           await send(sessionRetestMessage(x,side,m5,st));
           st.retestSent=true;st.retestBarT=m5.t;sessionBreakState.set(key,st);
           console.log(`[telegram-session-level] M5 retest ${key} entry=${n(m5.close)}`);
         }else if(failed){
+          st.failed=true;
+          st.failedBarT=m5.t;
+          st.failedBarHigh=m5.high;
+          st.failedBarLow=m5.low;
+          st.failedAtMs=now;
+          st.sweepExtreme=side==='HIGH'?Math.max(Number(st.sweepExtreme)||m5.high,m5.high):Math.min(Number(st.sweepExtreme)||m5.low,m5.low);
+          sessionBreakState.set(key,st);
           await send(sessionFailedBreakMessage(x,side,m5,st));
-          st.failed=true;sessionBreakState.set(key,st);
-          console.log(`[telegram-session-level] failed break ${key} close=${n(m5.close)}`);
+          console.log(`[telegram-session-level] false break / reversal watch ${key} close=${n(m5.close)}`);
         }
       }
     }
