@@ -2,11 +2,11 @@ import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { renderTradeJournalPage } from './trade-journal.js';
 import { configureTelegramWebhook, handleTelegramWebhook } from './telegram-command-webhook.js';
-import { orchestrateGoldAgents } from './gold-agent-orchestrator.js';
+import { orchestrateGoldAgents, applyAgentExecutionGate } from './gold-agent-orchestrator.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_INNER_PORT || 3100);
-const BUILD_TAG = 'site-indicator-v17-agent-stack';
+const BUILD_TAG = 'site-indicator-v18-brain-reflex';
 
 const app = spawn(process.execPath, ['gold-unified-start.js'], {
   env: { ...process.env, PORT: String(INNER_PORT) },
@@ -81,7 +81,7 @@ function mapIndicator(source = {}) {
   return {
     signal,
     source: 'GOLD_ALPHA_SITE',
-    executable: Boolean(!blockedByNews && source.executable && ['BUY', 'SELL'].includes(source.action)),
+    executable: Boolean(agentStack.decision?.executable),
     confidence: Number.isFinite(confidence) ? confidence : 0,
     price: Number.isFinite(Number(source.price)) ? Number(source.price) : null,
     timeframe: '1h/15m context / 5m multi-model confluence / 1m timing',
@@ -97,6 +97,7 @@ function mapIndicator(source = {}) {
     architecture: agentStack.architecture,
     agentMode: agentStack.mode,
     agentDecision: agentStack.decision,
+    decisionSchema: agentStack.decisionSchema,
     agents: agentStack.agents,
     reason: blockedByNews ? (newsRisk.reason || 'USD news blackout') : (source.reason || 'بانتظار اكتمال شروط إشارة الموقع'),
     updatedAt: source.updatedAt || new Date().toISOString()
@@ -118,7 +119,7 @@ function injectIndicator(html) {
 @media(max-width:760px){.siteIndicatorMeta{grid-template-columns:1fr 1fr}}
 </style>`;
 
-  const panel = `<section id="siteOwnedIndicator"><div class="siteIndicatorTop"><h3>مؤشر الموقع — المصدر الوحيد للإشارة</h3><a class="journalLink" href="/journal">Trade Journal</a></div><div id="siteSignalWord" class="siteWait">WAIT</div><div class="siteIndicatorMeta"><div><span>درجة الإعداد</span><strong id="siteSignalConfidence">0/100</strong></div><div><span>السعر</span><strong id="siteSignalPrice">—</strong></div><div><span>الحالة</span><strong id="siteSignalStatus">WAIT</strong></div><div><span>Market Bias</span><strong id="siteMarketBias">—</strong></div><div><span>BUY Zone</span><strong id="siteBuyZone">—</strong></div><div><span>SELL Zone</span><strong id="siteSellZone">—</strong></div><div><span>5m Trigger</span><strong id="siteZoneTrigger">WAIT</strong></div><div><span>الشمعة المهمة</span><strong id="siteKeyCandle">—</strong></div><div><span>Confluence</span><strong id="siteConfluence">WAITING</strong></div><div><span>Macro Bias</span><strong id="siteMacroBias">—</strong></div><div><span>Top-down TFs</span><strong id="siteTimeframeChain">—</strong></div><div><span>حالة الأخبار</span><strong id="siteNewsRisk">جارٍ الفحص…</strong></div><div><span>الخبر المؤثر</span><strong id="siteNewsEvent">—</strong></div><div><span>التنفيذ</span><strong id="siteSignalExecutable">غير تنفيذي</strong></div><div><span>المصدر</span><strong>Gold Alpha Site</strong></div><div><span>Agent Stage</span><strong id="siteAgentStage">WAIT</strong></div><div><span>Risk Agent</span><strong id="siteRiskAgent">—</strong></div><div><span>Trade Manager</span><strong id="siteTradeManager">OBSERVE</strong></div><div><span>Agent Mode</span><strong id="siteAgentMode">OBSERVE_ONLY</strong></div><div><span>سبب القرار</span><strong id="siteSignalReason">—</strong></div></div></section>`;
+  const panel = `<section id="siteOwnedIndicator"><div class="siteIndicatorTop"><h3>مؤشر الموقع — المصدر الوحيد للإشارة</h3><a class="journalLink" href="/journal">Trade Journal</a></div><div id="siteSignalWord" class="siteWait">WAIT</div><div class="siteIndicatorMeta"><div><span>درجة الإعداد</span><strong id="siteSignalConfidence">0/100</strong></div><div><span>السعر</span><strong id="siteSignalPrice">—</strong></div><div><span>الحالة</span><strong id="siteSignalStatus">WAIT</strong></div><div><span>Market Bias</span><strong id="siteMarketBias">—</strong></div><div><span>BUY Zone</span><strong id="siteBuyZone">—</strong></div><div><span>SELL Zone</span><strong id="siteSellZone">—</strong></div><div><span>5m Trigger</span><strong id="siteZoneTrigger">WAIT</strong></div><div><span>الشمعة المهمة</span><strong id="siteKeyCandle">—</strong></div><div><span>Confluence</span><strong id="siteConfluence">WAITING</strong></div><div><span>Macro Bias</span><strong id="siteMacroBias">—</strong></div><div><span>Top-down TFs</span><strong id="siteTimeframeChain">—</strong></div><div><span>حالة الأخبار</span><strong id="siteNewsRisk">جارٍ الفحص…</strong></div><div><span>الخبر المؤثر</span><strong id="siteNewsEvent">—</strong></div><div><span>التنفيذ</span><strong id="siteSignalExecutable">غير تنفيذي</strong></div><div><span>المصدر</span><strong>Gold Alpha Site</strong></div><div><span>Agent Stage</span><strong id="siteAgentStage">WAIT</strong></div><div><span>Risk Agent</span><strong id="siteRiskAgent">—</strong></div><div><span>Trade Manager</span><strong id="siteTradeManager">OBSERVE</strong></div><div><span>Agent Mode</span><strong id="siteAgentMode">OBSERVE_ONLY</strong></div><div><span>BRAIN</span><strong id="siteBrain">NEUTRAL</strong></div><div><span>REFLEX</span><strong id="siteReflex">WAIT</strong></div><div><span>Risk State</span><strong id="siteRiskState">BLOCKED</strong></div><div><span>سبب القرار</span><strong id="siteSignalReason">—</strong></div></div></section>`;
 
   const js = `<script>
 (function(){
@@ -154,6 +155,10 @@ function injectIndicator(html) {
    document.getElementById('siteRiskAgent').textContent=risk.recommendedLot!=null?('Lot '+Number(risk.recommendedLot).toFixed(2)+' • Risk USD '+Number(risk.estimatedRiskUsd||0).toFixed(2)):(risk.allowed?'READY':'WAIT');
    document.getElementById('siteTradeManager').textContent=(tm.action||'OBSERVE')+(tm.suggestedProtection?' • MOVE SL TO BE':'');
    document.getElementById('siteAgentMode').textContent=s.agentMode||'OBSERVE_ONLY';
+   const brain=ags.brain||{},reflex=ags.reflex||{},schema=s.decisionSchema||{};
+   document.getElementById('siteBrain').textContent=(brain.direction||'NEUTRAL')+' • '+(brain.regime||'TRANSITION')+' • Q'+(brain.setupQuality??0);
+   document.getElementById('siteReflex').textContent=(reflex.action||'WAIT')+(reflex.executable?' • EXECUTE':' • GATED');
+   document.getElementById('siteRiskState').textContent=schema.riskState||'BLOCKED';
    document.getElementById('siteSignalReason').textContent=(ad.reason?('[Agents] '+ad.reason+' • '):'')+(s.reason||'—');
   }catch(e){const word=document.getElementById('siteSignalWord');if(word){word.textContent='WAIT';word.className='siteWait';}}
  }
@@ -199,6 +204,36 @@ const server = http.createServer(async (req, res) => {
     }));
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/auto-trade/signal') {
+    try {
+      const upstream = await getJson(req.url || '/api/auto-trade/signal');
+      const observeOnly = url.searchParams.get('observe') === '1';
+      const payload = observeOnly
+        ? {...upstream.data, agentStack:orchestrateGoldAgents(upstream.data)}
+        : applyAgentExecutionGate(upstream.data);
+      res.writeHead(200, {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+        'access-control-allow-origin': '*',
+        'x-gold-alpha-build': BUILD_TAG
+      });
+      return res.end(JSON.stringify(payload));
+    } catch (error) {
+      res.writeHead(200, {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+        'access-control-allow-origin': '*',
+        'x-gold-alpha-build': BUILD_TAG
+      });
+      return res.end(JSON.stringify({
+        status:'WAIT', action:'WAIT', executable:false,
+        reason:'AGENT GATE UNAVAILABLE — fail closed',
+        architecture:'GOLD_AGENT_STACK_V2_BRAIN_REFLEX',
+        updatedAt:new Date().toISOString()
+      }));
+    }
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/agents/status') {
     try {
       const upstream = await getJson('/api/auto-trade/signal?observe=1');
@@ -212,7 +247,7 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify(payload));
     } catch (error) {
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-      return res.end(JSON.stringify({architecture:'GOLD_AGENT_STACK_V1',symbol:'XAUUSD',mode:'OBSERVE_ONLY',decision:{stage:'WAIT',side:'WAIT',ready:false,executable:false,reason:'Agent upstream unavailable'},agents:{},updatedAt:new Date().toISOString()}));
+      return res.end(JSON.stringify({architecture:'GOLD_AGENT_STACK_V2_BRAIN_REFLEX',symbol:'XAUUSD',mode:'OBSERVE_ONLY',decision:{stage:'WAIT',side:'WAIT',ready:false,executable:false,reason:'Agent upstream unavailable'},agents:{},updatedAt:new Date().toISOString()}));
     }
   }
 
