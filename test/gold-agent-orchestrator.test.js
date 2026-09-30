@@ -7,7 +7,10 @@ const base = {
   candidateAction:'BUY',
   side:'BUY',
   status:'CONFIRMED',
-  executable:true,
+  executable:false,
+  entered:true,
+  triggered:true,
+  brokerConfirmed:false,
   signalId:'agent-test',
   price:4300,
   bid:4299.95,
@@ -75,7 +78,10 @@ test('reflex authorizes only a confirmed fresh setup inside deterministic risk l
   assert.equal(stack.decision.executable,true);
   assert.equal(stack.decisionSchema.action,'LONG');
   assert.equal(stack.decisionSchema.riskState,'SAFE');
-  assert.equal(applyAgentExecutionGate(base).action,'BUY');
+  const live=applyAgentExecutionGate(base);
+  assert.equal(live.action,'BUY');
+  assert.equal(live.executable,true);
+  assert.equal(live.executionMode,'AGENT_BRAIN_REFLEX');
 });
 
 test('stale data and wide spread are hard vetoes', () => {
