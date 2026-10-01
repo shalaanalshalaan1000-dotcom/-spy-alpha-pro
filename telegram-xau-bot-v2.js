@@ -29,6 +29,7 @@ const sessionAlertKeys=new Set();
 const SESSION_LEVEL_ALERTS_ENABLED=String(process.env.TELEGRAM_SESSION_LEVEL_ALERTS_ENABLED||'true').toLowerCase()!=='false';
 const TRADE_SIGNALS_ENABLED=String(process.env.TELEGRAM_TRADE_SIGNALS_ENABLED||'true').toLowerCase()!=='false';
 const SESSION_BREAK_BUFFER_USD=Math.max(0.05,Number(process.env.TELEGRAM_SESSION_BREAK_BUFFER_USD||0.10));
+const SESSION_SWEEP_CLOSE_TOLERANCE_USD=Math.max(SESSION_BREAK_BUFFER_USD,Number(process.env.TELEGRAM_SESSION_SWEEP_CLOSE_TOLERANCE_USD||0.10));
 const SESSION_RETEST_TOLERANCE_USD=Math.max(0.10,Number(process.env.TELEGRAM_SESSION_RETEST_TOLERANCE_USD||0.60));
 const SESSION_SL_BUFFER_USD=Math.max(0.10,Number(process.env.TELEGRAM_SESSION_SL_BUFFER_USD||0.25));
 const sessionLevelAlertKeys=new Set();
@@ -203,8 +204,8 @@ function sessionBreakMessage(x,side,bar){
   return `${high?'🚨⬆️':'🚨⬇️'} XAUUSD — ${x.label||x.id} LEVEL BROKEN — NO ENTRY YET\n✅ M15 أغلق ${high?'فوق القمة':'تحت القاع'}\n📍 المستوى: ${n(level)}\n🕯️ M15 close: ${n(bar.close)}\n⏳ الآن ننتظر M5: retest + hold للاستمرار، أو reclaim لاكتشاف false break.\n🚫 لا دخول ولا SL لمجرد الكسر.`;
 }
 function sessionSweepMessage(x,side,bar){
-  const high=side==='HIGH',level=Number(high?x.high:x.low);
-  return `🧹 XAUUSD — ${x.label||x.id} LIQUIDITY SWEEP\n${high?'أخذ سيولة فوق القمة ثم أغلق M15 داخلها':'أخذ سيولة تحت القاع ثم أغلق M15 داخلها'}\n📍 المستوى: ${n(level)}\n🕯️ High/Low: ${n(high?bar.high:bar.low)} • Close: ${n(bar.close)}\n🚫 ليس Breakout مؤكدًا؛ لا نستخدم خطة retest breakout.`;
+  const high=side==='HIGH',level=Number(high?x.high:x.low),distance=Math.abs(Number(bar.close)-level),reversal=high?'SELL':'BUY';
+  return `🧹 XAUUSD — ${x.label||x.id} LIQUIDITY SWEEP\n${high?'أخذ سيولة فوق القمة ثم عاد إغلاق M15 إلى نطاق المستوى':'أخذ سيولة تحت القاع ثم عاد إغلاق M15 إلى نطاق المستوى'}\n📍 المستوى: ${n(level)}\n🕯️ High/Low: ${n(high?bar.high:bar.low)} • Close: ${n(bar.close)} • فرق الإغلاق: ${distance.toFixed(2)}\n🧮 Sweep close tolerance: ±${SESSION_SWEEP_CLOSE_TOLERANCE_USD.toFixed(2)}\n🚫 ليس Breakout مؤكدًا؛ لا نستخدم خطة retest breakout.\n⏳ REVERSAL WATCH: ننتظر ${reversal} M5 MSS/structure shift ثم retest قبل أي دخول.`;
 }
 function sessionRetestMessage(x,side,bar,st){
   const buy=side==='HIGH',level=Number(st.level),range=Math.max(0,bar.high-bar.low),buffer=Math.max(SESSION_SL_BUFFER_USD,Math.min(.75,range*.15));
@@ -254,10 +255,10 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
         const key=`${x.id}:${x.date}:${side}`,seenKey=`M15:${key}:${m15.t}`;
         if(sessionLevelAlertKeys.has(seenKey))continue;
         const level=Number(side==='HIGH'?x.high:x.low),threshold=side==='HIGH'?level+SESSION_BREAK_BUFFER_USD:level-SESSION_BREAK_BUFFER_USD;
-        const rawBreak=side==='HIGH'?m15.close>threshold:m15.close<threshold;
+        const rawBreak=side==='HIGH'?m15.close>level+SESSION_BREAK_BUFFER_USD:m15.close<level-SESSION_BREAK_BUFFER_USD;
         const conflicted=side==='LOW'?reclaimedLowerLow:reclaimedHigherHigh;
         const broke=rawBreak&&!conflicted;
-        const swept=side==='HIGH'?(m15.high>threshold&&m15.close<=threshold):(m15.low<threshold&&m15.close>=threshold);
+        const swept=side==='HIGH'?(m15.high>threshold&&m15.close<=level+SESSION_SWEEP_CLOSE_TOLERANCE_USD):(m15.low<threshold&&m15.close>=level-SESSION_SWEEP_CLOSE_TOLERANCE_USD);
         if(rawBreak&&conflicted){
           const mixKey=`MIXED:${key}:${m15.t}`;
           if(!sessionLevelAlertKeys.has(mixKey)){
@@ -274,7 +275,12 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
           }
         }else if(swept){
           const sweepKey=`SWEEP:${key}:${m15.t}`;
-          if(!sessionLevelAlertKeys.has(sweepKey)){await send(sessionSweepMessage(x,side,m15));sessionLevelAlertKeys.add(sweepKey);}
+          if(!sessionLevelAlertKeys.has(sweepKey)){
+            await send(sessionSweepMessage(x,side,m15));
+            sessionLevelAlertKeys.add(sweepKey);
+            sessionBreakState.set(key,{side,level,breakBarT:m15.t,breakCloseAt:m15.t+900000,breakHigh:m15.high,breakLow:m15.low,sweepExtreme:side==='HIGH'?m15.high:m15.low,retestSent:false,failed:true,failedBarT:m15.t,failedBarHigh:m15.high,failedBarLow:m15.low,failedAtMs:now,reversalMss:false,reversalSent:false,directSweep:true});
+            console.log(`[telegram-session-level] direct sweep / reversal watch ${key} close=${n(m15.close)}`);
+          }
         }
         sessionLevelAlertKeys.add(seenKey);
       }
@@ -674,4 +680,4 @@ if(process.env.NODE_ENV!=='test'){
   (async function commands(){await botCommandLoop();})();
 }
 
-export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage};
+export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage};
