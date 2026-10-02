@@ -92,12 +92,64 @@ function liquidityReversalInvalidated(key,lastM5){
 }
 
 export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimeframes={}){
-  const price=n(rawPrice),classic=analyzeClassicModel(samples,rawPrice,now),ict=analyzeIctModel(samples,rawPrice,now);
+  const price=n(rawPrice),classic=analyzeClassicModel(samples,rawPrice,now),ict=analyzeIctModel(samples,rawPrice,now,higherTimeframes);
   const m1all=minuteBars(samples),m1=closed(m1all,1,now),m5=closed(aggregate(m1all,5),5,now),m15=closed(aggregate(m1all,15),15,now),h1=closed(aggregate(m1all,60),60,now),h4=closed(aggregate(m1all,240),240,now);
   const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'MULTI_MODEL_CONFLUENCE',tradeStyle:'MULTI_MODEL_CONFLUENCE',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',sampleCount:samples.length,modelTimeframes:{macro:'MN1/W1/D2/D1',context:'H4/H1/M15',setup:'M5 multi-model confluence',timing:'M1'},confluence:null,importantCandles:null,technicalRead:ict?.technicalRead||null,priceAction:ict?.priceAction||null,liquidityContext:ict?.ict||null,ict:ict?.ict||null,updatedAt:new Date(now).toISOString(),reason:'Building multi-model context'};
   if(price==null||m1.length<45||m5.length<24||m15.length<16||h1.length<6)return base;
 
-  const bars={m1,m5,m15,h1,h4};const topDown=buildTopDownContext(bars,higherTimeframes);base.multiTimeframe=topDown;if(!topDown.ready)return{...base,status:'COLLECTING',reason:'TOP_DOWN COLLECTING — waiting for daily/2D/weekly/monthly context before any gold signal'};const importantM5=detectImportantCandles(m5,{timeframe:'5m',lookback:30}),importantM15=detectImportantCandles(m15,{timeframe:'15m',lookback:24}),importantM1=detectImportantCandles(m1,{timeframe:'1m',lookback:30});base.importantCandles={primary:importantM5.primary||importantM15.primary||importantM1.primary,m5:importantM5,m15:importantM15,m1:importantM1,closedOnly:true};const atr1=atr(m1,14)||.5,atr5=atr(m5,14)||1.5,dir1h=structureDir(h1),dir15=structureDir(m15),dir5=structureDir(m5),tech=ict?.technicalRead||{},ind=tech?.indicators||{},fib=fibonacciLocation(h1,price),candle=candleBias(m5),breakout=breakoutBias(m5,price,atr5),sweepBuy=recentSweep(m5,'BUY')||recentSweep(m1,'BUY'),sweepSell=recentSweep(m5,'SELL')||recentSweep(m1,'SELL'),heatmap=liquidityHeatmap(m1,price,atr1);
+  const bars={m1,m5,m15,h1,h4};const topDown=buildTopDownContext(bars,higherTimeframes);base.multiTimeframe=topDown;if(!topDown.ready)return{...base,status:'COLLECTING',reason:'TOP_DOWN COLLECTING — waiting for daily/2D/weekly/monthly context before any gold signal'};
+  const externalSweep=ict?.ict?.legSweep||ict?.ict?.sweep||null;
+  const externalNames=new Set(['pdh','pdl','pwh','pwl','asiaHigh','asiaLow','londonHigh','londonLow','nyHigh','nyLow']);
+  const externalSweepValid=Boolean(externalSweep&&externalNames.has(String(externalSweep.name||''))&&externalSweep.liquidityClass==='EXTERNAL');
+  const ictSide=['BUY','SELL'].includes(ict?.candidateAction)?ict.candidateAction:null;
+  const ictCandidate=Boolean(ict?.status==='CANDIDATE'&&ictSide&&externalSweepValid);
+  if(!ictCandidate){
+    return{
+      ...base,
+      status:'WAIT',action:'WAIT',candidateAction:'WAIT',side:null,
+      strategy:'ICT_EXTERNAL_LIQUIDITY_ONLY',tradeStyle:'ICT_ONLY_EXTERNAL_LIQUIDITY',
+      confidence:0,signalConfidence:0,contextBias:topDown.side,
+      ict:ict?.ict||null,liquidityContext:ict?.ict||null,
+      technicalRead:ict?.technicalRead||null,priceAction:ict?.priceAction||null,
+      multiTimeframe:topDown,
+      confluence:{version:'ICT_ONLY_EXTERNAL_LIQUIDITY',selectedSide:null,scores:{BUY:0,SELL:0},lead:0,multiTimeframe:topDown,liquidity:{externalSweep:externalSweep||null},legacyModels:null},
+      reason:ict?.reason||'ICT EXTERNAL WAIT — no valid PWH/PWL, PDH/PDL or session High/Low setup'
+    };
+  }
+  const opposite=ictSide==='BUY'?'SELL':'BUY';
+  const weeklySide=topDown.reads?.W1?.side||'NEUTRAL',dailySide=topDown.reads?.D1?.side||'NEUTRAL';
+  if(weeklySide===opposite&&dailySide===opposite){
+    return{
+      ...base,status:'WAIT',action:'WAIT',candidateAction:'WAIT',side:null,
+      strategy:'ICT_EXTERNAL_LIQUIDITY_ONLY',tradeStyle:'ICT_ONLY_EXTERNAL_LIQUIDITY',
+      confidence:0,signalConfidence:0,contextBias:topDown.side,
+      ict:ict?.ict||null,liquidityContext:ict?.ict||null,multiTimeframe:topDown,
+      confluence:{version:'ICT_ONLY_EXTERNAL_LIQUIDITY',selectedSide:null,scores:{BUY:0,SELL:0},lead:0,multiTimeframe:topDown,liquidity:{externalSweep},legacyModels:null},
+      reason:`ICT HTF WAIT — ${ictSide} external-liquidity setup conflicts with both W1 and D1 direction`
+    };
+  }
+  const ictConfidence=clamp(Math.round(Number(ict?.confidence)||0),0,100);
+  const ictConfluence={
+    version:'ICT_ONLY_EXTERNAL_LIQUIDITY',
+    selectedSide:ictSide,
+    scores:{BUY:ictSide==='BUY'?ictConfidence:0,SELL:ictSide==='SELL'?ictConfidence:0},
+    lead:ictConfidence,
+    multiTimeframe:topDown,
+    liquidity:{externalSweep},
+    sequence:ict?.ict?.contextSequence||null,
+    originFvg:ict?.ict?.originFvg||ict?.ict?.poi?.fvg||null,
+    orderBlock:ict?.ict?.orderBlock||ict?.ict?.poi?.orderBlock||null,
+    legacyModels:null
+  };
+  return{
+    ...ict,
+    strategy:ict?.strategy||'ICT_EXTERNAL_LIQUIDITY',
+    tradeStyle:'ICT_ONLY_EXTERNAL_LIQUIDITY',
+    confluence:ictConfluence,
+    multiTimeframe:topDown,
+    contextBias:ictSide,
+    reason:`ICT ONLY — external ${String(externalSweep.name).toUpperCase()} liquidity event → MSS/displacement → FVG/OB; ${ict?.reason||'setup confirmed'}`
+  };const importantM5=detectImportantCandles(m5,{timeframe:'5m',lookback:30}),importantM15=detectImportantCandles(m15,{timeframe:'15m',lookback:24}),importantM1=detectImportantCandles(m1,{timeframe:'1m',lookback:30});base.importantCandles={primary:importantM5.primary||importantM15.primary||importantM1.primary,m5:importantM5,m15:importantM15,m1:importantM1,closedOnly:true};const atr1=atr(m1,14)||.5,atr5=atr(m5,14)||1.5,dir1h=structureDir(h1),dir15=structureDir(m15),dir5=structureDir(m5),tech=ict?.technicalRead||{},ind=tech?.indicators||{},fib=fibonacciLocation(h1,price),candle=candleBias(m5),breakout=breakoutBias(m5,price,atr5),sweepBuy=recentSweep(m5,'BUY')||recentSweep(m1,'BUY'),sweepSell=recentSweep(m5,'SELL')||recentSweep(m1,'SELL'),heatmap=liquidityHeatmap(m1,price,atr1);
   const components={structure:componentBucket(),trend:componentBucket(),momentum:componentBucket(),priceAction:componentBucket(),liquidity:componentBucket(),location:componentBucket(),volatility:componentBucket()};
 
   add(components.structure,sideOf(dir1h),6,'1h structure');add(components.structure,sideOf(dir15),10,'15m structure');add(components.structure,sideOf(dir5),8,'5m structure');
