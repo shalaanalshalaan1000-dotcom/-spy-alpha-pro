@@ -320,7 +320,102 @@ function amdSessionAgent(source = {}, session = {}, market = {}, setup = {}, now
 }
 
 
-function drawOnLiquidityAgent(source = {}, setup = {}, session = {}, now = Date.now()) {
+function liquidityDecisionAgent(source = {}, setup = {}, now = Date.now()) {
+  const ict = ictStateOf(source);
+  const levels = ict?.levels || source?.liquidityContext?.levels || {};
+  const side = validSide(setup?.side) || sourceSide(source);
+  const entry = toNum(source.entry ?? source.price);
+  const drawSide = side === 'BUY' ? 'BSL' : side === 'SELL' ? 'SSL' : 'WAIT';
+  const rows = [];
+  const add = (timeframe, liquiditySide, label, value) => {
+    const level = toNum(value);
+    if (level == null) return;
+    rows.push({
+      timeframe,
+      liquiditySide,
+      label,
+      level: round(level,3),
+      distance: entry == null ? null : round(Math.abs(level-entry),2),
+      hierarchy: timeframe === 'H4' ? 1 : timeframe === 'H1' ? 2 : 3
+    });
+  };
+  add('H4','BSL','H4_SWING_HIGH',levels.h4SwingHigh);
+  add('H4','SSL','H4_SWING_LOW',levels.h4SwingLow);
+  add('H1','BSL','H1_SWING_HIGH',levels.h1SwingHigh);
+  add('H1','SSL','H1_SWING_LOW',levels.h1SwingLow);
+  add('M15','BSL','M15_SWING_HIGH',levels.m15SwingHigh);
+  add('M15','SSL','M15_SWING_LOW',levels.m15SwingLow);
+
+  const directional = rows.filter(x =>
+    drawSide !== 'WAIT' &&
+    x.liquiditySide === drawSide &&
+    entry != null &&
+    (drawSide === 'BSL' ? x.level > entry : x.level < entry)
+  );
+  const nearest = [...directional].sort((a,b)=>(a.distance??Infinity)-(b.distance??Infinity)||a.hierarchy-b.hierarchy)[0] || null;
+  const primary = [...directional]
+    .sort((a,b)=>a.hierarchy-b.hierarchy||(b.distance??0)-(a.distance??0))
+    .find(x=>!nearest||Math.abs(x.level-nearest.level)>0.10) || nearest || null;
+
+  const sweep = ict?.legSweep || ict?.sweep || null;
+  const sweepName = String(sweep?.name || '');
+  const sweptLiquiditySide = /high|pdh|pwh/i.test(sweepName) ? 'BSL' : /low|pdl|pwl/i.test(sweepName) ? 'SSL' : null;
+  const m5Structure = Boolean(ict?.dm5?.mss || ict?.shift5 || ict?.hasShift || ict?.mss);
+  const m5Displacement = Boolean(ict?.dm5?.displacement || ict?.hasDisplacement || ict?.displacement);
+  const m5Retest = Boolean(ict?.hasIfvgRetest || ict?.retest || ict?.inverseFvg?.retested);
+  const m5Confirmed = Boolean(m5Structure && m5Displacement && m5Retest);
+
+  return {
+    name:'LIQUIDITY_DECISION_AGENT',
+    mode:'HIERARCHY_DECISION_ONLY',
+    hierarchy:['H4','H1','M15'],
+    executionTimeframe:'M5',
+    side:side||'WAIT',
+    drawSide,
+    map:rows,
+    sweptLiquiditySide,
+    sweptLevel:round(sweep?.level,3),
+    secondaryLiquidity:nearest,
+    primaryLiquidity:primary,
+    m5Confirmation:{required:true,structure:m5Structure,displacement:m5Displacement,retest:m5Retest,confirmed:m5Confirmed},
+    recommendation:drawSide==='BSL'?'DRAW_TO_BUYSIDE_LIQUIDITY':drawSide==='SSL'?'DRAW_TO_SELLSIDE_LIQUIDITY':'WAIT_FOR_DIRECTION',
+    canCreateSignal:false,
+    canExecute:false,
+    canOverrideIctGate:false,
+    updatedAt:new Date(now).toISOString(),
+    rule:'Map liquidity top-down on H4 -> H1 -> M15. M5 is execution confirmation only. This agent advises every other agent but never opens a trade.'
+  };
+}
+
+function dailyOpportunityAgent(source = {}, now = Date.now()) {
+  const minTarget=Math.max(1,Math.min(3,toNum(process.env.GOLD_DAILY_QUALIFIED_MIN)??1));
+  const maxTarget=Math.max(minTarget,Math.min(3,toNum(process.env.GOLD_DAILY_QUALIFIED_MAX)??3));
+  const current=Math.max(0,toNum(source.dailySignalCount)??0);
+  const remainingToMin=Math.max(0,minTarget-current);
+  const remainingCapacity=Math.max(0,maxTarget-current);
+  let state='TARGET_RANGE_MET';
+  if(current<minTarget)state='SEARCHING_FOR_MINIMUM';
+  else if(current<maxTarget)state='OPEN_FOR_MORE_QUALIFIED_SETUPS';
+  return {
+    name:'DAILY_OPPORTUNITY_AGENT',
+    mode:'SOFT_FREQUENCY_TARGET',
+    target:{min:minTarget,max:maxTarget},
+    current,
+    remainingToMin,
+    remainingCapacity,
+    state,
+    scanCadence:'EVERY_5_MINUTES',
+    forceTrade:false,
+    mayRelaxLiquidityHierarchy:false,
+    mayRelaxM5Confirmation:false,
+    mayRelaxConfidence:false,
+    canCreateSignal:false,
+    canExecute:false,
+    rule:'Aim to surface 1-3 qualified opportunities per trading day by continuous scanning; never invent or force a trade to satisfy the count.'
+  };
+}
+
+function drawOnLiquidityAgent(source = {}, setup = {}, session = {}, liquidityDecision = {}, now = Date.now()) {
   const side = validSide(setup?.side) || sourceSide(source);
   const entry = toNum(source.entry ?? source.price);
   const ict = ictStateOf(source);
@@ -366,9 +461,9 @@ function drawOnLiquidityAgent(source = {}, setup = {}, session = {}, now = Date.
   [1,2,3,4].forEach((i,idx)=>add(providedLabels[idx]||('TARGET_'+i),source?.['target'+i],'EXTERNAL','MODEL_TARGET'));
 
   const byDistance=[...candidates].sort((a,b)=>a.distance-b.distance||a.priority-b.priority);
-  const secondary=byDistance[0]||null;
+  const secondary=liquidityDecision?.secondaryLiquidity||byDistance[0]||null;
   const byStrategic=[...candidates].sort((a,b)=>a.priority-b.priority||b.distance-a.distance);
-  const primary=byStrategic.find(x=>!secondary||Math.abs(x.level-secondary.level)>0.10)||secondary||null;
+  const primary=liquidityDecision?.primaryLiquidity||byStrategic.find(x=>!secondary||Math.abs(x.level-secondary.level)>0.10)||secondary||null;
   const secondaryDistinct=secondary&&primary&&Math.abs(secondary.level-primary.level)<=0.10?null:secondary;
   const friday=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Riyadh',weekday:'short'}).format(new Date(now))==='Fri';
   const fridayPrimaryMaxDistance=Math.max(1,toNum(process.env.TELEGRAM_FRIDAY_PRIMARY_MAX_DISTANCE_USD)??25);
@@ -386,6 +481,8 @@ function drawOnLiquidityAgent(source = {}, setup = {}, session = {}, now = Date.
   return {
     name:'DRAW_ON_LIQUIDITY_AGENT',
     mode:'OBJECTIVES_ONLY',
+    liquidityHierarchyAgent:liquidityDecision?.name||null,
+    drawSide:liquidityDecision?.drawSide||null,
     side:side||'WAIT',
     entry:round(entry,3),
     secondaryLiquidity:secondaryDistinct,
@@ -616,6 +713,8 @@ function tradingAgent({
   session,
   amd,
   drawOnLiquidity,
+  liquidityDecision,
+  dailyOpportunity,
   research,
   journal,
   selfImprovement,
@@ -657,6 +756,9 @@ function tradingAgent({
     amd: amd?.phase || 'WAIT',
     amdAlignment: amd?.alignedWithSetup === true ? 'ALIGNED' : amd?.alignedWithSetup === false ? 'CONFLICT' : 'UNCONFIRMED',
     drawOnLiquidity: drawOnLiquidity?.primaryLiquidity ? 'MAPPED' : 'WAIT',
+    liquidityDecision: liquidityDecision?.recommendation || 'WAIT_FOR_DIRECTION',
+    m5LiquidityConfirmation: liquidityDecision?.m5Confirmation?.confirmed ? 'CONFIRMED' : 'WAIT',
+    dailyOpportunity: dailyOpportunity?.state || 'SEARCHING_FOR_MINIMUM',
     research: research?.blockEntries ? 'VETO' : 'CLEAR',
     tradeManager: tradeManager?.action || 'OBSERVE',
     finalCheck: finalCheck?.pass ? 'PASS' : 'HOLD',
@@ -675,10 +777,14 @@ function tradingAgent({
     blockers,
     protection: tradeManager?.suggestedProtection || null,
     liquidityObjectives: {
+      type: liquidityDecision?.drawSide || null,
       secondary: drawOnLiquidity?.secondaryLiquidity || null,
       primary: drawOnLiquidity?.primaryLiquidity || null,
-      primaryPractical: drawOnLiquidity?.primaryPractical ?? null
-    }
+      primaryPractical: drawOnLiquidity?.primaryPractical ?? null,
+      hierarchy: liquidityDecision?.hierarchy || ['H4','H1','M15'],
+      executionTimeframe: liquidityDecision?.executionTimeframe || 'M5'
+    },
+    dailyOpportunity: dailyOpportunity || null
   };
 
   return {
@@ -717,7 +823,9 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
   const research = researchAgent(source);
   const session = sessionAgent(source);
   const amd = amdSessionAgent(source, session, market, setup, now);
-  const drawOnLiquidity = drawOnLiquidityAgent(source, setup, session, now);
+  const liquidityDecision = liquidityDecisionAgent(source, setup, now);
+  const drawOnLiquidity = drawOnLiquidityAgent(source, setup, session, liquidityDecision, now);
+  const dailyOpportunity = dailyOpportunityAgent(source, now);
   const stateEngine = stateEngineAgent(source, market);
   const brain = brainAgent(source, setup, stateEngine, research);
   const risk = hardRiskLayer(source, stateEngine, setup, baseRisk);
@@ -728,13 +836,13 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
   const selfImprovement = selfImprovementAgent();
   const trading = tradingAgent({
     brain, reflex, stateEngine, market, setup, risk, tradeManager,
-    session, amd, drawOnLiquidity, research, journal, selfImprovement, finalCheck
+    session, amd, drawOnLiquidity, liquidityDecision, dailyOpportunity, research, journal, selfImprovement, finalCheck
   });
 
   return {
     architecture: 'GOLD_AGENT_STACK_V3_TRADING_HUB',
     layers: {
-      SPECIALISTS: 'Market + setup + state + session + AMD context + draw-on-liquidity + research + risk + journal + review',
+      SPECIALISTS: 'Market + setup + state + session + H4/H1/M15 liquidity decision + AMD context + draw-on-liquidity + daily opportunity + research + risk + journal + review',
       TRADING_AGENT: 'Single consolidated consumer and decision publisher',
       EXECUTION: 'Deterministic permission gate; manual MT5 remains possible when execution permission is off'
     },
@@ -751,7 +859,7 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
     },
     decisionSchema: schema,
     telegramBrief: trading.telegramBrief,
-    agents: {brain, reflex, stateEngine, market, setup, risk, tradeManager, session, amd, drawOnLiquidity, research, journal, selfImprovement, finalCheck, trading},
+    agents: {brain, reflex, stateEngine, market, setup, risk, tradeManager, session, amd, liquidityDecision, drawOnLiquidity, dailyOpportunity, research, journal, selfImprovement, finalCheck, trading},
     updatedAt: new Date(now).toISOString()
   };
 }
