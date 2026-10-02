@@ -654,7 +654,9 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const anchor=useDirectContinuation?fallbackExtreme:(sweep?.extreme??fallbackExtreme);
   const stop=side==='BUY'?anchor-buffer:anchor+buffer;
   const risk=Math.abs(entry-stop);
+  const maxStopDistanceUsd=Math.max(.30,Number(process.env.XAU_MAX_STOP_DISTANCE_USD||10));
   if(!(risk>=.30))return{...base,status:'WAIT',candidateAction:side,contextBias:side,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),sweep,fvg,setupVotes},reason:'ICT WAIT: structural invalidation is too close to entry'};
+  if(risk>maxStopDistanceUsd)return{...base,status:'WAIT',candidateAction:side,contextBias:side,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),sweep,fvg,setupVotes,proposedStop:round(stop),proposedStopDistance:round(risk),maxStopDistanceUsd:round(maxStopDistanceUsd)},reason:'ICT WAIT: structural stop exceeds '+round(maxStopDistanceUsd,2)+' USD; wait for a closer retest / better entry instead of widening or truncating the stop'};
 
   const plan=targetPlan(side,entry,stop,levels,m1,m5,m15,h1,h4,atr1,atr5);
   if(!plan)return{...base,status:'WAIT',candidateAction:side,contextBias:side,oneMinuteConfirmed,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),sweep,fvg,orderBlock,poi,rangeContext,offSession,contextAligned,biasAligned,setupAligned,setupVotes,setupReady},reason:'ICT TARGET WAIT: no meaningful external liquidity draw at least $5 from the origin entry'};

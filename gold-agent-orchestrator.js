@@ -138,6 +138,7 @@ function riskAgent(source = {}, setup) {
   const balance = Math.max(0, toNum(process.env.XAU_ACCOUNT_BALANCE_USD) ?? 70);
   const safeRiskUsd = Math.max(0, toNum(process.env.XAU_SAFE_RISK_USD) ?? 5);
   const maxRiskUsd = Math.max(safeRiskUsd, toNum(process.env.XAU_MAX_RISK_USD) ?? 10);
+  const maxStopDistanceUsd = Math.max(0.3, toNum(process.env.XAU_MAX_STOP_DISTANCE_USD) ?? 10);
   const contractSize = Math.max(0.000001, toNum(process.env.XAU_CONTRACT_SIZE) ?? 100);
   const lotStep = Math.max(0.000001, toNum(process.env.XAU_LOT_STEP) ?? 0.01);
   const stopDistance = entry != null && stopLoss != null ? Math.abs(entry - stopLoss) : null;
@@ -152,6 +153,7 @@ function riskAgent(source = {}, setup) {
     balanceUsd: round(balance),
     safeRiskUsd: round(safeRiskUsd),
     maxRiskUsd: round(maxRiskUsd),
+    maxStopDistanceUsd: round(maxStopDistanceUsd),
     entry: round(entry),
     stopLoss: round(stopLoss),
     stopDistanceUsd: round(stopDistance),
@@ -159,8 +161,8 @@ function riskAgent(source = {}, setup) {
     estimatedRiskUsd: round(estimatedRiskUsd),
     estimatedRiskPct: round(riskPct, 1),
     structurallyValid,
-    allowed: structurallyValid && estimatedRiskUsd != null && estimatedRiskUsd <= maxRiskUsd + 0.01,
-    note: riskPct != null && riskPct > 5 ? 'Risk exceeds 5% of reference balance; review manually before execution.' : 'Within configured risk ceiling.'
+    allowed: structurallyValid && stopDistance != null && stopDistance <= maxStopDistanceUsd + 0.01 && estimatedRiskUsd != null && estimatedRiskUsd <= maxRiskUsd + 0.01,
+    note: stopDistance != null && stopDistance > maxStopDistanceUsd ? 'Structural stop exceeds the configured '+round(maxStopDistanceUsd,2)+' USD maximum; wait for a closer retest.' : riskPct != null && riskPct > 5 ? 'Risk exceeds 5% of reference balance; review manually before execution.' : 'Within configured risk ceiling.'
   };
 }
 
@@ -330,6 +332,7 @@ function hardRiskLayer(source = {}, stateEngine = {}, setup = {}, baseRisk = {})
   const vetoes = [];
   if (!baseRisk.structurallyValid) vetoes.push('INVALID_STOP_STRUCTURE');
   if (baseRisk.estimatedRiskUsd == null) vetoes.push('UNKNOWN_RISK');
+  if (baseRisk.stopDistanceUsd != null && baseRisk.maxStopDistanceUsd != null && baseRisk.stopDistanceUsd > baseRisk.maxStopDistanceUsd + 0.01) vetoes.push('STOP_DISTANCE_EXCEEDS_MAX');
   if (baseRisk.estimatedRiskUsd != null && baseRisk.estimatedRiskUsd > baseRisk.maxRiskUsd + 0.01) vetoes.push('MAX_RISK_EXCEEDED');
   if (!spreadOk) vetoes.push('SPREAD_TOO_WIDE');
   if (!dailyLossOk) vetoes.push('DAILY_LOSS_LIMIT');
