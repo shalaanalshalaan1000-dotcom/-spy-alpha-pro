@@ -31,7 +31,7 @@ test('nearest closed-session external liquidity becomes Secondary and next becom
   assert.match(msg,/Secondary liquidity: 4152\.000/);
   assert.match(msg,/Primary liquidity: 4166\.000/);
   assert.doesNotMatch(msg,/Primary liquidity: 4192\.280/);
-  assert.match(msg,/session external liquidity فقط/);
+  assert.match(msg,/Secondary = أقرب session external liquidity صالح/);
 });
 
 test('Friday does not present a far-only external level as Primary',()=>{
