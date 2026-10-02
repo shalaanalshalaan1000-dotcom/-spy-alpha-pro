@@ -138,6 +138,7 @@ function riskAgent(source = {}, setup) {
   const balance = Math.max(0, toNum(process.env.XAU_ACCOUNT_BALANCE_USD) ?? 70);
   const safeRiskUsd = Math.max(0, toNum(process.env.XAU_SAFE_RISK_USD) ?? 5);
   const maxRiskUsd = Math.max(safeRiskUsd, toNum(process.env.XAU_MAX_RISK_USD) ?? 10);
+  const maxStopDistanceUsd = Math.max(0.3, toNum(process.env.XAU_MAX_STOP_DISTANCE_USD) ?? 10);
   const contractSize = Math.max(0.000001, toNum(process.env.XAU_CONTRACT_SIZE) ?? 100);
   const lotStep = Math.max(0.000001, toNum(process.env.XAU_LOT_STEP) ?? 0.01);
   const stopDistance = entry != null && stopLoss != null ? Math.abs(entry - stopLoss) : null;
@@ -152,6 +153,7 @@ function riskAgent(source = {}, setup) {
     balanceUsd: round(balance),
     safeRiskUsd: round(safeRiskUsd),
     maxRiskUsd: round(maxRiskUsd),
+    maxStopDistanceUsd: round(maxStopDistanceUsd),
     entry: round(entry),
     stopLoss: round(stopLoss),
     stopDistanceUsd: round(stopDistance),
@@ -159,8 +161,461 @@ function riskAgent(source = {}, setup) {
     estimatedRiskUsd: round(estimatedRiskUsd),
     estimatedRiskPct: round(riskPct, 1),
     structurallyValid,
-    allowed: structurallyValid && estimatedRiskUsd != null && estimatedRiskUsd <= maxRiskUsd + 0.01,
-    note: riskPct != null && riskPct > 5 ? 'Risk exceeds 5% of reference balance; review manually before execution.' : 'Within configured risk ceiling.'
+    allowed: structurallyValid && stopDistance != null && stopDistance <= maxStopDistanceUsd + 0.01 && estimatedRiskUsd != null && estimatedRiskUsd <= maxRiskUsd + 0.01,
+    note: stopDistance != null && stopDistance > maxStopDistanceUsd ? 'Structural stop exceeds the configured 
+  };
+}
+
+function tradeManagerAgent(source = {}, setup, now = Date.now()) {
+  const side = setup.side;
+  const signalId = source.signalId || null;
+  const price = toNum(source.price);
+  const entry = toNum(source.entry);
+  const stopLoss = toNum(source.stopLoss);
+  const targets = [source.target1, source.target2, source.target3, source.target4].map(toNum);
+
+  if (signalId && memory.activeSignalId !== signalId) {
+    memory.activeSignalId = signalId;
+    memory.tpHits = [false, false, false, false];
+    pushEvent('TRADE_TRACK', {signalId, setupKey:setup.setupKey, side, stage:setup.stage}, now);
+  }
+
+  if (price != null && ['BUY', 'SELL'].includes(side)) {
+    targets.forEach((target, index) => {
+      if (target == null || memory.tpHits[index]) return;
+      const hit = side === 'BUY' ? price >= target : price <= target;
+      if (hit) {
+        memory.tpHits[index] = true;
+        pushEvent('TP' + (index + 1) + '_HIT', {signalId:signalId || setup.setupKey, side, stage:setup.stage}, now);
+      }
+    });
+  }
+
+  const stopped = price != null && stopLoss != null && ['BUY', 'SELL'].includes(side)
+    ? (side === 'BUY' ? price <= stopLoss : price >= stopLoss)
+    : false;
+  const tp1Hit = Boolean(memory.tpHits[0]);
+  const suggestedProtection = tp1Hit && entry != null ? {type:'MOVE_SL', to:round(entry), policy:'BREAKEVEN_AFTER_TP1'} : null;
+  const executionEnabled = String(process.env.AGENT_EXECUTION_ENABLED || 'false').toLowerCase() === 'true';
+
+  return {
+    name: 'TRADE_MANAGER_AGENT',
+    signalId,
+    stage: setup.stage,
+    tracking: Boolean(signalId || setup.stage === 'MANAGING' || setup.stage === 'CONFIRMED'),
+    tpHits: {tp1:memory.tpHits[0], tp2:memory.tpHits[1], tp3:memory.tpHits[2], tp4:memory.tpHits[3]},
+    stopped,
+    suggestedProtection,
+    executionEnabled,
+    action: stopped ? 'EXIT_STATE' : setup.stage === 'MANAGING' ? 'MANAGE' : setup.stage === 'CONFIRMED' ? 'READY' : 'OBSERVE',
+    note: executionEnabled ? 'Execution permission enabled by environment.' : 'Observation mode: no broker orders are sent by the agent layer.'
+  };
+}
+
+function researchAgent(source = {}) {
+  const news = source.newsRisk || {};
+  const event = news.activeEvent || news.nextEvent || null;
+  return {
+    name: 'RESEARCH_AGENT',
+    contextOnly: true,
+    newsAvailable: news.available !== false,
+    highImpactUsd: Boolean(news.dayHasHighImpactUsd),
+    blockEntries: Boolean(news.blockEntries),
+    event: event ? {title:event.title || null, time:event.time || event.date || null, impact:event.impact || null} : null,
+    rule: 'Research context can veto or annotate a setup, but cannot create a BUY/SELL signal by itself.'
+  };
+}
+
+function sessionAgent(source = {}) {
+  const session = source.sessionLiquidity || source.sessionLevels || source.sessions || source.liquidity || null;
+  return {
+    name: 'SESSION_LIQUIDITY_AGENT',
+    timeframe: 'M15/M30 context; M5 confirmation',
+    data: session,
+    detectedFromSetup: inferCondition(source, ['london', 'new york', 'tokyo', 'session', 'liquidity', 'sweep']),
+    rule: 'Session high/low breaks are alerts; entries require a confirmed structure shift/retest.'
+  };
+}
+
+
+function stateEngineAgent(source = {}, market = {}) {
+  const bid = toNum(source.bid);
+  const ask = toNum(source.ask);
+  const spread = bid != null && ask != null && ask >= bid ? ask - bid : toNum(source.spread);
+  const mtf = source.multiTimeframe || source?.confluence?.multiTimeframe || {};
+  const reads = mtf.reads || {};
+  const timeframes = Object.fromEntries(
+    ['MN1','W1','D2','D1','H4','H1','M15','M5','M1'].map(tf => [tf, validSide(reads?.[tf]?.side) || 'NEUTRAL'])
+  );
+  const volatility = toNum(source.realizedVolatility ?? source.volatility ?? source.atrPct);
+  let regime = 'TRANSITION';
+  if (market.degraded || !market.fresh) regime = 'DEGRADED';
+  else if (market.blockedByNews) regime = 'NEWS_BLOCK';
+  else if (volatility != null && volatility >= Math.max(0, toNum(process.env.AGENT_HIGH_VOL_THRESHOLD) ?? 2.5)) regime = 'HIGH_VOL';
+  else if ((toNum(mtf.macroAligned) ?? 0) >= 3 && (toNum(mtf.intradayAligned) ?? 0) >= 2) regime = 'TREND';
+  else if (inferCondition(source, ['range','sideways','mean reversion','balanced'])) regime = 'RANGE';
+
+  return {
+    name: 'STATE_ENGINE',
+    symbol: 'XAUUSD',
+    price: round(source.price),
+    bid: round(bid),
+    ask: round(ask),
+    spreadUsd: round(spread, 3),
+    quoteAgeMs: round(source.quoteAgeMs, 0),
+    provider: source.provider || null,
+    fresh: market.fresh,
+    degraded: market.degraded,
+    blockedByNews: market.blockedByNews,
+    regime,
+    mtfSide: market.side,
+    timeframes,
+    liquidity: market.context.liquidity,
+    mss: market.context.mss,
+    displacement: market.context.displacement,
+    retest: market.context.retest,
+    sourceStatus: String(source.status || 'WAIT').toUpperCase(),
+    sourceExecutable: source.executable === true
+  };
+}
+
+function setupQuality(stateEngine = {}) {
+  const points = [stateEngine.liquidity, stateEngine.mss, stateEngine.displacement, stateEngine.retest].filter(Boolean).length;
+  return points >= 4 ? 3 : points >= 2 ? 2 : points >= 1 ? 1 : 0;
+}
+
+function brainAgent(source = {}, setup = {}, stateEngine = {}, research = {}) {
+  const entryLow = toNum(source.entryLow ?? source.entry);
+  const entryHigh = toNum(source.entryHigh ?? source.entry);
+  const targets = [source.target1,source.target2,source.target3,source.target4].map(toNum).filter(v => v != null);
+  const direction = setup.side === 'BUY' ? 'LONG' : setup.side === 'SELL' ? 'SHORT' : 'NEUTRAL';
+  return {
+    name: 'BRAIN',
+    role: 'RESEARCH_STRATEGY_DERIVATION',
+    direction,
+    regime: stateEngine.regime,
+    confidence: round((toNum(setup.confidence) ?? 0) / 100, 3),
+    setupQuality: setupQuality(stateEngine),
+    thesis: {
+      htfBias: stateEngine.mtfSide,
+      liquidityEvent: stateEngine.liquidity,
+      structureShift: stateEngine.mss,
+      displacement: stateEngine.displacement,
+      retest: stateEngine.retest,
+      catalyst: research.event || null
+    },
+    proposedPlan: {
+      entry: round(source.entry),
+      entryZone: entryLow != null && entryHigh != null ? [round(Math.min(entryLow,entryHigh)), round(Math.max(entryLow,entryHigh))] : null,
+      stop: round(source.stopLoss),
+      targets: targets.map(v => round(v))
+    },
+    rule: 'The BRAIN proposes the thesis. It cannot authorize execution or override risk.'
+  };
+}
+
+function hardRiskLayer(source = {}, stateEngine = {}, setup = {}, baseRisk = {}) {
+  const maxDailyLossUsd = Math.max(0, toNum(process.env.XAU_MAX_DAILY_LOSS_USD) ?? 10);
+  const maxDrawdownPct = Math.max(0, toNum(process.env.XAU_MAX_DRAWDOWN_PCT) ?? 15);
+  const maxSpreadUsd = Math.max(0, toNum(process.env.XAU_MAX_SPREAD_USD) ?? 1.5);
+  const minRr = Math.max(0, toNum(process.env.AGENT_MIN_RR) ?? toNum(process.env.GOLD_TELEGRAM_MIN_RR) ?? 0.6);
+  const dailyLossUsd = toNum(source.dailyLossUsd ?? source?.accountRisk?.dailyLossUsd);
+  const drawdownPct = toNum(source.drawdownPct ?? source?.accountRisk?.drawdownPct);
+  const positionOpen = Boolean(source.positionOpen ?? source?.mt5?.positionOpen ?? false);
+  const reward = toNum(source.entry) != null && toNum(source.target1) != null ? Math.abs(toNum(source.target1)-toNum(source.entry)) : null;
+  const rr = toNum(baseRisk.stopDistanceUsd) && reward != null ? reward / toNum(baseRisk.stopDistanceUsd) : null;
+  const spreadOk = stateEngine.spreadUsd == null || stateEngine.spreadUsd <= maxSpreadUsd;
+  const dailyLossOk = dailyLossUsd == null || dailyLossUsd < maxDailyLossUsd;
+  const drawdownOk = drawdownPct == null || drawdownPct < maxDrawdownPct;
+  const onePositionOk = !positionOpen || setup.stage === 'MANAGING';
+  const rrOk = rr == null || rr >= minRr;
+  const vetoes = [];
+  if (!baseRisk.structurallyValid) vetoes.push('INVALID_STOP_STRUCTURE');
+  if (baseRisk.estimatedRiskUsd == null) vetoes.push('UNKNOWN_RISK');
+  if (baseRisk.stopDistanceUsd != null && baseRisk.maxStopDistanceUsd != null && baseRisk.stopDistanceUsd > baseRisk.maxStopDistanceUsd + 0.01) vetoes.push('STOP_DISTANCE_EXCEEDS_MAX');
+  if (baseRisk.estimatedRiskUsd != null && baseRisk.estimatedRiskUsd > baseRisk.maxRiskUsd + 0.01) vetoes.push('MAX_RISK_EXCEEDED');
+  if (!spreadOk) vetoes.push('SPREAD_TOO_WIDE');
+  if (!dailyLossOk) vetoes.push('DAILY_LOSS_LIMIT');
+  if (!drawdownOk) vetoes.push('MAX_DRAWDOWN_LIMIT');
+  if (!onePositionOk) vetoes.push('POSITION_ALREADY_OPEN');
+  if (!rrOk) vetoes.push('RR_TOO_LOW');
+  return {
+    ...baseRisk,
+    name: 'RISK_LAYER',
+    deterministic: true,
+    cannotBeOverriddenByModel: true,
+    maxDailyLossUsd: round(maxDailyLossUsd),
+    maxDrawdownPct: round(maxDrawdownPct,1),
+    maxSpreadUsd: round(maxSpreadUsd,2),
+    minRr: round(minRr,2),
+    rrToTp1: round(rr,2),
+    dailyLossUsd: round(dailyLossUsd),
+    drawdownPct: round(drawdownPct,1),
+    positionOpen,
+    allowed: Boolean(baseRisk.allowed && spreadOk && dailyLossOk && drawdownOk && onePositionOk && rrOk),
+    vetoes
+  };
+}
+
+function reflexAgent(stateEngine = {}, setup = {}, risk = {}, research = {}, tradeManager = {}) {
+  const sourceConfirmed = setup.stage === 'CONFIRMED';
+  const confidencePass = (toNum(setup.confidence) ?? 0) >= (toNum(setup.minConfidence) ?? 75);
+  const marketReady = stateEngine.fresh && !stateEngine.degraded;
+  const newsOk = !research.blockEntries;
+  const allGatesPassed = Boolean(sourceConfirmed && confidencePass && marketReady && newsOk && risk.allowed);
+  const executionEnabled = Boolean(tradeManager.executionEnabled);
+  const vetoes = [];
+  if (!sourceConfirmed) vetoes.push('SETUP_' + setup.stage);
+  if (!confidencePass) vetoes.push('CONFIDENCE_BELOW_THRESHOLD');
+  if (!stateEngine.fresh) vetoes.push('STALE_QUOTE');
+  if (stateEngine.degraded) vetoes.push('DEGRADED_FEED');
+  if (!newsOk) vetoes.push('NEWS_VETO');
+  if (Array.isArray(risk.vetoes)) vetoes.push(...risk.vetoes);
+  if (!executionEnabled) vetoes.push('EXECUTION_PERMISSION_OFF');
+  return {
+    name: 'REFLEX',
+    role: 'LIVE_DECISION_AND_EXECUTION_GATE',
+    deterministic: true,
+    allGatesPassed,
+    executionEnabled,
+    executable: allGatesPassed && executionEnabled,
+    action: allGatesPassed && executionEnabled ? setup.side : 'WAIT',
+    vetoes: [...new Set(vetoes)],
+    rule: 'Only REFLEX may authorize execution. BRAIN output alone is never executable.'
+  };
+}
+
+function decisionSchema(source = {}, stateEngine = {}, setup = {}, risk = {}, reflex = {}, now = Date.now()) {
+  const entryLow = toNum(source.entryLow ?? source.entry);
+  const entryHigh = toNum(source.entryHigh ?? source.entry);
+  const targets = [source.target1,source.target2,source.target3,source.target4].map(toNum).filter(v => v != null);
+  const proposedAction = setup.side === 'BUY' ? 'LONG' : setup.side === 'SELL' ? 'SHORT' : 'NEUTRAL';
+  return {
+    schema: 'XAU_JEV_V2',
+    decisionId: String(source.signalId || setup.setupKey || ('decision-' + now)),
+    symbol: 'XAUUSD',
+    timestamp: new Date(now).toISOString(),
+    action: reflex.executable ? proposedAction : 'NEUTRAL',
+    proposedAction,
+    regime: stateEngine.regime,
+    setupQuality: setupQuality(stateEngine),
+    confidence: round((toNum(setup.confidence) ?? 0) / 100,3),
+    confidencePct: round(setup.confidence,0),
+    entryZone: entryLow != null && entryHigh != null ? [round(Math.min(entryLow,entryHigh)),round(Math.max(entryLow,entryHigh))] : null,
+    stopLoss: round(source.stopLoss),
+    targets: targets.map(v => round(v)),
+    riskState: risk.allowed ? 'SAFE' : 'BLOCKED',
+    recommendedLot: risk.recommendedLot,
+    executable: reflex.executable,
+    vetoes: reflex.vetoes
+  };
+}
+
+function finalCheckAgent(stateEngine = {}, setup = {}, risk = {}, reflex = {}) {
+  const concerns = [];
+  if (!stateEngine.fresh) concerns.push('Quote may be stale');
+  if (stateEngine.degraded) concerns.push('Market data feed is degraded');
+  if (stateEngine.blockedByNews) concerns.push('High-impact USD news veto is active');
+  const opposite = setup.side === 'BUY' ? 'SELL' : setup.side === 'SELL' ? 'BUY' : null;
+  if (opposite && Object.values(stateEngine.timeframes || {}).filter(v => v === opposite).length >= 4) concerns.push('Multi-timeframe direction is materially conflicted');
+  if (risk.rrToTp1 != null && risk.rrToTp1 < risk.minRr) concerns.push('RR to TP1 is below minimum');
+  if (risk.estimatedRiskPct != null && risk.estimatedRiskPct > 5) concerns.push('Risk exceeds 5% of reference balance');
+  if (!reflex.executionEnabled) concerns.push('Live execution permission is disabled');
+  return {
+    name: 'FINAL_CHECK',
+    question: 'WHAT COULD I BE WRONG ABOUT?',
+    concerns,
+    survivabilityFirst: true,
+    pass: reflex.allGatesPassed,
+    conclusion: concerns.length ? 'Keep the deterministic gate in control.' : 'No additional contradiction detected.'
+  };
+}
+
+function selfImprovementAgent() {
+  return {
+    name: 'SELF_IMPROVEMENT',
+    mode: 'REVIEW_ONLY',
+    autoRewriteLiveCode: false,
+    metrics: ['fills','misses','slippage','calibration','Brier score when labeled outcomes exist','session performance'],
+    rule: 'Review can propose versioned changes, but never rewrites or deploys live trading logic autonomously.'
+  };
+}
+
+function tradingAgent({
+  brain,
+  reflex,
+  stateEngine,
+  market,
+  setup,
+  risk,
+  tradeManager,
+  session,
+  research,
+  journal,
+  selfImprovement,
+  finalCheck
+} = {}) {
+  const side = ['BUY','SELL'].includes(setup?.side) ? setup.side : 'WAIT';
+  const managing = setup?.stage === 'MANAGING' || tradeManager?.action === 'MANAGE';
+  const stopped = tradeManager?.stopped === true || tradeManager?.action === 'EXIT_STATE';
+  const advisoryReady = Boolean(
+    setup?.stage === 'CONFIRMED' &&
+    market?.ready &&
+    risk?.allowed &&
+    !research?.blockEntries &&
+    finalCheck?.pass &&
+    !stopped
+  );
+  const executionEnabled = reflex?.executionEnabled === true;
+  const executable = Boolean(advisoryReady && executionEnabled && !managing);
+  const blockers = [...new Set([
+    ...(Array.isArray(reflex?.vetoes) ? reflex.vetoes.filter(x => x !== 'EXECUTION_PERMISSION_OFF') : []),
+    ...(!finalCheck?.pass ? ['FINAL_CHECK_FAILED'] : []),
+    ...(stopped ? ['TRADE_STOPPED'] : [])
+  ])];
+
+  let state = 'WAIT';
+  if (stopped) state = 'EXIT';
+  else if (managing) state = 'MANAGING';
+  else if (advisoryReady) state = 'READY';
+  else if (setup?.stage === 'ARMED') state = 'ARMED';
+  else if (setup?.stage === 'WATCHING') state = 'WATCHING';
+
+  const feed = {
+    brain: brain?.direction || 'NEUTRAL',
+    stateEngine: stateEngine?.regime || 'TRANSITION',
+    market: market?.ready ? 'READY' : 'WAIT',
+    setup: setup?.stage || 'WAIT',
+    risk: risk?.allowed ? 'PASS' : 'VETO',
+    session: session?.detectedFromSetup ? 'ACTIVE_CONTEXT' : 'CONTEXT',
+    research: research?.blockEntries ? 'VETO' : 'CLEAR',
+    tradeManager: tradeManager?.action || 'OBSERVE',
+    finalCheck: finalCheck?.pass ? 'PASS' : 'HOLD',
+    journal: Array.isArray(journal?.recentEvents) ? journal.recentEvents.length : 0,
+    selfImprovement: selfImprovement?.mode || 'REVIEW_ONLY'
+  };
+
+  const telegramBrief = {
+    title: 'XAUUSD AGENT DESK',
+    state,
+    side,
+    confidence: round(setup?.confidence, 0),
+    advisoryReady,
+    executable,
+    feed,
+    blockers,
+    protection: tradeManager?.suggestedProtection || null
+  };
+
+  return {
+    name: 'TRADING_AGENT',
+    role: 'SINGLE_CONSUMER_OF_ALL_AGENT_OUTPUTS',
+    state,
+    side,
+    advisoryReady,
+    executionEnabled,
+    executable,
+    action: executable ? side : (managing ? 'MANAGE' : stopped ? 'EXIT_STATE' : 'WAIT'),
+    manualAction: advisoryReady && !executionEnabled ? side : (managing ? 'MANAGE' : stopped ? 'EXIT_STATE' : 'WAIT'),
+    blockers,
+    feed,
+    telegramBrief,
+    rule: 'Every specialist agent feeds this trading agent. Only this agent emits the consolidated trade decision and Telegram brief.'
+  };
+}
+
+function journalAgent(setup, risk, tradeManager) {
+  return {
+    name: 'JOURNAL_AGENT',
+    currentSetupKey: setup.setupKey,
+    currentStage: setup.stage,
+    riskSnapshot: {estimatedRiskUsd:risk.estimatedRiskUsd, recommendedLot:risk.recommendedLot},
+    tradeState: {signalId:tradeManager.signalId, tpHits:tradeManager.tpHits, action:tradeManager.action},
+    recentEvents: memory.events.slice(0, 12)
+  };
+}
+
+export function orchestrateGoldAgents(source = {}, now = Date.now()) {
+  const market = marketAgent(source, now);
+  const setup = setupAgent(source, market, now);
+  const baseRisk = riskAgent(source, setup);
+  const tradeManager = tradeManagerAgent(source, setup, now);
+  const research = researchAgent(source);
+  const session = sessionAgent(source);
+  const stateEngine = stateEngineAgent(source, market);
+  const brain = brainAgent(source, setup, stateEngine, research);
+  const risk = hardRiskLayer(source, stateEngine, setup, baseRisk);
+  const reflex = reflexAgent(stateEngine, setup, risk, research, tradeManager);
+  const schema = decisionSchema(source, stateEngine, setup, risk, reflex, now);
+  const finalCheck = finalCheckAgent(stateEngine, setup, risk, reflex);
+  const journal = journalAgent(setup, risk, tradeManager);
+  const selfImprovement = selfImprovementAgent();
+  const trading = tradingAgent({
+    brain, reflex, stateEngine, market, setup, risk, tradeManager,
+    session, research, journal, selfImprovement, finalCheck
+  });
+
+  return {
+    architecture: 'GOLD_AGENT_STACK_V3_TRADING_HUB',
+    layers: {
+      SPECIALISTS: 'Market + setup + state + session + research + risk + journal + review',
+      TRADING_AGENT: 'Single consolidated consumer and decision publisher',
+      EXECUTION: 'Deterministic permission gate; manual MT5 remains possible when execution permission is off'
+    },
+    symbol: 'XAUUSD',
+    mode: reflex.executionEnabled ? 'EXECUTION_PERMISSION_ON' : 'MANUAL_MT5_TELEGRAM',
+    decision: {
+      stage: setup.stage,
+      side: setup.side,
+      ready: trading.advisoryReady,
+      executable: trading.executable,
+      action: trading.action,
+      manualAction: trading.manualAction,
+      reason: trading.blockers.length ? trading.blockers.join(' | ') : (trading.advisoryReady ? 'All specialist-agent gates passed' : 'Waiting for specialist-agent agreement')
+    },
+    decisionSchema: schema,
+    telegramBrief: trading.telegramBrief,
+    agents: {brain, reflex, stateEngine, market, setup, risk, tradeManager, session, research, journal, selfImprovement, finalCheck, trading},
+    updatedAt: new Date(now).toISOString()
+  };
+}
+
+export function applyAgentExecutionGate(source = {}, now = Date.now()) {
+  const stack = orchestrateGoldAgents(source, now);
+  if (stack.decision.executable) {
+    return {
+      ...source,
+      status: 'CONFIRMED',
+      action: stack.decision.action,
+      executable: true,
+      executionMode: 'AGENT_TRADING_HUB',
+      agentStack: stack,
+      agentDecision: stack.decision,
+      agentSchema: stack.decisionSchema
+    };
+  }
+  const managing = String(source.status || '').toUpperCase() === 'MANAGING';
+  return {
+    ...source,
+    status: managing ? source.status : 'WAIT',
+    action: managing ? source.action : 'WAIT',
+    executable: false,
+    agentStack: stack,
+    agentDecision: stack.decision,
+    agentSchema: stack.decisionSchema,
+    reason: 'AGENT GATE: ' + stack.decision.reason
+  };
+}
+
+export function resetGoldAgentMemory() {
+  memory.stage = 'WAIT';
+  memory.setupKey = null;
+  memory.activeSignalId = null;
+  memory.tpHits = [false, false, false, false];
+  memory.lastEventKey = null;
+  memory.events = [];
+}
++round(maxStopDistanceUsd,2)+' maximum; wait for a closer retest.' : riskPct != null && riskPct > 5 ? 'Risk exceeds 5% of reference balance; review manually before execution.' : 'Within configured risk ceiling.'
   };
 }
 
