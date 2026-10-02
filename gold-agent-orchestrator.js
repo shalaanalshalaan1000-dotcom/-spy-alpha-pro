@@ -162,7 +162,7 @@ function riskAgent(source = {}, setup) {
     estimatedRiskPct: round(riskPct, 1),
     structurallyValid,
     allowed: structurallyValid && stopDistance != null && stopDistance <= maxStopDistanceUsd + 0.01 && estimatedRiskUsd != null && estimatedRiskUsd <= maxRiskUsd + 0.01,
-    note: stopDistance != null && stopDistance > maxStopDistanceUsd ? 'Structural stop exceeds the configured 
+    note: stopDistance != null && stopDistance > maxStopDistanceUsd ? 'Structural stop exceeds the configured '+round(maxStopDistanceUsd,2)+' USD maximum; wait for a closer retest.' : riskPct != null && riskPct > 5 ? 'Risk exceeds 5% of reference balance; review manually before execution.' : 'Within configured risk ceiling.'
   };
 }
 
