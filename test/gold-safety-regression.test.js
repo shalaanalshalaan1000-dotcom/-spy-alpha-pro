@@ -5,10 +5,10 @@ import vm from 'node:vm';
 process.env.NODE_ENV='test';
 const {canSendSignal}=await import('../telegram-xau-bot-v3.js');
 const now=Date.now();
-const good={signalId:'test',status:'ACTIVE',entered:true,triggered:true,side:'BUY',price:4300,triggerPrice:4300,entry:4300,stopLoss:4298,target1:4301,target2:4302,target3:4303,target4:4304,quoteAgeMs:100,liveFeedFresh:true,updatedAt:new Date(now).toISOString(),tradeStyle:'ICT_ONLY_EXTERNAL_LIQUIDITY',ict:{legSweep:{name:'pdl',level:4297,liquidityClass:'EXTERNAL'}},agentStack:{agents:{trading:{advisoryReady:true}}}};
+const good={signalId:'test',status:'ACTIVE',entered:true,triggered:true,side:'BUY',price:4300,triggerPrice:4300,entry:4300,stopLoss:4298,target1:4302,target2:4303,target3:4304,target4:4305,quoteAgeMs:100,liveFeedFresh:true,updatedAt:new Date(now).toISOString(),tradeStyle:'ICT_ONLY_EXTERNAL_LIQUIDITY',ict:{legSweep:{name:'pdl',level:4297,liquidityClass:'EXTERNAL'}},agentStack:{agents:{trading:{advisoryReady:true}}}};
 test('Telegram rejects invalid, stale, stopped and consumed entries',()=>{
  assert.equal(canSendSignal(good,now),true);
- for(const patch of [{price:null},{entry:0,triggerPrice:0},{target2:4299},{stopLoss:0},{price:4297},{price:4301},{degraded:true},{quoteAgeMs:21000},{updatedAt:'bad'},{status:'CANDIDATE'},{signalId:null},{target1:null}])assert.equal(canSendSignal({...good,...patch},now),false,JSON.stringify(patch));
+ for(const patch of [{price:null},{entry:0,triggerPrice:0},{target2:4299},{stopLoss:0},{price:4297},{price:4302},{degraded:true},{quoteAgeMs:21000},{updatedAt:'bad'},{status:'CANDIDATE'},{signalId:null},{target1:null}])assert.equal(canSendSignal({...good,...patch},now),false,JSON.stringify(patch));
  assert.equal(canSendSignal({...good,side:'SELL',stopLoss:4302,target1:4299,target2:4298,target3:4297,target4:4296,ict:{legSweep:{name:'pdh',level:4303,liquidityClass:'EXTERNAL'}}},now),true);
  assert.equal(canSendSignal({...good,ict:{legSweep:{name:'localSellSide',level:4297,liquidityClass:'INTERNAL'}}},now),false);
 });
