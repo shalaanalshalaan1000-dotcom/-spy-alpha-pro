@@ -255,11 +255,11 @@ function sessionReversalSetupMessage(x,side,bar,st,rows=[],now=Date.now()){
   const risk=Math.abs(entry-sl),targets=sessionLiquidityTargets(rows,side,entry,now);
   const targetLines=[];
   if(targets.primary)targetLines.push(`🎯 Primary liquidity: ${n(targets.primary.level)} (${targets.primary.label})`);
-  else if(targets.friday&&targets.secondary)targetLines.push(`🎯 Primary liquidity: — (Friday: no external liquidity within ${FRIDAY_PRIMARY_MAX_DISTANCE_USD.toFixed(0)})`);
+  else if(targets.friday&&targets.secondary)targetLines.push(`🎯 Primary liquidity: — (Friday: no external liquidity within ${FRIDAY_PRIMARY_MAX_DISTANCE_USD.toFixed(0)} USD)`);
   if(targets.secondary)targetLines.push(`🎯 Secondary liquidity${targets.primaryDemoted?' / stretch':''}: ${n(targets.secondary.level)} (${targets.secondary.label})`);
-  if(targets.friday)targetLines.push(`🗓️ Friday filter: Primary max distance = ${FRIDAY_PRIMARY_MAX_DISTANCE_USD.toFixed(0)} from entry`);
+  if(targets.friday)targetLines.push(`🗓️ Friday filter: Primary max distance = ${FRIDAY_PRIMARY_MAX_DISTANCE_USD.toFixed(0)} USD from entry`);
   if(!targetLines.length)targetLines.push('🎯 External liquidity targets: N/A — لا يوجد مستوى جلسة خارجي صالح بعد الدخول');
-  return `${buy?'🟢':'🔴'} XAUUSD — ${x.label||x.id} FALSE-BREAK REVERSAL SETUP\n✅ ${expected} confirmed: reclaim → M5 structure shift → retest/hold\n📍 Swept level: ${n(st.level)}\n🧭 MSS trigger: ${n(st.reversalTrigger)}\n💵 Entry reference: ${n(entry)}\n🛑 Structural SL: ${n(sl)}\n📏 مسافة الوقف: ${risk.toFixed(2)}\n${targetLines.join('\n')}\n🧱 الأهداف من session external liquidity فقط؛ لا نستخدم internal liquidity.\n🧱 SL خلف sweep extreme / retest structure، وليس رقمًا ثابتًا عند لحظة الكسر.`;
+  return `${buy?'🟢':'🔴'} XAUUSD — ${x.label||x.id} FALSE-BREAK REVERSAL SETUP\n✅ ${expected} confirmed: reclaim → M5 structure shift → retest/hold\n📍 Swept level: ${n(st.level)}\n🧭 MSS trigger: ${n(st.reversalTrigger)}\n💵 Entry reference: ${n(entry)}\n🛑 Structural SL: ${n(sl)}\n📏 مسافة الوقف: ${risk.toFixed(2)} USD\n${targetLines.join('\n')}\n🧱 الأهداف من session external liquidity فقط؛ لا نستخدم internal liquidity.\n🧱 SL خلف sweep extreme / retest structure، وليس رقمًا ثابتًا عند لحظة الكسر.`;
 }
 async function maybeSendSessionLevelAlerts(s,now=Date.now()){
   if(!SESSION_LEVEL_ALERTS_ENABLED)return;
