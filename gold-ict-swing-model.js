@@ -467,7 +467,6 @@ function targetPlan(side,entry,stop,levels,m1,m5,m15,h1,h4,atr1,atr5){
 }
 
 export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimeframes={}){
-export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
   const price=n(rawPrice),m1all=minuteBars(samples),m5all=aggregate(m1all,5),m15all=aggregate(m1all,15),h1all=aggregate(m1all,60),h4all=aggregate(m1all,240);
   const m1=closed(m1all,1,now),m5=closed(m5all,5,now),m15=closed(m15all,15,now),h1=closed(h1all,60,now),h4=closed(h4all,240,now);
   const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'ICT_TOP_DOWN',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',ict:null,sampleCount:samples.length,modelTimeframes:{externalLiquidity:'PWH/PWL + PDH/PDL + Asia/London/New York High/Low',context:'W1/D1 + 4H/1H',bias:'15m context only',setup:'external liquidity event -> MSS/displacement -> FVG/OB',execution:'1m/5m confirmation only',timing:'1m'},priceAction:null,technicalRead:null,updatedAt:new Date(now).toISOString(),reason:'ICT engine is collecting enough HTF history'};
@@ -493,7 +492,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now()){
     const sign=side==='BUY'?1:-1,fvg=latestFvg(m5,side),dm=displacementAndMss(m5,side,atr5),bos=latestBos(m5,side);
     const seqPick=selectSweepSequence({m1,m5,m15,side,levels,atr1,atr5,atr15,now});
     const sweep=seqPick?.sweep??null,sweep5=sweep?.tf===5?sweep:null,sweep1=sweep?.tf===1?sweep:null;
-    const namedSweep=Boolean(sweep&&!/^local/i.test(String(sweep.name||''))),freshSweep=Boolean(sweep&&now-sweep.t>=0&&now-sweep.t<=120*60_000);
+    const namedSweep=Boolean(sweep?.liquidityClass==='EXTERNAL'),freshSweep=Boolean(sweep&&now-sweep.t>=0&&now-sweep.t<=120*60_000);
     const seq5=seqPick?.seq5??null,seq1=seqPick?.seq1??null,firstMss=seqPick?.firstMss??null,firstDisplacement=seqPick?.firstDisplacement??null;
     const triggerEvent=[firstMss,firstDisplacement].filter(Boolean).sort((a,b)=>(a.closeT??a.t)-(b.closeT??b.t))[0]??null;
     const sequenceAt=triggerEvent?(triggerEvent.closeT??triggerEvent.t):null;
