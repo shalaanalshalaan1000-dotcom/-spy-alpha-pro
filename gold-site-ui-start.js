@@ -117,7 +117,7 @@ function patchSiteSignalUi(source) {
  (async function loop(){await refresh();setTimeout(loop,2000)})();
 })();
 </script>`;
-  if(!source.includes('goldLiveProgressPoller')) source=source.replace('</body>', liveProgressScript+'</body>');
+  if(!source.includes('goldLiveProgressPoller')) source=source.replace('</body>', () => liveProgressScript+'</body>');
   // Server lifecycle is authoritative; never revive a browser-local trade.
   source = source.replace('function lockGoldPlan(plan,price){', 'function lockGoldPlan(plan,price){if(plan?.serverOwned)return plan;');
   return source;
