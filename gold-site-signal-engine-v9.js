@@ -277,5 +277,21 @@ for (const [from, to] of replacements) {
   source=source.replace("const BUILD='site-signal-noai-v63-session-levels';","const BUILD='site-signal-noai-v64-ict-external-only';");
 }
 
+
+{
+  // A fresh, independently confirmed ICT setup must not be silently lost to the
+  // generic post-trade cooldown. Same-side-after-SL and same-setup lockouts remain.
+  const cooldownGate="if(state.signal||now<state.cooldownUntil||!freshQuote(q,now)||m.status!=='CANDIDATE'||Number(m.confidence)<MIN_CONFIDENCE||!validLevels(m))return;";
+  if(!source.includes(cooldownGate))throw new Error('ict-entry-unblock patch: cooldown gate missing');
+  source=source.replace(cooldownGate,"if(state.signal||!freshQuote(q,now)||m.status!=='CANDIDATE'||Number(m.confidence)<MIN_CONFIDENCE||!validLevels(m))return;");
+
+  // Do not fail silently when a locked plan is waiting for its actual entry zone.
+  const rangeGate="if(!inRange(p,lo,hi))return;";
+  if(!source.includes(rangeGate))throw new Error('ict-entry-unblock patch: entry-range gate missing');
+  source=source.replace(rangeGate,"if(!inRange(p,lo,hi)){state.lastEntryGuard={atMs:now,reason:'WAITING_ENTRY_RANGE',side,price:round(p,3),entryLow:round(lo,3),entryHigh:round(hi,3),candidateLocked:Boolean(m.candidateLocked),entryMode:m?.ict?.entryMode||null};return;}");
+
+  source=source.replace("const BUILD='site-signal-noai-v64-ict-external-only';","const BUILD='site-signal-noai-v65-ict-entry-unblocked';");
+}
+
 fs.writeFileSync(runtimeUrl, source, 'utf8');
 await import(`${runtimeUrl.href}?v=${Date.now()}`);
