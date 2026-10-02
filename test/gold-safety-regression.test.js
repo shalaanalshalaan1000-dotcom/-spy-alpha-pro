@@ -9,7 +9,7 @@ const good={signalId:'test',status:'ACTIVE',entered:true,triggered:true,side:'BU
 test('Telegram rejects invalid, stale, stopped and consumed entries',()=>{
  assert.equal(canSendSignal(good,now),true);
  for(const patch of [{price:null},{entry:0,triggerPrice:0},{target2:4299},{stopLoss:0},{price:4297},{price:4302},{degraded:true},{quoteAgeMs:21000},{updatedAt:'bad'},{status:'CANDIDATE'},{signalId:null},{target1:null}])assert.equal(canSendSignal({...good,...patch},now),false,JSON.stringify(patch));
- assert.equal(canSendSignal({...good,side:'SELL',stopLoss:4302,target1:4299,target2:4298,target3:4297,target4:4296,ict:{legSweep:{name:'pdh',level:4303,liquidityClass:'EXTERNAL'}}},now),true);
+ assert.equal(canSendSignal({...good,side:'SELL',stopLoss:4302,target1:4298,target2:4297,target3:4296,target4:4295,ict:{legSweep:{name:'pdh',level:4303,liquidityClass:'EXTERNAL'}}},now),true);
  assert.equal(canSendSignal({...good,ict:{legSweep:{name:'localSellSide',level:4297,liquidityClass:'INTERNAL'}}},now),false);
 });
 const ui=fs.readFileSync(new URL('../gold-site-ui-start.js',import.meta.url),'utf8');
