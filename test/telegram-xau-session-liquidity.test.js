@@ -28,10 +28,10 @@ test('nearest closed-session external liquidity becomes Secondary and next becom
     rows,
     friday
   );
-  assert.match(msg,/Secondary liquidity: 4152\.000/);
-  assert.match(msg,/Primary liquidity: 4166\.000/);
-  assert.doesNotMatch(msg,/Primary liquidity: 4192\.280/);
-  assert.match(msg,/Secondary = أقرب session external liquidity صالح/);
+  assert.match(msg,/Secondary BSL: 4152\.000/);
+  assert.match(msg,/Primary BSL: 4166\.000/);
+  assert.doesNotMatch(msg,/Primary BSL: 4192\.280/);
+  assert.match(msg,/BUY يستهدف BSL وSELL يستهدف SSL/);
 });
 
 test('Friday does not present a far-only external level as Primary',()=>{
