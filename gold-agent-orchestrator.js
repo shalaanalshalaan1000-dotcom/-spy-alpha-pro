@@ -177,8 +177,10 @@ function riskAgent(source = {}, setup) {
     estimatedRiskUsd: round(estimatedRiskUsd),
     estimatedRiskPct: round(riskPct, 1),
     structurallyValid,
-    allowed: structurallyValid && stopDistance != null && stopDistance <= maxStopDistanceUsd + 0.01 && estimatedRiskUsd != null && estimatedRiskUsd <= maxRiskUsd + 0.01,
-    note: stopDistance != null && stopDistance > maxStopDistanceUsd ? 'Structural stop exceeds the configured '+round(maxStopDistanceUsd,2)+' USD maximum; wait for a closer retest.' : riskPct != null && riskPct > 5 ? 'Risk exceeds 5% of reference balance; review manually before execution.' : 'Within configured risk ceiling.'
+    allowed: structurallyValid && stopDistance != null && estimatedRiskUsd != null,
+    stopDistanceBlocking: false,
+    riskAmountBlocking: false,
+    note: stopDistance != null && stopDistance > maxStopDistanceUsd ? 'Wide structural stop is informational only; the setup is not blocked by stop distance.' : estimatedRiskUsd != null && estimatedRiskUsd > maxRiskUsd ? 'Estimated risk exceeds the reference ceiling, but stop/risk size is advisory only for setup authorization.' : riskPct != null && riskPct > 5 ? 'Risk exceeds 5% of reference balance; advisory only.' : 'Stop and risk are informational for setup authorization.'
   };
 }
 
@@ -348,8 +350,7 @@ function hardRiskLayer(source = {}, stateEngine = {}, setup = {}, baseRisk = {})
   const vetoes = [];
   if (!baseRisk.structurallyValid) vetoes.push('INVALID_STOP_STRUCTURE');
   if (baseRisk.estimatedRiskUsd == null) vetoes.push('UNKNOWN_RISK');
-  if (baseRisk.stopDistanceUsd != null && baseRisk.maxStopDistanceUsd != null && baseRisk.stopDistanceUsd > baseRisk.maxStopDistanceUsd + 0.01) vetoes.push('STOP_DISTANCE_EXCEEDS_MAX');
-  if (baseRisk.estimatedRiskUsd != null && baseRisk.estimatedRiskUsd > baseRisk.maxRiskUsd + 0.01) vetoes.push('MAX_RISK_EXCEEDED');
+  // Stop distance and estimated amount are advisory only; they do not veto an otherwise valid ICT setup.
   if (!spreadOk) vetoes.push('SPREAD_TOO_WIDE');
   if (!dailyLossOk) vetoes.push('DAILY_LOSS_LIMIT');
   if (!drawdownOk) vetoes.push('MAX_DRAWDOWN_LIMIT');
