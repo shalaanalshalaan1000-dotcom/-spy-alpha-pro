@@ -27,8 +27,8 @@ test('live quote triggers 5m trend entry without waiting for another 15m close',
   assert.equal(model.status,'CANDIDATE');
   assert.equal(model.candidateAction,'BUY');
   assert.equal(model.contextBias,'BUY');
-  assert.equal(model.modelTimeframes.context,'15m');
-  assert.equal(model.modelTimeframes.execution,'5m');
+  assert.equal(model.modelTimeframes.context,'15m predictive');
+  assert.equal(model.modelTimeframes.execution,'5m predictive');
   assert.ok(model.confidence>=70);
 });
 
