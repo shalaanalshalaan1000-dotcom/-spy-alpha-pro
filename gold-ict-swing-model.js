@@ -490,21 +490,36 @@ function targetPlan(side,entry,stop,levels,m1,m5,m15,h1,h4,atr1,atr5){
   ];
   const MIN_TARGET_MOVE=5;
   const priority=label=>/^PW[HL]$/.test(label)?0:/^PD[HL]$/.test(label)?1:/^ASIA_|^LONDON_|^NY_AM_/.test(label)?2:3;
-  const all=dedupePools(pools,side,entry);
-  const external=all.filter(x=>Math.abs(x.price-entry)>=MIN_TARGET_MOVE)
-    .sort((a,b)=>priority(a.label)-priority(b.label)||Math.abs(a.price-entry)-Math.abs(b.price-entry));
-  if(!external.length)return null;
-  const targets=[];
-  let prev=entry;
-  for(const pool of external){
-    if(targets.length>=4)break;
-    if(Math.abs(pool.price-prev)<1)continue;
-    targets.push({label:pool.label,price:round(pool.price)});
-    prev=pool.price;
+  const all=dedupePools(pools,side,entry).filter(x=>Math.abs(x.price-entry)>=MIN_TARGET_MOVE);
+  if(!all.length)return null;
+
+  const byDistance=[...all].sort((a,b)=>Math.abs(a.price-entry)-Math.abs(b.price-entry)||priority(a.label)-priority(b.label));
+  const secondary=byDistance[0];
+  const byStrategic=[...all].sort((a,b)=>priority(a.label)-priority(b.label)||Math.abs(b.price-entry)-Math.abs(a.price-entry));
+  const primary=byStrategic.find(x=>Math.abs(x.price-secondary.price)>=1)||secondary;
+
+  const ordered=[secondary];
+  if(Math.abs(primary.price-secondary.price)>=1)ordered.push(primary);
+  for(const pool of byDistance){
+    if(ordered.length>=4)break;
+    if(ordered.some(x=>Math.abs(x.price-pool.price)<1))continue;
+    ordered.push(pool);
   }
-  if(!targets.length)return null;
+
+  const targets=ordered.slice(0,4).map((pool,index)=>({
+    label:pool.label,
+    price:round(pool.price),
+    role:index===0&&Math.abs(primary.price-secondary.price)>=1?'SECONDARY':(Math.abs(pool.price-primary.price)<1?'PRIMARY':'EXTENSION')
+  }));
   const rr=Math.abs(targets[0].price-entry)/risk;
-  return{risk,rr,targets,mode:'ICT_EXTERNAL_LIQUIDITY_ONLY',minimumTargetMove:MIN_TARGET_MOVE,mainLiquidity:targets[0]};
+  return{
+    risk,rr,targets,
+    mode:'ICT_EXTERNAL_LIQUIDITY_ONLY',
+    minimumTargetMove:MIN_TARGET_MOVE,
+    mainLiquidity:{label:primary.label,price:round(primary.price),role:'PRIMARY'},
+    primaryLiquidity:{label:primary.label,price:round(primary.price),distance:round(Math.abs(primary.price-entry),2)},
+    secondaryLiquidity:Math.abs(primary.price-secondary.price)>=1?{label:secondary.label,price:round(secondary.price),distance:round(Math.abs(secondary.price-entry),2)}:null
+  };
 }
 
 export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimeframes={}){
@@ -707,6 +722,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   confidence=clamp(confidence,0,95);
   const targets=plan.targets.map(x=>round(x.price));
   const labels=plan.targets.map(x=>x.label);
-  const drawOnLiquidity=labels[0]||'OPPOSING_LIQUIDITY';
-  return{...base,status:'CANDIDATE',candidateAction:side,side,strategy:setupType,confidence,contextBias:side,oneMinuteConfirmed,setupId:[side,setupType,sweep?.t??fvg?.t??now,round(entry),round(stop),drawOnLiquidity].join('|'),entry:round(entry),entryLow:round(entryLow),entryHigh:round(entryHigh),stopLoss:round(stop),target1:targets[0]??null,target2:targets[1]??null,target3:targets[2]??null,target4:targets[3]??null,targetLabels:labels,riskReward:round(plan.rr,2),ict:{setupType,mode:'ICT_NARRATIVE_ENGINE',phase,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),dealingRangeHigh:round(rangeHigh),dealingRangeLow:round(rangeLow),rangeContext,contextAligned,biasAligned,setupAligned,setupReady,executionReady,setupVotes,contextSequence,hasSweep,hasShift,hasDisplacement,hasCisd,hasIfvg,hasIfvgRetest,ltfReaction,htfLiquiditySweep,cisd,cisd5,cisd1,inverseFvg:inverseFvg?{...inverseFvg,low:round(inverseFvg.low),high:round(inverseFvg.high),mid:round(inverseFvg.mid)}:null,inverseFvg5,inverseFvg1,hasBos,triggerConfirmed,legSweep,sequence1,sequence5,firstShift,firstMssEvent,firstDisplacementEvent,firstTriggerEvent,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),shift1,shift5,shift15,contShift1,contShift5,continuationDisplacementEvent,sweep:sweep??sweep15,sweep15,sweep5,sweep1,displacement:hasDisplacement,mss:hasShift,bos:hasBos,bos15,bos5,bos1,dm15,dm5,dm1,orderBlock,poi,originFvg:fvg?{...fvg,low:round(fvg.low),high:round(fvg.high),mid:round(fvg.mid)}:null,entryMode:useDirectContinuation?'CONFIRMED_CONTINUATION':'ORIGIN_FVG_RETEST',directContinuation,useDirectContinuation,entryZoneAgeMinutes:fvg?round(zoneAgeMs/60000,1):null,minimumTargetMove:plan.minimumTargetMove,mainLiquidity:plan.mainLiquidity,drawOnLiquidity,pathConsumed:round(pathConsumed,2),proposedStopDistance:round(risk),maxStopDistanceUsd:round(maxStopDistanceUsd),stopDistanceAdvisory,atr1:round(atr1),atr5:round(atr5),atr15:round(atr15),stopBuffer:round(buffer),offSession},reason:'ICT NARRATIVE | '+phase+' | '+contextSequence+' | '+side+' via '+(useDirectContinuation?'CONFIRMED CONTINUATION':'ORIGIN FVG RETEST')+' from '+poi.type+' in '+rangeContext.location+' | PA '+priceAction.primary.pattern+' '+priceAction.primary.stage+(priceAction.primary.breakoutSide?' '+priceAction.primary.breakoutSide:'')+' | TA '+String(technicalRead?.indicators?.bias||'NEUTRAL')+' / '+String(technicalRead?.candle?.pattern||'NONE')+' | draw '+drawOnLiquidity+' '+round(targets[0])+' | remaining '+round(Math.abs(targets[0]-price),2)};
+  const targetRoles=plan.targets.map(x=>x.role||'EXTENSION');
+  const drawOnLiquidity=plan.primaryLiquidity?.label||labels[0]||'OPPOSING_LIQUIDITY';
+  return{...base,status:'CANDIDATE',candidateAction:side,side,strategy:setupType,confidence,contextBias:side,oneMinuteConfirmed,setupId:[side,setupType,sweep?.t??fvg?.t??now,round(entry),round(stop),drawOnLiquidity].join('|'),entry:round(entry),entryLow:round(entryLow),entryHigh:round(entryHigh),stopLoss:round(stop),target1:targets[0]??null,target2:targets[1]??null,target3:targets[2]??null,target4:targets[3]??null,targetLabels:labels,targetRoles,riskReward:round(plan.rr,2),ict:{setupType,mode:'ICT_NARRATIVE_ENGINE',phase,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),dealingRangeHigh:round(rangeHigh),dealingRangeLow:round(rangeLow),rangeContext,contextAligned,biasAligned,setupAligned,setupReady,executionReady,setupVotes,contextSequence,hasSweep,hasShift,hasDisplacement,hasCisd,hasIfvg,hasIfvgRetest,ltfReaction,htfLiquiditySweep,cisd,cisd5,cisd1,inverseFvg:inverseFvg?{...inverseFvg,low:round(inverseFvg.low),high:round(inverseFvg.high),mid:round(inverseFvg.mid)}:null,inverseFvg5,inverseFvg1,hasBos,triggerConfirmed,legSweep,sequence1,sequence5,firstShift,firstMssEvent,firstDisplacementEvent,firstTriggerEvent,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),shift1,shift5,shift15,contShift1,contShift5,continuationDisplacementEvent,sweep:sweep??sweep15,sweep15,sweep5,sweep1,displacement:hasDisplacement,mss:hasShift,bos:hasBos,bos15,bos5,bos1,dm15,dm5,dm1,orderBlock,poi,originFvg:fvg?{...fvg,low:round(fvg.low),high:round(fvg.high),mid:round(fvg.mid)}:null,entryMode:useDirectContinuation?'CONFIRMED_CONTINUATION':'ORIGIN_FVG_RETEST',directContinuation,useDirectContinuation,entryZoneAgeMinutes:fvg?round(zoneAgeMs/60000,1):null,minimumTargetMove:plan.minimumTargetMove,mainLiquidity:plan.mainLiquidity,primaryLiquidity:plan.primaryLiquidity,secondaryLiquidity:plan.secondaryLiquidity,drawOnLiquidity,pathConsumed:round(pathConsumed,2),proposedStopDistance:round(risk),maxStopDistanceUsd:round(maxStopDistanceUsd),stopDistanceAdvisory,atr1:round(atr1),atr5:round(atr5),atr15:round(atr15),stopBuffer:round(buffer),offSession},reason:'ICT NARRATIVE | '+phase+' | '+contextSequence+' | '+side+' via '+(useDirectContinuation?'CONFIRMED CONTINUATION':'ORIGIN FVG RETEST')+' from '+poi.type+' in '+rangeContext.location+' | PA '+priceAction.primary.pattern+' '+priceAction.primary.stage+(priceAction.primary.breakoutSide?' '+priceAction.primary.breakoutSide:'')+' | TA '+String(technicalRead?.indicators?.bias||'NEUTRAL')+' / '+String(technicalRead?.candle?.pattern||'NONE')+' | secondary '+String(plan.secondaryLiquidity?.label||labels[0]||'N/A')+' '+round(plan.secondaryLiquidity?.price??targets[0])+' | primary '+String(plan.primaryLiquidity?.label||drawOnLiquidity)+' '+round(plan.primaryLiquidity?.price??targets[0])};
 }
