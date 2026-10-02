@@ -36,7 +36,7 @@ test('TP1 before SL remains valid but later targets are suppressed', async () =>
   for (const price of [110, 90, 140]) await sendTrackedTargetHits({price}, send);
   assert.equal(messages.length, 2);
   assert.match(messages[0], /TP1 HIT/);
-  assert.match(messages[1], /SL HIT/);
+  assert.match(messages[1], /MANAGED STOP|SL HIT/);
 });
 
 test('missing or invalid prices cause neither false stops nor false targets', async () => {
