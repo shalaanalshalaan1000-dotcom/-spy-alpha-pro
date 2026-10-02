@@ -197,26 +197,29 @@ test('liquidity decision agent maps H4 H1 M15 and reserves M5 for confirmation',
   assert.equal(stack.telegramBrief.liquidityObjectives.executionTimeframe,'M5');
 });
 
-test('daily opportunity agent targets 1-3 qualified setups without forcing trades', () => {
+test('daily opportunity agent prefers 1-3 qualified setups but has no hard cap', () => {
   configure();
   process.env.AGENT_EXECUTION_ENABLED='false';
   process.env.GOLD_DAILY_QUALIFIED_MIN='1';
-  process.env.GOLD_DAILY_QUALIFIED_MAX='3';
+  process.env.GOLD_DAILY_QUALIFIED_PREFERRED_HIGH='3';
   resetGoldAgentMemory();
 
   const zero=orchestrateGoldAgents({...base,dailySignalCount:0});
   assert.equal(zero.agents.dailyOpportunity.state,'SEARCHING_FOR_MINIMUM');
   assert.equal(zero.agents.dailyOpportunity.target.min,1);
-  assert.equal(zero.agents.dailyOpportunity.target.max,3);
+  assert.equal(zero.agents.dailyOpportunity.target.preferredHigh,3);
+  assert.equal(zero.agents.dailyOpportunity.target.hardMax,null);
+  assert.equal(zero.agents.dailyOpportunity.hardCap,false);
   assert.equal(zero.agents.dailyOpportunity.forceTrade,false);
   assert.equal(zero.agents.dailyOpportunity.mayRelaxM5Confirmation,false);
 
   const two=orchestrateGoldAgents({...base,dailySignalCount:2});
   assert.equal(two.agents.dailyOpportunity.state,'OPEN_FOR_MORE_QUALIFIED_SETUPS');
-  assert.equal(two.agents.dailyOpportunity.remainingCapacity,1);
 
   const three=orchestrateGoldAgents({...base,dailySignalCount:3});
-  assert.equal(three.agents.dailyOpportunity.state,'TARGET_RANGE_MET');
-  assert.equal(three.agents.dailyOpportunity.remainingCapacity,0);
-  assert.equal(three.agents.dailyOpportunity.canExecute,false);
+  assert.equal(three.agents.dailyOpportunity.state,'OPEN_FOR_ADDITIONAL_QUALIFIED_SETUPS');
+
+  const five=orchestrateGoldAgents({...base,dailySignalCount:5});
+  assert.equal(five.agents.dailyOpportunity.state,'OPEN_FOR_ADDITIONAL_QUALIFIED_SETUPS');
+  assert.equal(five.agents.dailyOpportunity.canExecute,false);
 });
