@@ -58,4 +58,6 @@ source=source.replace(commandLoop,"  console.log('[telegram-xau-commands] webhoo
 }
 
 fs.writeFileSync(runtimeUrl, source, 'utf8');
-await import(`${runtimeUrl.href}?v=${Date.now()}`);
+const runtimeModule=await import(`${runtimeUrl.href}?v=${Date.now()}`);
+export const canSendSignal=runtimeModule.canSendSignal;
+export const targetMessage=runtimeModule.targetMessage;
