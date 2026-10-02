@@ -389,29 +389,28 @@ function liquidityDecisionAgent(source = {}, setup = {}, now = Date.now()) {
 
 function dailyOpportunityAgent(source = {}, now = Date.now()) {
   const minTarget=Math.max(1,Math.min(3,toNum(process.env.GOLD_DAILY_QUALIFIED_MIN)??1));
-  const maxTarget=Math.max(minTarget,Math.min(3,toNum(process.env.GOLD_DAILY_QUALIFIED_MAX)??3));
+  const preferredHigh=Math.max(minTarget,Math.min(3,toNum(process.env.GOLD_DAILY_QUALIFIED_PREFERRED_HIGH)??3));
   const current=Math.max(0,toNum(source.dailySignalCount ?? source.dailySignalNumber)??0);
   const remainingToMin=Math.max(0,minTarget-current);
-  const remainingCapacity=Math.max(0,maxTarget-current);
-  let state='TARGET_RANGE_MET';
+  let state='OPEN_FOR_ADDITIONAL_QUALIFIED_SETUPS';
   if(current<minTarget)state='SEARCHING_FOR_MINIMUM';
-  else if(current<maxTarget)state='OPEN_FOR_MORE_QUALIFIED_SETUPS';
+  else if(current<preferredHigh)state='OPEN_FOR_MORE_QUALIFIED_SETUPS';
   return {
     name:'DAILY_OPPORTUNITY_AGENT',
-    mode:'SOFT_FREQUENCY_TARGET',
-    target:{min:minTarget,max:maxTarget},
+    mode:'SOFT_FREQUENCY_TARGET_NO_HARD_CAP',
+    target:{min:minTarget,preferredHigh,hardMax:null},
     current,
     remainingToMin,
-    remainingCapacity,
     state,
     scanCadence:'EVERY_5_MINUTES',
+    hardCap:false,
     forceTrade:false,
     mayRelaxLiquidityHierarchy:false,
     mayRelaxM5Confirmation:false,
     mayRelaxConfidence:false,
     canCreateSignal:false,
     canExecute:false,
-    rule:'Aim to surface 1-3 qualified opportunities per trading day by continuous scanning; never invent or force a trade to satisfy the count.'
+    rule:'Aim for at least 1 qualified opportunity and preferably 1-3 per trading day, but continue accepting additional qualified setups beyond 3. Never invent or force a trade to satisfy the count.'
   };
 }
 
