@@ -88,7 +88,8 @@ function patchSiteSignalUi(source) {
   if(/TARGET WAIT|MAIN_TARGET_BELOW_MIN_R|TP1_TOO_CLOSE/.test(u))return 'لا توجد سيولة خارجية مناسبة تبعد 5$ أو أكثر';
   if(/USD_NEWS_BLACKOUT|NEWS RISK/.test(u))return 'فلتر الأخبار يمنع الدخول مؤقتًا';
    if(/ICT CONTEXT WAIT/.test(u))return 'السيولة مرصودة؛ ننتظر MSS/Displacement أو تأكيد بنيوي مكافئ قبل التنفيذ';
-   if(/WAITING_ENTRY_RANGE/.test(u)){const g=raw?.entryGuard||{};return Number.isFinite(Number(g.entryLow))&&Number.isFinite(Number(g.entryHigh))?'خطة ICT جاهزة — ننتظر السعر داخل نطاق '+Number(g.entryLow).toFixed(2)+' – '+Number(g.entryHigh).toFixed(2):'خطة ICT جاهزة — ننتظر السعر داخل نطاق الدخول';}\n   if(st==='CANDIDATE')return raw?.candidateLocked?'خطة ICT مثبتة — Entry / SL / Targets جاهزة؛ ننتظر تفعيل الدخول':(raw?.ict?.entryMode==='CONFIRMED_CONTINUATION'?'Continuation confirmed — ننتظر تفعيل الدخول الفعلي':'Origin FVG محددة؛ ننتظر رجوع السعر إلى منطقة الدخول');
+   if(/WAITING_ENTRY_RANGE/.test(u)){const g=raw?.entryGuard||{};return Number.isFinite(Number(g.entryLow))&&Number.isFinite(Number(g.entryHigh))?'خطة ICT جاهزة — ننتظر السعر داخل نطاق '+Number(g.entryLow).toFixed(2)+' – '+Number(g.entryHigh).toFixed(2):'خطة ICT جاهزة — ننتظر السعر داخل نطاق الدخول';}
+   if(st==='CANDIDATE')return raw?.candidateLocked?'خطة ICT مثبتة — Entry / SL / Targets جاهزة؛ ننتظر تفعيل الدخول':(raw?.ict?.entryMode==='CONFIRMED_CONTINUATION'?'Continuation confirmed — ننتظر تفعيل الدخول الفعلي':'Origin FVG محددة؛ ننتظر رجوع السعر إلى منطقة الدخول');
   return 'بانتظار MSS أو Displacement قوي ثم FVG/OB على 1m/5m';
  }
  async function refresh(){
@@ -104,34 +105,7 @@ function patchSiteSignalUi(source) {
    const cfScores=cf?.scores||{},cfSide=['BUY','SELL'].includes(cf?.selectedSide)?cf.selectedSide:side,cfScore=cfSide?Math.round(Number(cfScores?.[cfSide])||conf):conf,cfLead=Math.round(Number(cf?.lead)||0),biasLabel=active?(String(raw?.side||cfSide||'WAIT')+' LIVE'):(side?(side+' ICT WATCH'):'NEUTRAL / WAIT');
    const blocker=missing(raw,conf,min),keyCandle=raw?.importantCandles?.primary||cf?.importantCandles?.primary||null,conflictLevel=Number(raw?.conflict?.invalidationLevel),stopLevel=Number(raw?.stopLoss),proposedStop=Number(ict?.proposedStop),keyLow=Number(keyCandle?.low),keyHigh=Number(keyCandle?.high);let invalidation='بانتظار تثبيت مستوى بنيوي';if(Number.isFinite(stopLevel)&&stopLevel>0)invalidation='SL '+stopLevel.toFixed(2);else if(Number.isFinite(proposedStop)&&proposedStop>0)invalidation='Proposed SL '+proposedStop.toFixed(2)+' • distance '+(Number.isFinite(stopDistance)?stopDistance.toFixed(2):'—')+' USD / max '+maxStopDistance.toFixed(2)+' USD';else if(Number.isFinite(conflictLevel)&&conflictLevel>0)invalidation='M5 invalidation '+conflictLevel.toFixed(2);else if(side==='BUY'&&Number.isFinite(keyLow)&&keyLow>0)invalidation='M5 close < '+keyLow.toFixed(2);else if(side==='SELL'&&Number.isFinite(keyHigh)&&keyHigh>0)invalidation='M5 close > '+keyHigh.toFixed(2);
    set('goldCurrentBias',biasLabel+((active||status==='CANDIDATE')&&cfSide?' • '+cfScore+'/100':''));set('goldDecisionProgress',progress+'%');set('goldBlockingTrigger',blocker);set('goldDecisionInvalidation',invalidation);
-   const planVisible=active||status==='CANDIDATE',fmtUsd=v=>Number.isFinite(Number(v))&&Number(v)>0?'
-   set('goldSetupProgress',progress+'%');set('goldSetupSteps',checks.map(x=>x[0]+' '+(x[1]?'✓':'—')).join(' • '));set('goldMissingCondition',blocker);
-    set('goldConfidence',active?'ICT مكتمل — ENTRY ACTIVE':(status==='CANDIDATE'?(raw?.candidateLocked?'خطة ICT مثبتة — بانتظار التفعيل':(continuationReady?'ICT continuation confirmed — بانتظار التفعيل الفعلي':'ICT POI محددة — انتظار retracement')):(/STRUCTURAL STOP EXCEEDS/.test(String(raw?.reason||'').toUpperCase())?'WAIT — الوقف الهيكلي أوسع من الحد':'ICT sequence قيد المتابعة')));
-   const lot=raw?.lotSizing||{};set('goldLotSize',Number(lot.recommendedLot)>0?Number(lot.recommendedLot).toFixed(2)+' lot':'—');set('goldLotRisk',Number.isFinite(Number(lot.actualRiskUsd))?'Risk USD '+Number(lot.actualRiskUsd).toFixed(2)+' • SL '+Number(lot.stopDistance||0).toFixed(2):'يظهر بعد اعتماد SL');
-   const heat=cf?.liquidityMap||raw?.liquidityMap||{},ha=heat?.nearestAbove,hb=heat?.nearestBelow,heatPart=(z,arrow)=>z&&Number.isFinite(Number(z.price))?arrow+' '+Number(z.price).toFixed(2)+' ('+Math.round(Number(z.intensity)||0)+'%)':arrow+' —';set('goldLiquidityHeatmap',heatPart(ha,'↑')+' • '+heatPart(hb,'↓'));set('goldLiquidityHeatmapState',(heat?.mode||'COLLECTING')+' • '+(heat?.volumeAvailable?'TradingView candle volume':'price-action proxy')+' • NO L2/MBO');
-   set('goldIctDraw',ict?.drawOnLiquidity||raw?.targetLabels?.[0]||(side==='SELL'?'Sell-side external liquidity':'Buy-side external liquidity'));set('goldIctBias',(side?('Watch '+side+' • '):'')+'15m '+(ict?.dir15===1?'↑':ict?.dir15===-1?'↓':'—')+' • 1H '+(ict?.dir1===1?'↑':ict?.dir1===-1?'↓':'—')+' • '+String(ict?.session||'—'));set('goldPatternRead',(side||'—')+' • CISD '+(cisdReady?'✓':'—')+' • MSS '+(mssReady?'✓':'—')+' • Displacement '+(displacementReady?'✓':'—'));set('goldPatternState','1m/5m reaction after external liquidity sweep');const ifvgReady=Boolean(ict?.hasIfvg||ict?.inverseFvg),ifvgRetest=Boolean(ict?.hasIfvgRetest||ict?.inverseFvg?.retested),obReady=Boolean(ict?.orderBlock||matches(m1?.orderBlock)||matches(m5?.orderBlock));set('goldTechnicalRead','FVG '+(poiReady?'✓':'—')+' • iFVG '+(ifvgReady?'✓':'—')+' • OB '+(obReady?'✓':'—'));set('goldTechnicalState',(ifvgReady?('iFVG retest '+(ifvgRetest?'✓':'—')+' • '):'')+'POI is ICT context only; no indicator strategy');
-  }catch(e){set('goldMissingCondition','تعذر قراءة محرك الذهب الآن');}
- }
- (async function loop(){await refresh();setTimeout(loop,2000)})();
-})();
-</script>`;
-  if(!source.includes('goldLiveProgressPoller')) source=source.replace('</body>', liveProgressScript+'</body>');
-  // Server lifecycle is authoritative; never revive a browser-local trade.
-  source = source.replace('function lockGoldPlan(plan,price){', 'function lockGoldPlan(plan,price){if(plan?.serverOwned)return plan;');
-  return source;
-}
-
-fs.writeFileSync = function(path, data, ...args) {
-  const p = String(path);
-  if (!p.endsWith('/.runtime-server.mjs') && !p.endsWith('\\.runtime-server.mjs')) return previousWriteFileSync(path, data, ...args);
-  const isBuffer = Buffer.isBuffer(data);
-  const patched = patchSiteSignalUi(isBuffer ? data.toString('utf8') : String(data));
-  return previousWriteFileSync(path, isBuffer ? Buffer.from(patched, 'utf8') : patched, ...args);
-};
-
-syncBuiltinESMExports();
-await import('./gold-target-range-fix-start.js');
-+Number(v).toFixed(2):'—',rawEntry=Number(raw?.triggerPrice??raw?.entry),rawLo=Number(raw?.entryLow),rawHi=Number(raw?.entryHigh),rawSl=Number(raw?.stopLoss??ict?.proposedStop),rawT1=Number(raw?.target1),rawT2=Number(raw?.target2);
+   const planVisible=active||status==='CANDIDATE',fmtUsd=v=>Number.isFinite(Number(v))&&Number(v)>0?'$'+Number(v).toFixed(2):'—',rawEntry=Number(raw?.triggerPrice??raw?.entry),rawLo=Number(raw?.entryLow),rawHi=Number(raw?.entryHigh),rawSl=Number(raw?.stopLoss??ict?.proposedStop),rawT1=Number(raw?.target1),rawT2=Number(raw?.target2);
    if(planVisible){set('goldEntry',Number.isFinite(rawLo)&&Number.isFinite(rawHi)?fmtUsd(rawLo)+' — '+fmtUsd(rawHi):fmtUsd(rawEntry));set('goldActualEntry',active?fmtUsd(rawEntry):'—');set('goldActualEntryState',active?'✓ تم تفعيل الدخول':'الخطة جاهزة — لم يتفعّل الدخول بعد');set('goldTarget1',fmtUsd(rawT1));set('goldTarget2',fmtUsd(rawT2));if(Number.isFinite(rawSl)&&rawSl>0)set('goldInvalidation',fmtUsd(rawSl));}
    set('goldSetupProgress',progress+'%');set('goldSetupSteps',checks.map(x=>x[0]+' '+(x[1]?'✓':'—')).join(' • '));set('goldMissingCondition',blocker);
     set('goldConfidence',active?'ICT مكتمل — ENTRY ACTIVE':(status==='CANDIDATE'?(raw?.candidateLocked?'خطة ICT مثبتة — بانتظار التفعيل':(continuationReady?'ICT continuation confirmed — بانتظار التفعيل الفعلي':'ICT POI محددة — انتظار retracement')):(/STRUCTURAL STOP EXCEEDS/.test(String(raw?.reason||'').toUpperCase())?'WAIT — الوقف الهيكلي أوسع من الحد':'ICT sequence قيد المتابعة')));
