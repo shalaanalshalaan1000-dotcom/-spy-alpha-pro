@@ -112,8 +112,49 @@ test('all specialist agents feed the trading agent and Telegram brief', () => {
   assert.equal(trading.feed.market,'READY');
   assert.equal(trading.feed.setup,'CONFIRMED');
   assert.equal(trading.feed.risk,'PASS');
+  assert.equal(stack.agents.drawOnLiquidity.name,'DRAW_ON_LIQUIDITY_AGENT');
+  assert.equal(stack.agents.drawOnLiquidity.canCreateSignal,false);
+  assert.equal(stack.agents.drawOnLiquidity.canOverrideIctGate,false);
+  assert.equal(trading.feed.drawOnLiquidity,'MAPPED');
   assert.equal(trading.feed.research,'CLEAR');
   assert.equal(trading.feed.finalCheck,'PASS');
   assert.equal(stack.telegramBrief.title,'XAUUSD AGENT DESK');
   assert.equal(stack.telegramBrief.advisoryReady,true);
+});
+
+
+test('draw-on-liquidity maps nearest Secondary and strategic Primary without authorizing execution', () => {
+  configure();
+  process.env.AGENT_EXECUTION_ENABLED='false';
+  resetGoldAgentMemory();
+  const source={
+    ...base,
+    signalId:'dol-test',
+    target1:null,target2:null,target3:null,target4:null,
+    targetLabels:[],
+    ict:{
+      levels:{
+        pwh:4350,
+        pdh:4330,
+        asiaHigh:4310,
+        londonHigh:4320
+      },
+      legSweep:{name:'asiaLow',level:4290,liquidityClass:'EXTERNAL'},
+      hasSweep:true,
+      hasShift:true,
+      hasDisplacement:true,
+      retest:true
+    }
+  };
+  const stack=orchestrateGoldAgents(source);
+  const dol=stack.agents.drawOnLiquidity;
+  assert.equal(dol.secondaryLiquidity?.label,'ASIA_HIGH');
+  assert.equal(dol.secondaryLiquidity?.level,4310);
+  assert.equal(dol.primaryLiquidity?.label,'PWH');
+  assert.equal(dol.primaryLiquidity?.level,4350);
+  assert.equal(dol.canCreateSignal,false);
+  assert.equal(dol.canOverrideIctGate,false);
+  assert.equal(stack.telegramBrief.liquidityObjectives.secondary?.level,4310);
+  assert.equal(stack.telegramBrief.liquidityObjectives.primary?.level,4350);
+  assert.equal(stack.decision.executable,false);
 });
