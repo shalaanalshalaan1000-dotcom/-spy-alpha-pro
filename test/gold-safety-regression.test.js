@@ -51,3 +51,23 @@ test('session breakout logic only uses completed M15 candles and suppresses stal
  assert.match(telegramBot,/closedBarIsFresh\(m15,900000,now\)/);
  assert.match(telegramBot,/TELEGRAM_SESSION_ALERT_FRESH_MS\|\|180_000/);
 });
+
+
+test('ICT-only gold setups cannot originate from internal liquidity sweeps',()=>{
+ const ictSource=fs.readFileSync(new URL('../gold-ict-swing-model.js',import.meta.url),'utf8');
+ assert.doesNotMatch(ictSource,/localSellSide|localBuySide/);
+ assert.match(ictSource,/ICT_EXTERNAL_LIQUIDITY_ONLY/);
+ assert.match(ictSource,/pwh/);
+ assert.match(ictSource,/pwl/);
+ assert.match(ictSource,/EXTERNAL_LIQUIDITY_KEYS/);
+});
+
+test('confluence wrapper and Telegram require the external ICT contract',()=>{
+ const confluenceSource=fs.readFileSync(new URL('../gold-confluence-model.js',import.meta.url),'utf8');
+ const telegramV3=fs.readFileSync(new URL('../telegram-xau-bot-v3.js',import.meta.url),'utf8');
+ assert.match(confluenceSource,/ICT_ONLY_EXTERNAL_LIQUIDITY/);
+ assert.match(confluenceSource,/externalSweepValid/);
+ assert.match(confluenceSource,/analyzeIctModel\(samples,rawPrice,now,higherTimeframes\)/);
+ assert.match(telegramV3,/ICT_ONLY_EXTERNAL_LIQUIDITY/);
+ assert.match(telegramV3,/liquidityClass!=='EXTERNAL'/);
+});
