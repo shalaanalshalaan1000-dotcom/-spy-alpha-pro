@@ -320,6 +320,87 @@ function amdSessionAgent(source = {}, session = {}, market = {}, setup = {}, now
 }
 
 
+function drawOnLiquidityAgent(source = {}, setup = {}, session = {}, now = Date.now()) {
+  const side = validSide(setup?.side) || sourceSide(source);
+  const entry = toNum(source.entry ?? source.price);
+  const ict = ictStateOf(source);
+  const levels = ict?.levels || source?.liquidityContext?.levels || {};
+  const sessionRoot = source?.sessionLevels?.sessions || session?.data?.sessions || {};
+  const candidates = [];
+
+  const priorityOf = label => {
+    const x=String(label||'').toUpperCase();
+    if (/^PW[HL]$/.test(x)) return 0;
+    if (/^PD[HL]$/.test(x) || /H4.*SWING/.test(x)) return 1;
+    if (/ASIA|TOKYO|LONDON|NEW[_ ]?YORK|NY[_ ]?AM/.test(x)) return 2;
+    return 3;
+  };
+  const add = (label, value, liquidityClass='EXTERNAL', sourceName='ICT') => {
+    const level=toNum(value);
+    if (!side || entry == null || level == null) return;
+    if (side==='BUY' ? level<=entry : level>=entry) return;
+    if (candidates.some(x => Math.abs(x.level-level) <= 0.10)) return;
+    candidates.push({
+      label:String(label||'EXTERNAL_LIQUIDITY').toUpperCase(),
+      level:round(level,3),
+      distance:round(Math.abs(level-entry),2),
+      liquidityClass,
+      source:sourceName,
+      priority:priorityOf(label)
+    });
+  };
+
+  add('PWH',levels.pwh); add('PWL',levels.pwl);
+  add('PDH',levels.pdh); add('PDL',levels.pdl);
+  add('H4_SWING_HIGH',levels.h4SwingHigh); add('H4_SWING_LOW',levels.h4SwingLow);
+  add('ASIA_HIGH',levels.asiaHigh); add('ASIA_LOW',levels.asiaLow);
+  add('LONDON_HIGH',levels.londonHigh); add('LONDON_LOW',levels.londonLow);
+  add('NY_AM_HIGH',levels.nyHigh); add('NY_AM_LOW',levels.nyLow);
+
+  for (const row of Object.values(sessionRoot || {})) {
+    add((row?.label||row?.id||'SESSION')+'_HIGH',row?.high,'EXTERNAL','SESSION_LEVELS');
+    add((row?.label||row?.id||'SESSION')+'_LOW',row?.low,'EXTERNAL','SESSION_LEVELS');
+  }
+
+  const providedLabels=Array.isArray(source?.targetLabels)?source.targetLabels:[];
+  [1,2,3,4].forEach((i,idx)=>add(providedLabels[idx]||('TARGET_'+i),source?.['target'+i],'EXTERNAL','MODEL_TARGET'));
+
+  const byDistance=[...candidates].sort((a,b)=>a.distance-b.distance||a.priority-b.priority);
+  const secondary=byDistance[0]||null;
+  const byStrategic=[...candidates].sort((a,b)=>a.priority-b.priority||b.distance-a.distance);
+  const primary=byStrategic.find(x=>!secondary||Math.abs(x.level-secondary.level)>0.10)||secondary||null;
+  const secondaryDistinct=secondary&&primary&&Math.abs(secondary.level-primary.level)<=0.10?null:secondary;
+  const friday=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Riyadh',weekday:'short'}).format(new Date(now))==='Fri';
+  const fridayPrimaryMaxDistance=Math.max(1,toNum(process.env.TELEGRAM_FRIDAY_PRIMARY_MAX_DISTANCE_USD)??25);
+  const primaryPractical=Boolean(primary && (!friday || primary.distance<=fridayPrimaryMaxDistance));
+
+  const references=[];
+  const pushReference=(type,value)=>{
+    const v=toNum(value);
+    if(v!=null) references.push({type,level:round(v,3)});
+  };
+  pushReference('ORIGIN_FVG_MID',ict?.originFvg?.mid);
+  pushReference('INVERSE_FVG_MID',ict?.inverseFvg?.mid);
+  pushReference('NWOG_MID',source?.nwog?.mid ?? source?.liquidityContext?.nwog?.mid);
+
+  return {
+    name:'DRAW_ON_LIQUIDITY_AGENT',
+    mode:'OBJECTIVES_ONLY',
+    side:side||'WAIT',
+    entry:round(entry,3),
+    secondaryLiquidity:secondaryDistinct,
+    primaryLiquidity:primary,
+    primaryPractical,
+    friday,
+    fridayPrimaryMaxDistanceUsd:round(fridayPrimaryMaxDistance,0),
+    candidates:byDistance.slice(0,8),
+    references,
+    canCreateSignal:false,
+    canOverrideIctGate:false,
+    rule:'Secondary is the nearest valid external objective; Primary is the higher-priority strategic external draw. FVG/NWOG are references only and never create a trade.'
+  };
+}
+
 function stateEngineAgent(source = {}, market = {}) {
   const bid = toNum(source.bid);
   const ask = toNum(source.ask);
@@ -534,6 +615,7 @@ function tradingAgent({
   tradeManager,
   session,
   amd,
+  drawOnLiquidity,
   research,
   journal,
   selfImprovement,
@@ -574,6 +656,7 @@ function tradingAgent({
     session: session?.detectedFromSetup ? 'ACTIVE_CONTEXT' : 'CONTEXT',
     amd: amd?.phase || 'WAIT',
     amdAlignment: amd?.alignedWithSetup === true ? 'ALIGNED' : amd?.alignedWithSetup === false ? 'CONFLICT' : 'UNCONFIRMED',
+    drawOnLiquidity: drawOnLiquidity?.primaryLiquidity ? 'MAPPED' : 'WAIT',
     research: research?.blockEntries ? 'VETO' : 'CLEAR',
     tradeManager: tradeManager?.action || 'OBSERVE',
     finalCheck: finalCheck?.pass ? 'PASS' : 'HOLD',
@@ -590,7 +673,12 @@ function tradingAgent({
     executable,
     feed,
     blockers,
-    protection: tradeManager?.suggestedProtection || null
+    protection: tradeManager?.suggestedProtection || null,
+    liquidityObjectives: {
+      secondary: drawOnLiquidity?.secondaryLiquidity || null,
+      primary: drawOnLiquidity?.primaryLiquidity || null,
+      primaryPractical: drawOnLiquidity?.primaryPractical ?? null
+    }
   };
 
   return {
@@ -629,6 +717,7 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
   const research = researchAgent(source);
   const session = sessionAgent(source);
   const amd = amdSessionAgent(source, session, market, setup, now);
+  const drawOnLiquidity = drawOnLiquidityAgent(source, setup, session, now);
   const stateEngine = stateEngineAgent(source, market);
   const brain = brainAgent(source, setup, stateEngine, research);
   const risk = hardRiskLayer(source, stateEngine, setup, baseRisk);
@@ -639,13 +728,13 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
   const selfImprovement = selfImprovementAgent();
   const trading = tradingAgent({
     brain, reflex, stateEngine, market, setup, risk, tradeManager,
-    session, amd, research, journal, selfImprovement, finalCheck
+    session, amd, drawOnLiquidity, research, journal, selfImprovement, finalCheck
   });
 
   return {
     architecture: 'GOLD_AGENT_STACK_V3_TRADING_HUB',
     layers: {
-      SPECIALISTS: 'Market + setup + state + session + AMD context + research + risk + journal + review',
+      SPECIALISTS: 'Market + setup + state + session + AMD context + draw-on-liquidity + research + risk + journal + review',
       TRADING_AGENT: 'Single consolidated consumer and decision publisher',
       EXECUTION: 'Deterministic permission gate; manual MT5 remains possible when execution permission is off'
     },
@@ -662,7 +751,7 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
     },
     decisionSchema: schema,
     telegramBrief: trading.telegramBrief,
-    agents: {brain, reflex, stateEngine, market, setup, risk, tradeManager, session, amd, research, journal, selfImprovement, finalCheck, trading},
+    agents: {brain, reflex, stateEngine, market, setup, risk, tradeManager, session, amd, drawOnLiquidity, research, journal, selfImprovement, finalCheck, trading},
     updatedAt: new Date(now).toISOString()
   };
 }
