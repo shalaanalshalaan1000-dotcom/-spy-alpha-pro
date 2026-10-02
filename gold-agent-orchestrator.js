@@ -22,8 +22,23 @@ function pushEvent(type, payload = {}, now = Date.now()) {
   memory.events = memory.events.slice(0, 40);
 }
 
+function ictStateOf(source = {}) {
+  return source?.ict || source?.liquidityContext || {};
+}
+
+function sweepSideOf(source = {}) {
+  const ict = ictStateOf(source);
+  const explicit = validSide(ict?.watchSide);
+  if (explicit) return explicit;
+  const sweep = ict?.legSweep || ict?.sweep || source?.confluence?.liquidity?.externalSweep || null;
+  const name = String(sweep?.name || '');
+  if (/High|pdh|pwh|h4SwingHigh/i.test(name)) return 'SELL';
+  if (/Low|pdl|pwl|h4SwingLow/i.test(name)) return 'BUY';
+  return null;
+}
+
 function sourceSide(source = {}) {
-  return validSide(source.action) || validSide(source.candidateAction) || validSide(source.side);
+  return validSide(source.action) || validSide(source.candidateAction) || validSide(source.side) || sweepSideOf(source);
 }
 
 function inferCondition(source = {}, names = []) {
@@ -41,16 +56,17 @@ function inferCondition(source = {}, names = []) {
 function marketAgent(source = {}, now = Date.now()) {
   const mtf = source.multiTimeframe || source?.confluence?.multiTimeframe || {};
   const reads = mtf.reads || {};
-  const side = validSide(mtf.side) || sourceSide(source);
+  const ict = ictStateOf(source);
+  const side = sourceSide(source) || validSide(mtf.side);
   const quoteAgeMs = toNum(source.quoteAgeMs);
   const fresh = source.liveFeedFresh === true || (quoteAgeMs != null && quoteAgeMs >= 0 && quoteAgeMs <= 20_000);
   const degraded = Boolean(source.degraded);
   const news = source.newsRisk || {};
   const blockedByNews = Boolean(news.blockEntries);
-  const liquidity = inferCondition(source, ['liquidity', 'sweep', 'session low', 'session high']);
-  const mss = inferCondition(source, ['mss', 'choch', 'structure shift']);
-  const displacement = inferCondition(source, ['displacement', 'impulse']);
-  const retest = inferCondition(source, ['retest', 'fvg', 'order block', 'ob']);
+  const liquidity = Boolean(ict?.hasSweep || ict?.legSweep || ict?.sweep || source?.confluence?.liquidity?.externalSweep) || inferCondition(source, ['liquidity', 'sweep', 'session low', 'session high']);
+  const mss = Boolean(ict?.hasShift || ict?.mss || ict?.firstMssEvent) || inferCondition(source, ['mss', 'choch', 'structure shift']);
+  const displacement = Boolean(ict?.hasDisplacement || ict?.displacement || ict?.firstDisplacementEvent) || inferCondition(source, ['displacement', 'impulse']);
+  const retest = Boolean(ict?.hasIfvgRetest || ict?.retest || ict?.inverseFvg?.retested) || inferCondition(source, ['retest']);
 
   return {
     name: 'MARKET_AGENT',
