@@ -274,7 +274,48 @@ function originFvg(m1,m5,side,afterT){
   const rows=[firstFvgAfter(m1,side,afterT),firstFvgAfter(m5,side,afterT)].filter(Boolean).sort((a,b)=>a.t-b.t);
   return rows[0]??null;
 }
-const EXTERNAL_LIQUIDITY_KEYS=new Set(['pdh','pdl','pwh','pwl','asiaHigh','asiaLow','londonHigh','londonLow','nyHigh','nyLow']);
+// CISD approximation: after a liquidity sweep, delivery changes when price closes through
+// the open of the last opposite candle that delivered price into the swept liquidity.
+function cisdAfter(bars,side,sweep){
+  if(!sweep)return null;
+  const x=bars.slice(-120); if(x.length<6)return null;
+  let sweepIndex=-1;
+  for(let i=x.length-1;i>=0;i--){if(x[i].t<=sweep.t){sweepIndex=i;break;}}
+  if(sweepIndex<1)return null;
+  let anchor=null;
+  for(let i=sweepIndex;i>=Math.max(0,sweepIndex-8);i--){
+    const b=x[i],bear=b.close<b.open,bull=b.close>b.open;
+    if((side==='BUY'&&bear)||(side==='SELL'&&bull)){anchor=b;break;}
+  }
+  if(!anchor)return null;
+  const level=anchor.open;
+  const confirm=x.slice(sweepIndex+1).find(b=>side==='BUY'?b.close>level:b.close<level);
+  return{confirmed:Boolean(confirm),side,level:round(level),anchorT:anchor.t,confirmT:confirm?.t??null};
+}
+// iFVG approximation: an opposing FVG that is closed through after the sweep, then respected
+// on a later retest. This is treated as LTF reaction/confirmation, never as a standalone entry.
+function inverseFvgAfterSweep(bars,side,sweep){
+  if(!sweep)return null;
+  const x=bars.slice(-120); if(x.length<8)return null;
+  let sweepIndex=-1;
+  for(let i=x.length-1;i>=0;i--){if(x[i].t<=sweep.t){sweepIndex=i;break;}}
+  if(sweepIndex<2)return null;
+  const candidates=[];
+  for(let i=Math.max(2,sweepIndex-24);i<=sweepIndex;i++){
+    const a=x[i-2],c=x[i];
+    if(side==='BUY'&&c.high<a.low)candidates.push({low:c.high,high:a.low,mid:(c.high+a.low)/2,t:c.t,type:'BULL_iFVG'});
+    if(side==='SELL'&&c.low>a.high)candidates.push({low:a.high,high:c.low,mid:(a.high+c.low)/2,t:c.t,type:'BEAR_iFVG'});
+  }
+  for(let j=candidates.length-1;j>=0;j--){
+    const gap=candidates[j],after=x.filter(b=>b.t>sweep.t);
+    const flip=after.find(b=>side==='BUY'?b.close>gap.high:b.close<gap.low);
+    if(!flip)continue;
+    const retest=after.find(b=>b.t>flip.t&&b.low<=gap.high&&b.high>=gap.low&&(side==='BUY'?b.close>=gap.mid:b.close<=gap.mid));
+    return{...gap,confirmed:true,flipT:flip.t,retested:Boolean(retest),retestT:retest?.t??null};
+  }
+  return null;
+}
+const EXTERNAL_LIQUIDITY_KEYS=new Set(['pdh','pdl','pwh','pwl','h4SwingHigh','h4SwingLow','asiaHigh','asiaLow','londonHigh','londonLow','nyHigh','nyLow']);
 function externalLiquidityEntries(levels={}){
   return Object.entries(levels).filter(([key,value])=>EXTERNAL_LIQUIDITY_KEYS.has(key)&&Number.isFinite(value));
 }
@@ -469,10 +510,13 @@ function targetPlan(side,entry,stop,levels,m1,m5,m15,h1,h4,atr1,atr5){
 export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimeframes={}){
   const price=n(rawPrice),m1all=minuteBars(samples),m5all=aggregate(m1all,5),m15all=aggregate(m1all,15),h1all=aggregate(m1all,60),h4all=aggregate(m1all,240);
   const m1=closed(m1all,1,now),m5=closed(m5all,5,now),m15=closed(m15all,15,now),h1=closed(h1all,60,now),h4=closed(h4all,240,now);
-  const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'ICT_TOP_DOWN',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',ict:null,sampleCount:samples.length,modelTimeframes:{externalLiquidity:'PWH/PWL + PDH/PDL + Asia/London/New York High/Low',context:'W1/D1 + 4H/1H',bias:'15m context only',setup:'external liquidity event -> MSS/displacement -> FVG/OB',execution:'1m/5m confirmation only',timing:'1m'},priceAction:null,technicalRead:null,updatedAt:new Date(now).toISOString(),reason:'ICT engine is collecting enough HTF history'};
+  const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'ICT_TOP_DOWN',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',ict:null,sampleCount:samples.length,modelTimeframes:{externalLiquidity:'PWH/PWL + PDH/PDL + confirmed 4H swing + Asia/London/New York High/Low',context:'W1/D1 + 4H/1H',bias:'15m context only',setup:'external liquidity sweep -> LTF CISD/MSS/displacement -> FVG/iFVG/OB -> retest',execution:'15m context + 1m/5m reaction/confirmation',timing:'1m'},priceAction:null,technicalRead:null,updatedAt:new Date(now).toISOString(),reason:'ICT engine is collecting enough HTF history'};
   if(price==null||m1.length<120||m5.length<30||m15.length<20||h1.length<12||h4.length<3)return base;
 
   const levels=sessionLevels(m15,now,higherTimeframes),session=activeSession(now),dir4=structureDirection(h4),dir1=structureDirection(h1),dir15=structureDirection(m15);
+  const h4Pivots=pivots(h4.slice(-60),2,2);
+  levels.h4SwingHigh=h4Pivots.highs.at(-1)?.price??null;
+  levels.h4SwingLow=h4Pivots.lows.at(-1)?.price??null;
   const rangeRows=h1.slice(-24),rangeHigh=hi(rangeRows),rangeLow=lo(rangeRows),equilibrium=Number.isFinite(rangeHigh)&&Number.isFinite(rangeLow)?(rangeHigh+rangeLow)/2:null;
   const location=equilibrium==null?'UNKNOWN':price<=equilibrium?'DISCOUNT':'PREMIUM';
   const atr1=atr(m1,14)||.25,atr5=atr(m5,14)||1,atr15=atr(m15,14)||2;
@@ -494,7 +538,11 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
     const sweep=seqPick?.sweep??null,sweep5=sweep?.tf===5?sweep:null,sweep1=sweep?.tf===1?sweep:null;
     const namedSweep=Boolean(sweep?.liquidityClass==='EXTERNAL'),freshSweep=Boolean(sweep&&now-sweep.t>=0&&now-sweep.t<=120*60_000);
     const seq5=seqPick?.seq5??null,seq1=seqPick?.seq1??null,firstMss=seqPick?.firstMss??null,firstDisplacement=seqPick?.firstDisplacement??null;
-    const triggerEvent=[firstMss,firstDisplacement].filter(Boolean).sort((a,b)=>(a.closeT??a.t)-(b.closeT??b.t))[0]??null;
+    const cisd5=cisdAfter(m5,side,sweep),cisd1=cisdAfter(m1,side,sweep);
+    const cisd=[cisd5,cisd1].filter(x=>x?.confirmed).sort((a,b)=>(a.confirmT||Infinity)-(b.confirmT||Infinity))[0]??null;
+    const ifvg5=inverseFvgAfterSweep(m5,side,sweep),ifvg1=inverseFvgAfterSweep(m1,side,sweep);
+    const ifvg=[ifvg5,ifvg1].filter(Boolean).sort((a,b)=>Number(b.retested)-Number(a.retested)||(a.flipT||Infinity)-(b.flipT||Infinity))[0]??null;
+    const triggerEvent=[firstMss,firstDisplacement,cisd?.confirmed?{t:cisd.confirmT,closeT:cisd.confirmT,cisd:true}:null].filter(Boolean).sort((a,b)=>(a.closeT??a.t)-(b.closeT??b.t))[0]??null;
     const sequenceAt=triggerEvent?(triggerEvent.closeT??triggerEvent.t):null;
     const origin=sequenceAt!=null?originFvg(m1,m5,side,sequenceAt-1):null;
     // Relaxed ICT trigger: after a valid liquidity sweep, MSS OR strong displacement is enough
@@ -505,8 +553,8 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
     const directionalBreak=Boolean(dm.mss||dm.displacement);
     const pa=priceAction.m5,patternAligned=pa.confirmed&&pa.breakoutSide===side,patternConflict=pa.confirmed&&pa.breakoutSide&&pa.breakoutSide!==side,patternWatch=!pa.confirmed&&pa.bias===side&&['FALLING_WEDGE','RISING_WEDGE'].includes(pa.pattern);
     const patternBonus=patternAligned?18:patternWatch?4:0,patternPenalty=patternConflict?-20:0;
-    const score=(freshSequence?70:0)+(freshReversal?20:0)+(namedSweep?12:0)+(freshSweep?18:0)+(freshBos?16:0)+(directionalBreak?12:0)+(fvg?6:0)+(dir15===sign?3:0)+(dir1===sign?1:0)+patternBonus+patternPenalty;
-    return{side,sign,fvg,sweep,sweep5,sweep1,namedSweep,freshSweep,seq5,seq1,firstMss,firstDisplacement,triggerEvent,sequenceAt,origin,freshSequence,freshReversal,dm,bos,freshBos,directionalBreak,patternBonus,patternPenalty,score};
+    const score=(freshSequence?70:0)+(freshReversal?20:0)+(namedSweep?12:0)+(freshSweep?18:0)+(freshBos?16:0)+(directionalBreak?12:0)+(fvg?6:0)+(cisd?10:0)+(ifvg?.confirmed?6:0)+(ifvg?.retested?8:0)+(dir15===sign?3:0)+(dir1===sign?1:0)+patternBonus+patternPenalty;
+    return{side,sign,fvg,sweep,sweep5,sweep1,namedSweep,freshSweep,seq5,seq1,firstMss,firstDisplacement,cisd,cisd5,cisd1,ifvg,ifvg5,ifvg1,triggerEvent,sequenceAt,origin,freshSequence,freshReversal,dm,bos,freshBos,directionalBreak,patternBonus,patternPenalty,score};
   };
   const buy5Preview=build5Preview('BUY'),sell5Preview=build5Preview('SELL');
   const reversalWinner=[buy5Preview,sell5Preview].filter(x=>x.freshReversal).sort((a,b)=>(b.sequenceAt||0)-(a.sequenceAt||0)||(b.sweep?.t||0)-(a.sweep?.t||0))[0]??null;
@@ -538,11 +586,19 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const firstShift=shiftEvents[0]??null;
   const firstMssEvent=sweepState?.firstMss??null;
   const firstDisplacementEvent=sweepState?.firstDisplacement??null;
+  const cisd5=cisdAfter(m5,side,legSweep),cisd1=cisdAfter(m1,side,legSweep);
+  const cisd=[cisd5,cisd1].filter(x=>x?.confirmed).sort((a,b)=>(a.confirmT||Infinity)-(b.confirmT||Infinity))[0]??null;
+  const inverseFvg5=inverseFvgAfterSweep(m5,side,legSweep),inverseFvg1=inverseFvgAfterSweep(m1,side,legSweep);
+  const inverseFvg=[inverseFvg5,inverseFvg1].filter(Boolean).sort((a,b)=>Number(b.retested)-Number(a.retested)||(a.flipT||Infinity)-(b.flipT||Infinity))[0]??null;
   const hasShift=Boolean(firstMssEvent);
   const hasDisplacement=Boolean(firstDisplacementEvent);
-  const triggerEvents=[firstMssEvent,firstDisplacementEvent].filter(Boolean).sort((a,b)=>(a.closeT??a.t)-(b.closeT??b.t));
+  const hasCisd=Boolean(cisd?.confirmed),hasIfvg=Boolean(inverseFvg?.confirmed),hasIfvgRetest=Boolean(inverseFvg?.retested);
+  const ltfReaction=Boolean(hasShift||hasDisplacement||hasCisd);
+  const triggerEvents=[firstMssEvent,firstDisplacementEvent,cisd?.confirmed?{t:cisd.confirmT,closeT:cisd.confirmT,cisd:true}:null].filter(Boolean).sort((a,b)=>(a.closeT??a.t)-(b.closeT??b.t));
   const firstTriggerEvent=triggerEvents[0]??null;
-  const triggerConfirmed=Boolean(hasSweep&&(hasShift||hasDisplacement));
+  // CISD alone is context, not an entry. It can confirm the second video path only when
+  // an iFVG has flipped and been respected on retest.
+  const triggerConfirmed=Boolean(hasSweep&&(hasShift||hasDisplacement||(hasCisd&&hasIfvgRetest)));
   // Relaxed chronological sequence: liquidity sweep -> MSS OR strong displacement -> first NEW FVG/OB.
   // H1/M15 and killzones remain context only; they do not veto the entry trigger.
   const sequenceShiftT=triggerConfirmed&&firstTriggerEvent?(firstTriggerEvent.closeT??firstTriggerEvent.t):null;
@@ -555,23 +611,29 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const continuationDisplacementEvent=contShiftEvents.find(x=>x.displacement)??null;
   const contDisplacement=Boolean(continuationDisplacementEvent);
   const reversalFvg=reversalAnchor!=null?originFvg(m1,m5,side,reversalAnchor):null;
+  const reversalPoiFvg=reversalFvg??(hasIfvgRetest?inverseFvg:null);
   // Continuation FVG must also be created after the post-BOS displacement, never before it.
   const continuationFvg=continuationDisplacementEvent?originFvg(m1,m5,side,continuationDisplacementEvent.t):null;
   const sequenceConfirmed=triggerConfirmed;
   const structureAligned=Boolean(setupAligned||biasAligned||contextAligned);
-  const reversal=Boolean(reversalFvg&&triggerConfirmed);
+  const htfLiquiditySweep=Boolean(legSweep&&/^(pwh|pwl|pdh|pdl|h4SwingHigh|h4SwingLow)$/i.test(String(legSweep.name||'')));
+  const reversal=Boolean(reversalPoiFvg&&triggerConfirmed);
   const continuation=Boolean(continuationFvg&&structureAligned&&hasBos&&triggerConfirmed);
   // Do not force a full BOS after the sweep trigger when momentum has already left the origin.
   // A confirmed sweep + (MSS OR displacement) + fresh origin FVG may arm a controlled continuation;
   // the later path-consumed guard still blocks chasing once too much of the move is gone.
   const directContinuation=Boolean(triggerConfirmed&&structureAligned&&(hasBos||reversalFvg));
   const executionReady=Boolean(reversal||continuation||directContinuation);
-  const selectedFvg=reversal?reversalFvg:(continuation?continuationFvg:(reversalFvg??continuationFvg??fvg1??fvg5??null));
-  const contextSequence=reversal?'EXTERNAL_LIQUIDITY_SWEEP -> MSS_OR_DISPLACEMENT -> ORIGIN_FVG_OB':continuation?'EXTERNAL_LIQUIDITY_EVENT -> BOS -> MSS_OR_DISPLACEMENT -> FVG_OB':'EXTERNAL_LIQUIDITY_SWEEP -> MSS_OR_DISPLACEMENT -> CONFIRMED_CONTINUATION';
+  const selectedFvg=reversal?reversalPoiFvg:(continuation?continuationFvg:(reversalPoiFvg??continuationFvg??fvg1??fvg5??null));
+  const contextSequence=htfLiquiditySweep&&hasIfvgRetest
+    ?'HTF_EXTERNAL_LIQUIDITY_SWEEP -> LTF_REACTION_CISD_MSS -> iFVG_FLIP -> RETEST_REACTION'
+    :reversal?'EXTERNAL_LIQUIDITY_SWEEP -> CISD_MSS_OR_DISPLACEMENT -> ORIGIN_FVG_OB'
+    :continuation?'EXTERNAL_LIQUIDITY_EVENT -> BOS -> CISD_MSS_OR_DISPLACEMENT -> FVG_OB'
+    :'EXTERNAL_LIQUIDITY_SWEEP -> CISD_MSS_OR_DISPLACEMENT -> CONFIRMED_CONTINUATION';
 
   if(!executionReady)return{...base,status:'WAIT',candidateAction:side,confidence:0,contextBias:side,oneMinuteConfirmed,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,contextAligned,biasAligned,setupAligned,setupVotes,setupReady,fvg15,sweep15,dm15,fvg5,sweep5,dm5,bos5,fvg1,sweep1,dm1,bos1,bos15,legSweep,sequence1,sequence5,shift1,shift5,shift15,firstMssEvent,firstDisplacementEvent,firstTriggerEvent,triggerConfirmed,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),hasSweep,hasShift,hasDisplacement,hasBos,contextSequence},reason:'ICT EXTERNAL WAIT: external liquidity event is preserved; waiting for MSS OR strong displacement, then the first valid Origin FVG/OB entry'};
 
-  const setupType=reversal?'ICT_ORIGIN_REVERSAL':continuation?'ICT_ORIGIN_CONTINUATION':'ICT_CONFIRMED_CONTINUATION';
+  const setupType=htfLiquiditySweep&&hasIfvgRetest?'ICT_HTF_SWEEP_IFVG_RETEST':reversal?'ICT_ORIGIN_REVERSAL':continuation?'ICT_ORIGIN_CONTINUATION':'ICT_CONFIRMED_CONTINUATION';
   const fvg=selectedFvg,shiftT=reversal?firstShift?.t:continuationAnchor;
   const orderBlock=orderBlockBeforeShift(reversal?m1:m5,side,shiftT);
   const rangeContext=dealingRangeContext(h1,h4,price,side);
@@ -605,6 +667,10 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   if(lateMove)return{...base,status:'WAIT',candidateAction:side,contextBias:side,ict:{dir4,dir1,dir15,levels,session,phase,contextSequence,legSweep,sequence1,sequence5,firstShift,orderBlock,poi,rangeContext,mainLiquidity:plan.mainLiquidity,pathConsumed:round(pathConsumed,2)},reason:'ICT NO CHASE: more than half of the path to external liquidity is already consumed; wait for a fresh liquidity event / new dealing range'};
   let confidence=55;
   if(sequenceConfirmed)confidence+=6;
+  if(hasCisd)confidence+=5;
+  if(hasIfvg)confidence+=4;
+  if(hasIfvgRetest)confidence+=6;
+  if(htfLiquiditySweep)confidence+=4;
   if(directContinuation)confidence+=2;
   // Confidence is driven primarily by the M5 execution sequence. M15/H1 are context bonuses only.
   if(sweep5)confidence+=12;
@@ -639,5 +705,5 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const targets=plan.targets.map(x=>round(x.price));
   const labels=plan.targets.map(x=>x.label);
   const drawOnLiquidity=labels[0]||'OPPOSING_LIQUIDITY';
-  return{...base,status:'CANDIDATE',candidateAction:side,side,strategy:setupType,confidence,contextBias:side,oneMinuteConfirmed,setupId:[side,setupType,sweep?.t??fvg?.t??now,round(entry),round(stop),drawOnLiquidity].join('|'),entry:round(entry),entryLow:round(entryLow),entryHigh:round(entryHigh),stopLoss:round(stop),target1:targets[0]??null,target2:targets[1]??null,target3:targets[2]??null,target4:targets[3]??null,targetLabels:labels,riskReward:round(plan.rr,2),ict:{setupType,mode:'ICT_NARRATIVE_ENGINE',phase,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),dealingRangeHigh:round(rangeHigh),dealingRangeLow:round(rangeLow),rangeContext,contextAligned,biasAligned,setupAligned,setupReady,executionReady,setupVotes,contextSequence,hasSweep,hasShift,hasDisplacement,hasBos,triggerConfirmed,legSweep,sequence1,sequence5,firstShift,firstMssEvent,firstDisplacementEvent,firstTriggerEvent,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),shift1,shift5,shift15,contShift1,contShift5,continuationDisplacementEvent,sweep:sweep??sweep15,sweep15,sweep5,sweep1,displacement:hasDisplacement,mss:hasShift,bos:hasBos,bos15,bos5,bos1,dm15,dm5,dm1,orderBlock,poi,originFvg:fvg?{...fvg,low:round(fvg.low),high:round(fvg.high),mid:round(fvg.mid)}:null,entryMode:useDirectContinuation?'CONFIRMED_CONTINUATION':'ORIGIN_FVG_RETEST',directContinuation,useDirectContinuation,entryZoneAgeMinutes:fvg?round(zoneAgeMs/60000,1):null,minimumTargetMove:plan.minimumTargetMove,mainLiquidity:plan.mainLiquidity,drawOnLiquidity,pathConsumed:round(pathConsumed,2),atr1:round(atr1),atr5:round(atr5),atr15:round(atr15),stopBuffer:round(buffer),offSession},reason:'ICT NARRATIVE | '+phase+' | '+contextSequence+' | '+side+' via '+(useDirectContinuation?'CONFIRMED CONTINUATION':'ORIGIN FVG RETEST')+' from '+poi.type+' in '+rangeContext.location+' | PA '+priceAction.primary.pattern+' '+priceAction.primary.stage+(priceAction.primary.breakoutSide?' '+priceAction.primary.breakoutSide:'')+' | TA '+String(technicalRead?.indicators?.bias||'NEUTRAL')+' / '+String(technicalRead?.candle?.pattern||'NONE')+' | draw '+drawOnLiquidity+' '+round(targets[0])+' | remaining '+round(Math.abs(targets[0]-price),2)};
+  return{...base,status:'CANDIDATE',candidateAction:side,side,strategy:setupType,confidence,contextBias:side,oneMinuteConfirmed,setupId:[side,setupType,sweep?.t??fvg?.t??now,round(entry),round(stop),drawOnLiquidity].join('|'),entry:round(entry),entryLow:round(entryLow),entryHigh:round(entryHigh),stopLoss:round(stop),target1:targets[0]??null,target2:targets[1]??null,target3:targets[2]??null,target4:targets[3]??null,targetLabels:labels,riskReward:round(plan.rr,2),ict:{setupType,mode:'ICT_NARRATIVE_ENGINE',phase,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),dealingRangeHigh:round(rangeHigh),dealingRangeLow:round(rangeLow),rangeContext,contextAligned,biasAligned,setupAligned,setupReady,executionReady,setupVotes,contextSequence,hasSweep,hasShift,hasDisplacement,hasCisd,hasIfvg,hasIfvgRetest,ltfReaction,htfLiquiditySweep,cisd,cisd5,cisd1,inverseFvg:inverseFvg?{...inverseFvg,low:round(inverseFvg.low),high:round(inverseFvg.high),mid:round(inverseFvg.mid)}:null,inverseFvg5,inverseFvg1,hasBos,triggerConfirmed,legSweep,sequence1,sequence5,firstShift,firstMssEvent,firstDisplacementEvent,firstTriggerEvent,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),shift1,shift5,shift15,contShift1,contShift5,continuationDisplacementEvent,sweep:sweep??sweep15,sweep15,sweep5,sweep1,displacement:hasDisplacement,mss:hasShift,bos:hasBos,bos15,bos5,bos1,dm15,dm5,dm1,orderBlock,poi,originFvg:fvg?{...fvg,low:round(fvg.low),high:round(fvg.high),mid:round(fvg.mid)}:null,entryMode:useDirectContinuation?'CONFIRMED_CONTINUATION':'ORIGIN_FVG_RETEST',directContinuation,useDirectContinuation,entryZoneAgeMinutes:fvg?round(zoneAgeMs/60000,1):null,minimumTargetMove:plan.minimumTargetMove,mainLiquidity:plan.mainLiquidity,drawOnLiquidity,pathConsumed:round(pathConsumed,2),atr1:round(atr1),atr5:round(atr5),atr15:round(atr15),stopBuffer:round(buffer),offSession},reason:'ICT NARRATIVE | '+phase+' | '+contextSequence+' | '+side+' via '+(useDirectContinuation?'CONFIRMED CONTINUATION':'ORIGIN FVG RETEST')+' from '+poi.type+' in '+rangeContext.location+' | PA '+priceAction.primary.pattern+' '+priceAction.primary.stage+(priceAction.primary.breakoutSide?' '+priceAction.primary.breakoutSide:'')+' | TA '+String(technicalRead?.indicators?.bias||'NEUTRAL')+' / '+String(technicalRead?.candle?.pattern||'NONE')+' | draw '+drawOnLiquidity+' '+round(targets[0])+' | remaining '+round(Math.abs(targets[0]-price),2)};
 }
