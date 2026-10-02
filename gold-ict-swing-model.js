@@ -315,7 +315,7 @@ function inverseFvgAfterSweep(bars,side,sweep){
   }
   return null;
 }
-const EXTERNAL_LIQUIDITY_KEYS=new Set(['pdh','pdl','pwh','pwl','h4SwingHigh','h4SwingLow','asiaHigh','asiaLow','londonHigh','londonLow','nyHigh','nyLow']);
+const EXTERNAL_LIQUIDITY_KEYS=new Set(['pdh','pdl','pwh','pwl','h4SwingHigh','h4SwingLow','h1SwingHigh','h1SwingLow','m15SwingHigh','m15SwingLow','asiaHigh','asiaLow','londonHigh','londonLow','nyHigh','nyLow']);
 function externalLiquidityEntries(levels={}){
   return Object.entries(levels).filter(([key,value])=>EXTERNAL_LIQUIDITY_KEYS.has(key)&&Number.isFinite(value));
 }
@@ -482,14 +482,17 @@ function choosePoi(side,fvg,ob,range){
 function targetPlan(side,entry,stop,levels,m1,m5,m15,h1,h4,atr1,atr5){
   const risk=Math.abs(entry-stop); if(!(risk>0))return null;
   const pools=[
-    {label:'PWH',price:levels.pwh},{label:'PWL',price:levels.pwl},
-    {label:'PDH',price:levels.pdh},{label:'PDL',price:levels.pdl},
-    {label:'ASIA_HIGH',price:levels.asiaHigh},{label:'ASIA_LOW',price:levels.asiaLow},
-    {label:'LONDON_HIGH',price:levels.londonHigh},{label:'LONDON_LOW',price:levels.londonLow},
-    {label:'NY_AM_HIGH',price:levels.nyHigh},{label:'NY_AM_LOW',price:levels.nyLow}
+    {label:'H4_SWING_HIGH',price:levels.h4SwingHigh,tf:'H4'},{label:'H4_SWING_LOW',price:levels.h4SwingLow,tf:'H4'},
+    {label:'H1_SWING_HIGH',price:levels.h1SwingHigh,tf:'H1'},{label:'H1_SWING_LOW',price:levels.h1SwingLow,tf:'H1'},
+    {label:'M15_SWING_HIGH',price:levels.m15SwingHigh,tf:'M15'},{label:'M15_SWING_LOW',price:levels.m15SwingLow,tf:'M15'},
+    {label:'PWH',price:levels.pwh,tf:'W1'},{label:'PWL',price:levels.pwl,tf:'W1'},
+    {label:'PDH',price:levels.pdh,tf:'D1'},{label:'PDL',price:levels.pdl,tf:'D1'},
+    {label:'ASIA_HIGH',price:levels.asiaHigh,tf:'SESSION'},{label:'ASIA_LOW',price:levels.asiaLow,tf:'SESSION'},
+    {label:'LONDON_HIGH',price:levels.londonHigh,tf:'SESSION'},{label:'LONDON_LOW',price:levels.londonLow,tf:'SESSION'},
+    {label:'NY_AM_HIGH',price:levels.nyHigh,tf:'SESSION'},{label:'NY_AM_LOW',price:levels.nyLow,tf:'SESSION'}
   ];
   const MIN_TARGET_MOVE=5;
-  const priority=label=>/^PW[HL]$/.test(label)?0:/^PD[HL]$/.test(label)?1:/^ASIA_|^LONDON_|^NY_AM_/.test(label)?2:3;
+  const priority=label=>/^H4_/.test(label)?0:/^H1_/.test(label)?1:/^M15_/.test(label)?2:/^PW[HL]$/.test(label)?0:/^PD[HL]$/.test(label)?1:/^ASIA_|^LONDON_|^NY_AM_/.test(label)?3:4;
   const all=dedupePools(pools,side,entry).filter(x=>Math.abs(x.price-entry)>=MIN_TARGET_MOVE);
   if(!all.length)return null;
 
@@ -509,29 +512,35 @@ function targetPlan(side,entry,stop,levels,m1,m5,m15,h1,h4,atr1,atr5){
   const targets=ordered.slice(0,4).map((pool,index)=>({
     label:pool.label,
     price:round(pool.price),
-    role:index===0&&Math.abs(primary.price-secondary.price)>=1?'SECONDARY':(Math.abs(pool.price-primary.price)<1?'PRIMARY':'EXTENSION')
+    role:index===0&&Math.abs(primary.price-secondary.price)>=1?'SECONDARY':(Math.abs(pool.price-primary.price)<1?'PRIMARY':'EXTENSION'),
+    liquiditySide:/HIGH|PDH|PWH/i.test(pool.label)?'BSL':'SSL',
+    sourceTimeframe:pool.tf||null
   }));
   const rr=Math.abs(targets[0].price-entry)/risk;
   return{
     risk,rr,targets,
     mode:'ICT_EXTERNAL_LIQUIDITY_ONLY',
     minimumTargetMove:MIN_TARGET_MOVE,
-    mainLiquidity:{label:primary.label,price:round(primary.price),role:'PRIMARY'},
-    primaryLiquidity:{label:primary.label,price:round(primary.price),distance:round(Math.abs(primary.price-entry),2)},
-    secondaryLiquidity:Math.abs(primary.price-secondary.price)>=1?{label:secondary.label,price:round(secondary.price),distance:round(Math.abs(secondary.price-entry),2)}:null
+    mainLiquidity:{label:primary.label,price:round(primary.price),role:'PRIMARY',liquiditySide:/HIGH|PDH|PWH/i.test(primary.label)?'BSL':'SSL',sourceTimeframe:primary.tf||null},
+    primaryLiquidity:{label:primary.label,price:round(primary.price),distance:round(Math.abs(primary.price-entry),2),liquiditySide:/HIGH|PDH|PWH/i.test(primary.label)?'BSL':'SSL',sourceTimeframe:primary.tf||null},
+    secondaryLiquidity:Math.abs(primary.price-secondary.price)>=1?{label:secondary.label,price:round(secondary.price),distance:round(Math.abs(secondary.price-entry),2),liquiditySide:/HIGH|PDH|PWH/i.test(secondary.label)?'BSL':'SSL',sourceTimeframe:secondary.tf||null}:null
   };
 }
 
 export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimeframes={}){
   const price=n(rawPrice),m1all=minuteBars(samples),m5all=aggregate(m1all,5),m15all=aggregate(m1all,15),h1all=aggregate(m1all,60),h4all=aggregate(m1all,240);
   const m1=closed(m1all,1,now),m5=closed(m5all,5,now),m15=closed(m15all,15,now),h1=closed(h1all,60,now),h4=closed(h4all,240,now);
-  const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'ICT_TOP_DOWN',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',ict:null,sampleCount:samples.length,modelTimeframes:{externalLiquidity:'PWH/PWL + PDH/PDL + confirmed 4H swing + Asia/London/New York High/Low',context:'W1/D1 + 4H/1H',bias:'15m context only',setup:'external liquidity sweep -> LTF CISD/MSS/displacement -> FVG/iFVG/OB -> retest',execution:'15m context + 1m/5m reaction/confirmation',timing:'1m'},priceAction:null,technicalRead:null,updatedAt:new Date(now).toISOString(),reason:'ICT engine is collecting enough HTF history'};
+  const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'ICT_TOP_DOWN',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',ict:null,sampleCount:samples.length,modelTimeframes:{liquidityMap:'H4 -> H1 -> M15',externalReferences:'PWH/PWL + PDH/PDL + Asia/London/New York High/Low',context:'W1/D1 + H4/H1',bias:'M15 liquidity/context',setup:'H4/H1/M15 liquidity event -> M5 MSS/displacement -> FVG/OB -> retest',execution:'M5 confirmation only',timing:'M5'},priceAction:null,technicalRead:null,updatedAt:new Date(now).toISOString(),reason:'ICT engine is collecting enough HTF history'};
   if(price==null||m1.length<120||m5.length<30||m15.length<20||h1.length<12||h4.length<3)return base;
 
   const levels=sessionLevels(m15,now,higherTimeframes),session=activeSession(now),dir4=structureDirection(h4),dir1=structureDirection(h1),dir15=structureDirection(m15);
-  const h4Pivots=pivots(h4.slice(-60),2,2);
+  const h4Pivots=pivots(h4.slice(-60),2,2),h1Pivots=pivots(h1.slice(-80),2,2),m15Pivots=pivots(m15.slice(-96),2,2);
   levels.h4SwingHigh=h4Pivots.highs.at(-1)?.price??null;
   levels.h4SwingLow=h4Pivots.lows.at(-1)?.price??null;
+  levels.h1SwingHigh=h1Pivots.highs.at(-1)?.price??null;
+  levels.h1SwingLow=h1Pivots.lows.at(-1)?.price??null;
+  levels.m15SwingHigh=m15Pivots.highs.at(-1)?.price??null;
+  levels.m15SwingLow=m15Pivots.lows.at(-1)?.price??null;
   const rangeRows=h1.slice(-24),rangeHigh=hi(rangeRows),rangeLow=lo(rangeRows),equilibrium=Number.isFinite(rangeHigh)&&Number.isFinite(rangeLow)?(rangeHigh+rangeLow)/2:null;
   const location=equilibrium==null?'UNKNOWN':price<=equilibrium?'DISCOUNT':'PREMIUM';
   const atr1=atr(m1,14)||.25,atr5=atr(m5,14)||1,atr15=atr(m15,14)||2;
