@@ -258,5 +258,24 @@ for (const [from, to] of replacements) {
   source=source.replace("const BUILD='site-signal-noai-v62-top-down-mtf';","const BUILD='site-signal-noai-v63-session-levels';");
 }
 
+
+{
+  // Final runtime contract: only the ICT external-liquidity model may own a trade.
+  const signalStyle="tradeStyle:'MULTI_MODEL_CONFLUENCE',multiTimeframe:m.multiTimeframe||m.confluence?.multiTimeframe||null,";
+  if(!source.includes(signalStyle))throw new Error('ICT-only patch: signal tradeStyle anchor missing');
+  source=source.replace(signalStyle,"tradeStyle:m.tradeStyle||'ICT_ONLY_EXTERNAL_LIQUIDITY',multiTimeframe:m.multiTimeframe||m.confluence?.multiTimeframe||null,");
+
+  const responseStyle="tradeStyle:'MULTI_MODEL_CONFLUENCE',multiTimeframe:model.multiTimeframe||model.confluence?.multiTimeframe||state.signal?.multiTimeframe||null,sessionLevels:";
+  if(!source.includes(responseStyle))throw new Error('ICT-only patch: response tradeStyle anchor missing');
+  source=source.replace(responseStyle,"tradeStyle:state.signal?.tradeStyle||model.tradeStyle||'ICT_ONLY_EXTERNAL_LIQUIDITY',multiTimeframe:model.multiTimeframe||model.confluence?.multiTimeframe||state.signal?.multiTimeframe||null,sessionLevels:");
+
+  const oldReason="reason:\`CONFLUENCE CONFIRMED — \${m.strategy||'MULTI_MODEL_CONFLUENCE'}; score \${Number(m.confidence)||0}/100; BUY \${Number(m.confluence?.scores?.BUY||0)} / SELL \${Number(m.confluence?.scores?.SELL||0)}; target \${m.targetLabels?.[0]||'TP1'} \${round(tp1,2)}; room \${round(Math.abs(tp1-p),2)}$; live RR \${round(liquidityRR,2)}R; SL \${round(sl,2)}; lot \${lotSizing.recommendedLot||0}\`";
+  const newReason="reason:\`ICT ONLY CONFIRMED — external \${String(m.ict?.legSweep?.name||'LIQUIDITY').toUpperCase()} → MSS/displacement → FVG/OB; confidence \${Number(m.confidence)||0}/100; target \${m.targetLabels?.[0]||'EXTERNAL_LIQUIDITY'} \${round(tp1,2)}; room \${round(Math.abs(tp1-p),2)}$; live RR \${round(liquidityRR,2)}R; SL \${round(sl,2)}; lot \${lotSizing.recommendedLot||0}\`";
+  if(!source.includes(oldReason))throw new Error('ICT-only patch: active-signal reason anchor missing');
+  source=source.replace(oldReason,newReason);
+
+  source=source.replace("const BUILD='site-signal-noai-v63-session-levels';","const BUILD='site-signal-noai-v64-ict-external-only';");
+}
+
 fs.writeFileSync(runtimeUrl, source, 'utf8');
 await import(`${runtimeUrl.href}?v=${Date.now()}`);

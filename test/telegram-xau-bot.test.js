@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { activeSignal, levelsReady, signalMessage } from '../telegram-xau-bot.js';
+process.env.NODE_ENV='test';
+const { activeSignal, levelsReady, signalMessage } = await import('../telegram-xau-bot.js');
 
 const levels = {
   candidateAction:'BUY',
