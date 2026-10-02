@@ -44,6 +44,7 @@ jobs:
       - name: Validate JavaScript syntax
         run: |
           node --check gold-confluence-model.js
+          node --check gold-ict-swing-model.js
           node --check gold-site-signal-engine-v9.js
           node --check gold-site-ui-start.js
           node --check gold-unified-start.js
