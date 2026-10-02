@@ -21,7 +21,7 @@ function patchFinalGoldLayout(source){
 function syncFinalGoldLayout(){
   const q=s=>document.querySelector(s);if(!q('#goldPlanFinal'))return;
   let lock=null;try{lock=typeof readGoldTradeLock==='function'?readGoldTradeLock():null}catch{}
-  if(!lock){q('#goldEntry').textContent='—';q('#goldActualEntry').textContent='—';q('#goldActualEntryState').textContent='بانتظار سيناريو جديد';q('#goldTarget3').textContent='🔒';q('#goldTarget4').textContent='🔒';return}
+  if(!lock){return}
   const money=v=>Number.isFinite(Number(v))?'$'+Number(v).toFixed(2):'—';
   const entry=Number(lock.entry),lo=Number.isFinite(Number(lock.entryLow))?Number(lock.entryLow):entry-.5,hi=Number.isFinite(Number(lock.entryHigh))?Number(lock.entryHigh):entry+.5;
   q('#goldEntry').textContent=money(lo)+' — '+money(hi);
