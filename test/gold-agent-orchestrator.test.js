@@ -158,3 +158,65 @@ test('draw-on-liquidity maps nearest Secondary and strategic Primary without aut
   assert.equal(stack.telegramBrief.liquidityObjectives.primary?.level,4350);
   assert.equal(stack.decision.executable,false);
 });
+
+
+test('liquidity decision agent maps H4 H1 M15 and reserves M5 for confirmation', () => {
+  configure();
+  process.env.AGENT_EXECUTION_ENABLED='false';
+  resetGoldAgentMemory();
+  const source={
+    ...base,
+    dailySignalCount:0,
+    ict:{
+      levels:{
+        h4SwingHigh:4350,h4SwingLow:4250,
+        h1SwingHigh:4330,h1SwingLow:4270,
+        m15SwingHigh:4310,m15SwingLow:4290
+      },
+      legSweep:{name:'m15SwingLow',level:4290,liquidityClass:'EXTERNAL'},
+      hasShift:true,
+      hasDisplacement:true,
+      retest:true,
+      dm5:{mss:true,displacement:true}
+    }
+  };
+  const stack=orchestrateGoldAgents(source);
+  const l=stack.agents.liquidityDecision;
+  assert.equal(l.name,'LIQUIDITY_DECISION_AGENT');
+  assert.deepEqual(l.hierarchy,['H4','H1','M15']);
+  assert.equal(l.executionTimeframe,'M5');
+  assert.equal(l.drawSide,'BSL');
+  assert.equal(l.secondaryLiquidity?.label,'M15_SWING_HIGH');
+  assert.equal(l.secondaryLiquidity?.level,4310);
+  assert.equal(l.primaryLiquidity?.label,'H4_SWING_HIGH');
+  assert.equal(l.primaryLiquidity?.level,4350);
+  assert.equal(l.m5Confirmation.confirmed,true);
+  assert.equal(l.canCreateSignal,false);
+  assert.equal(l.canExecute,false);
+  assert.equal(stack.telegramBrief.liquidityObjectives.type,'BSL');
+  assert.equal(stack.telegramBrief.liquidityObjectives.executionTimeframe,'M5');
+});
+
+test('daily opportunity agent targets 1-3 qualified setups without forcing trades', () => {
+  configure();
+  process.env.AGENT_EXECUTION_ENABLED='false';
+  process.env.GOLD_DAILY_QUALIFIED_MIN='1';
+  process.env.GOLD_DAILY_QUALIFIED_MAX='3';
+  resetGoldAgentMemory();
+
+  const zero=orchestrateGoldAgents({...base,dailySignalCount:0});
+  assert.equal(zero.agents.dailyOpportunity.state,'SEARCHING_FOR_MINIMUM');
+  assert.equal(zero.agents.dailyOpportunity.target.min,1);
+  assert.equal(zero.agents.dailyOpportunity.target.max,3);
+  assert.equal(zero.agents.dailyOpportunity.forceTrade,false);
+  assert.equal(zero.agents.dailyOpportunity.mayRelaxM5Confirmation,false);
+
+  const two=orchestrateGoldAgents({...base,dailySignalCount:2});
+  assert.equal(two.agents.dailyOpportunity.state,'OPEN_FOR_MORE_QUALIFIED_SETUPS');
+  assert.equal(two.agents.dailyOpportunity.remainingCapacity,1);
+
+  const three=orchestrateGoldAgents({...base,dailySignalCount:3});
+  assert.equal(three.agents.dailyOpportunity.state,'TARGET_RANGE_MET');
+  assert.equal(three.agents.dailyOpportunity.remainingCapacity,0);
+  assert.equal(three.agents.dailyOpportunity.canExecute,false);
+});
