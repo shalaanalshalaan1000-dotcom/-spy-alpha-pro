@@ -255,6 +255,70 @@ function sessionAgent(source = {}) {
   };
 }
 
+function amdSessionAgent(source = {}, session = {}, market = {}, setup = {}, now = Date.now()) {
+  const sessionRoot = source?.sessionLevels?.sessions || source?.sessionLiquidity?.sessions || source?.sessions || {};
+  const tokyo = sessionRoot?.TOKYO || sessionRoot?.ASIA || null;
+  const london = sessionRoot?.LONDON || null;
+  const newYork = sessionRoot?.NEW_YORK || sessionRoot?.NEWYORK || null;
+  const ict = ictStateOf(source);
+  const sweep = ict?.legSweep || ict?.sweep || source?.confluence?.liquidity?.externalSweep || null;
+  const sweepName = String(sweep?.name || '');
+  const reason = String(source?.reason || '');
+  const evidenceText = (sweepName + ' ' + reason).toLowerCase();
+  const asiaHighSweep = /(?:tokyo|asia)[ _-]*(?:high|h)\b|(?:high)\b.*(?:tokyo|asia)/i.test(evidenceText);
+  const asiaLowSweep = /(?:tokyo|asia)[ _-]*(?:low|l)\b|(?:low)\b.*(?:tokyo|asia)/i.test(evidenceText);
+  const accumulationKnown = Boolean(
+    tokyo &&
+    toNum(tokyo.high) != null &&
+    toNum(tokyo.low) != null &&
+    toNum(tokyo.high) > toNum(tokyo.low)
+  );
+  const manipulationConfirmed = asiaHighSweep || asiaLowSweep;
+  const manipulationSide = asiaHighSweep ? 'SELL' : asiaLowSweep ? 'BUY' : null;
+  const structureConfirmed = Boolean(market?.context?.mss && (market?.context?.displacement || market?.context?.retest));
+  const distributionCandidate = Boolean(manipulationConfirmed && structureConfirmed);
+  const setupSide = validSide(setup?.side);
+  const alignedWithSetup = manipulationSide && setupSide ? manipulationSide === setupSide : null;
+  let phase = 'WAIT';
+  if (distributionCandidate) phase = 'DISTRIBUTION_CANDIDATE';
+  else if (manipulationConfirmed) phase = 'MANIPULATION_CONFIRMED';
+  else if (accumulationKnown) phase = 'ACCUMULATION_CONTEXT';
+
+  return {
+    name: 'AMD_SESSION_AGENT',
+    model: 'ACCUMULATION_MANIPULATION_DISTRIBUTION',
+    mode: 'CONTEXT_ONLY',
+    phase,
+    side: manipulationSide || 'NEUTRAL',
+    accumulation: {
+      known: accumulationKnown,
+      session: tokyo ? 'TOKYO_ASIA' : null,
+      high: round(tokyo?.high, 3),
+      low: round(tokyo?.low, 3),
+      status: tokyo?.status || null
+    },
+    manipulation: {
+      confirmed: manipulationConfirmed,
+      sweptLevel: asiaHighSweep ? 'ASIA_HIGH' : asiaLowSweep ? 'ASIA_LOW' : null,
+      side: manipulationSide
+    },
+    distribution: {
+      candidate: distributionCandidate,
+      newYorkContextAvailable: Boolean(newYork),
+      newYorkStatus: newYork?.status || null,
+      requiresM5Structure: true
+    },
+    londonStatus: london?.status || null,
+    structureConfirmed,
+    alignedWithSetup,
+    contextOnly: true,
+    canCreateSignal: false,
+    canOverrideIctGate: false,
+    updatedAt: new Date(now).toISOString(),
+    rule: 'AMD is session context only: Asia range -> external-liquidity manipulation -> M5 MSS/displacement/retest -> distribution context. It never creates or authorizes a trade by itself.'
+  };
+}
+
 
 function stateEngineAgent(source = {}, market = {}) {
   const bid = toNum(source.bid);
@@ -451,10 +515,12 @@ function finalCheckAgent(stateEngine = {}, setup = {}, risk = {}, reflex = {}) {
 function selfImprovementAgent() {
   return {
     name: 'SELF_IMPROVEMENT',
-    mode: 'REVIEW_ONLY',
+    mode: 'PROPOSE_VERSIONED_PATCHES',
     autoRewriteLiveCode: false,
-    metrics: ['fills','misses','slippage','calibration','Brier score when labeled outcomes exist','session performance'],
-    rule: 'Review can propose versioned changes, but never rewrites or deploys live trading logic autonomously.'
+    directMainWrites: false,
+    requires: ['isolated branch','regression tests','final check','human merge'],
+    metrics: ['fills','misses','slippage','calibration','Brier score when labeled outcomes exist','session performance','duplicate alerts','missed external-liquidity targets'],
+    rule: 'Review may propose versioned strategy repairs on an isolated branch, but never rewrites or deploys live trading logic directly to main.'
   };
 }
 
@@ -467,6 +533,7 @@ function tradingAgent({
   risk,
   tradeManager,
   session,
+  amd,
   research,
   journal,
   selfImprovement,
@@ -505,6 +572,8 @@ function tradingAgent({
     setup: setup?.stage || 'WAIT',
     risk: risk?.allowed ? 'PASS' : 'VETO',
     session: session?.detectedFromSetup ? 'ACTIVE_CONTEXT' : 'CONTEXT',
+    amd: amd?.phase || 'WAIT',
+    amdAlignment: amd?.alignedWithSetup === true ? 'ALIGNED' : amd?.alignedWithSetup === false ? 'CONFLICT' : 'UNCONFIRMED',
     research: research?.blockEntries ? 'VETO' : 'CLEAR',
     tradeManager: tradeManager?.action || 'OBSERVE',
     finalCheck: finalCheck?.pass ? 'PASS' : 'HOLD',
@@ -559,6 +628,7 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
   const tradeManager = tradeManagerAgent(source, setup, now);
   const research = researchAgent(source);
   const session = sessionAgent(source);
+  const amd = amdSessionAgent(source, session, market, setup, now);
   const stateEngine = stateEngineAgent(source, market);
   const brain = brainAgent(source, setup, stateEngine, research);
   const risk = hardRiskLayer(source, stateEngine, setup, baseRisk);
@@ -569,13 +639,13 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
   const selfImprovement = selfImprovementAgent();
   const trading = tradingAgent({
     brain, reflex, stateEngine, market, setup, risk, tradeManager,
-    session, research, journal, selfImprovement, finalCheck
+    session, amd, research, journal, selfImprovement, finalCheck
   });
 
   return {
     architecture: 'GOLD_AGENT_STACK_V3_TRADING_HUB',
     layers: {
-      SPECIALISTS: 'Market + setup + state + session + research + risk + journal + review',
+      SPECIALISTS: 'Market + setup + state + session + AMD context + research + risk + journal + review',
       TRADING_AGENT: 'Single consolidated consumer and decision publisher',
       EXECUTION: 'Deterministic permission gate; manual MT5 remains possible when execution permission is off'
     },
@@ -592,7 +662,7 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
     },
     decisionSchema: schema,
     telegramBrief: trading.telegramBrief,
-    agents: {brain, reflex, stateEngine, market, setup, risk, tradeManager, session, research, journal, selfImprovement, finalCheck, trading},
+    agents: {brain, reflex, stateEngine, market, setup, risk, tradeManager, session, amd, research, journal, selfImprovement, finalCheck, trading},
     updatedAt: new Date(now).toISOString()
   };
 }
