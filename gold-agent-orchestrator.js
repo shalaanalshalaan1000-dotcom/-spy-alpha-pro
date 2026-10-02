@@ -32,8 +32,8 @@ function sweepSideOf(source = {}) {
   if (explicit) return explicit;
   const sweep = ict?.legSweep || ict?.sweep || source?.confluence?.liquidity?.externalSweep || null;
   const name = String(sweep?.name || '');
-  if (/High|pdh|pwh|h4SwingHigh/i.test(name)) return 'SELL';
-  if (/Low|pdl|pwl|h4SwingLow/i.test(name)) return 'BUY';
+  if (/High|pdh|pwh|h4SwingHigh|h1SwingHigh|m15SwingHigh/i.test(name)) return 'SELL';
+  if (/Low|pdl|pwl|h4SwingLow|h1SwingLow|m15SwingLow/i.test(name)) return 'BUY';
   return null;
 }
 
@@ -390,7 +390,7 @@ function liquidityDecisionAgent(source = {}, setup = {}, now = Date.now()) {
 function dailyOpportunityAgent(source = {}, now = Date.now()) {
   const minTarget=Math.max(1,Math.min(3,toNum(process.env.GOLD_DAILY_QUALIFIED_MIN)??1));
   const maxTarget=Math.max(minTarget,Math.min(3,toNum(process.env.GOLD_DAILY_QUALIFIED_MAX)??3));
-  const current=Math.max(0,toNum(source.dailySignalCount)??0);
+  const current=Math.max(0,toNum(source.dailySignalCount ?? source.dailySignalNumber)??0);
   const remainingToMin=Math.max(0,minTarget-current);
   const remainingCapacity=Math.max(0,maxTarget-current);
   let state='TARGET_RANGE_MET';
@@ -425,10 +425,13 @@ function drawOnLiquidityAgent(source = {}, setup = {}, session = {}, liquidityDe
 
   const priorityOf = label => {
     const x=String(label||'').toUpperCase();
+    if (/H4.*SWING/.test(x)) return 0;
+    if (/H1.*SWING/.test(x)) return 1;
+    if (/M15.*SWING/.test(x)) return 2;
     if (/^PW[HL]$/.test(x)) return 0;
-    if (/^PD[HL]$/.test(x) || /H4.*SWING/.test(x)) return 1;
-    if (/ASIA|TOKYO|LONDON|NEW[_ ]?YORK|NY[_ ]?AM/.test(x)) return 2;
-    return 3;
+    if (/^PD[HL]$/.test(x)) return 1;
+    if (/ASIA|TOKYO|LONDON|NEW[_ ]?YORK|NY[_ ]?AM/.test(x)) return 3;
+    return 4;
   };
   const add = (label, value, liquidityClass='EXTERNAL', sourceName='ICT') => {
     const level=toNum(value);
@@ -448,6 +451,8 @@ function drawOnLiquidityAgent(source = {}, setup = {}, session = {}, liquidityDe
   add('PWH',levels.pwh); add('PWL',levels.pwl);
   add('PDH',levels.pdh); add('PDL',levels.pdl);
   add('H4_SWING_HIGH',levels.h4SwingHigh); add('H4_SWING_LOW',levels.h4SwingLow);
+  add('H1_SWING_HIGH',levels.h1SwingHigh); add('H1_SWING_LOW',levels.h1SwingLow);
+  add('M15_SWING_HIGH',levels.m15SwingHigh); add('M15_SWING_LOW',levels.m15SwingLow);
   add('ASIA_HIGH',levels.asiaHigh); add('ASIA_LOW',levels.asiaLow);
   add('LONDON_HIGH',levels.londonHigh); add('LONDON_LOW',levels.londonLow);
   add('NY_AM_HIGH',levels.nyHigh); add('NY_AM_LOW',levels.nyLow);
