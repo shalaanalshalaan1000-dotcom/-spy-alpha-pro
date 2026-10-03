@@ -355,7 +355,7 @@ function analyze({M1=[],M5=[],M15=[],H1=[],H4=[],D1=[],W1=[],MN1=[],ETHH1=[],tic
     scoreMeaning:'DESCRIPTIVE_SETUP_STRENGTH_NOT_WIN_PROBABILITY',price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,
     target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,lotSizing:null,setupId:null,
     laura:{mode:'LAURA_PLUS_PRECISION',reads,outlook:{...outlook,lastWeek,nearestSupport:support,nearestResistance:resistance,nextWeekPath},levels:levels.slice().sort((a,b)=>(a.distance??Infinity)-(b.distance??Infinity)).slice(0,16)},
-    precision:{model:'SUNDAY_TRIAL_V1',requiredGates:['LAURA_HTF_BIAS','D1_H1_POI','M5_SWEEP_CISD_OR_MSS_DISPLACEMENT_FVG_RETRACE'],confluence,m5},
+    precision:{model:'LIVE_V1',requiredGates:['LAURA_HTF_BIAS','D1_H1_POI','M5_SWEEP_CISD_OR_MSS_DISPLACEMENT_FVG_RETRACE'],confluence,m5},
     priceAction:{bias1h:reads.H1.side,context15:reads.M15.side,structure5:reads.M5.side,triggers:[]},
     smc:null,ict:null,updatedAt:new Date().toISOString(),
     reason:'LAURA+PRECISION WAIT.'
