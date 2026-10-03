@@ -1,10 +1,10 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
-import { getBtcSignal as getBtcPriceActionSignal } from './btc-ict-fast.js';
+import { getBtcSignal as getBtcLauraSignal } from './btc-ict-fast.js';
 
 const PORT = Number(process.env.PORT || 10000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_SITE_INNER_PORT || 3200);
-const BUILD = 'gold-alpha-btc-price-action-v1';
+const BUILD = 'gold-alpha-btc-laura-v1';
 let stopping = false;
 
 const child = spawn(process.execPath, ['site-indicator-start.js'], {
@@ -107,7 +107,7 @@ function atr(candles, period = 14) {
 
 const round = (value, digits = 2) => Number.isFinite(Number(value)) ? Number(Number(value).toFixed(digits)) : null;
 
-async function getBtcSignal() { return getBtcPriceActionSignal(); }
+async function getBtcSignal() { return getBtcLauraSignal(); }
 
 function injectBtc(html) {
   if (html.includes('btcOwnedIndicator')) return html;
@@ -117,8 +117,8 @@ function injectBtc(html) {
 .btcIndicatorMeta{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}.btcIndicatorMeta div{padding:9px;border:1px solid #3d3328;border-radius:10px;background:#0a101a}.btcIndicatorMeta span{display:block;color:#a99577;font-size:11px}.btcIndicatorMeta strong{display:block;margin-top:4px}.btcAccent{color:#f2b84b}.btcBuy{color:#45e6a7}.btcSell{color:#ff6f8b}.btcWait{color:#ffd166}
 @media(max-width:760px){.btcIndicatorMeta{grid-template-columns:1fr 1fr}}
 </style>`;
-  const panel = `<section id="btcOwnedIndicator"><h3>BTCUSD — Price Action Only <span class="btcAccent">• 15m Context → 5m Confirmation</span></h3><div id="btcSignalWord" class="btcWait">WAIT</div><div class="btcIndicatorMeta"><div><span>السعر</span><strong id="btcPrice">—</strong></div><div><span>قوة الإعداد</span><strong id="btcConfidence">0/100</strong></div><div><span>15m Context</span><strong id="btcContext">—</strong></div><div><span>5m Structure</span><strong id="btcStructure">—</strong></div><div><span>5m Trigger</span><strong id="btcTrigger">—</strong></div><div><span>1h Bias</span><strong id="btcBias">—</strong></div><div><span>الاستراتيجية</span><strong id="btcStrategy">PRICE_ACTION_ONLY</strong></div><div><span>الدخول</span><strong id="btcEntry">—</strong></div><div><span>وقف الخسارة</span><strong id="btcStop">—</strong></div><div><span>TP1</span><strong id="btcTp1">—</strong></div><div><span>TP2</span><strong id="btcTp2">—</strong></div><div><span>TP3</span><strong id="btcTp3">—</strong></div><div><span>TP4</span><strong id="btcTp4">—</strong></div><div><span>التنفيذ</span><strong>إشارات فقط — لا تداول آلي</strong></div><div><span>سبب القرار</span><strong id="btcReason">بانتظار البيانات…</strong></div></div></section>`;
-  const js = `<script>(function(){async function refreshBtc(){try{const r=await fetch('/api/btc-signal',{cache:'no-store'}),s=await r.json(),pa=s.priceAction||{},word=document.getElementById('btcSignalWord');if(!word)return;word.textContent=s.action||'WAIT';word.className=s.action==='BUY'?'btcBuy':s.action==='SELL'?'btcSell':'btcWait';const fmt=v=>Number.isFinite(Number(v))?Number(v).toFixed(2):'—';document.getElementById('btcPrice').textContent=fmt(s.price);document.getElementById('btcConfidence').textContent=Math.round(Number(s.confidence)||0)+'/100';document.getElementById('btcContext').textContent=pa.context15||'—';document.getElementById('btcStructure').textContent=pa.structure5||'—';document.getElementById('btcTrigger').textContent=Array.isArray(pa.triggers)&&pa.triggers.length?pa.triggers.join(' + '):(pa.breakout5?.type||pa.candle5?.pattern||'WAIT');document.getElementById('btcBias').textContent=pa.bias1h||'—';document.getElementById('btcStrategy').textContent=s.strategy||'PRICE_ACTION_ONLY';document.getElementById('btcEntry').textContent=fmt(s.entry);document.getElementById('btcStop').textContent=fmt(s.stopLoss);document.getElementById('btcTp1').textContent=fmt(s.target1);document.getElementById('btcTp2').textContent=fmt(s.target2);document.getElementById('btcTp3').textContent=fmt(s.target3);document.getElementById('btcTp4').textContent=fmt(s.target4);document.getElementById('btcReason').textContent=s.reason||'—';}catch(e){const w=document.getElementById('btcSignalWord');if(w){w.textContent='WAIT';w.className='btcWait';}const x=document.getElementById('btcReason');if(x)x.textContent='BTC data temporarily unavailable';}}(async function loop(){await refreshBtc();setTimeout(loop,5000)})();})();</script>`;
+  const panel = `<section id="btcOwnedIndicator"><h3>🟣 BTCUSD — LAURA ONLY <span class="btcAccent">• MN1→W1→D1→H4→H1→M15→M5→M1</span></h3><div id="btcSignalWord" class="btcWait">WAIT</div><div class="btcIndicatorMeta"><div><span>السعر</span><strong id="btcPrice">—</strong></div><div><span>قوة الإعداد</span><strong id="btcConfidence">0/100</strong></div><div><span>W1 / D1 / H4</span><strong id="btcContext">—</strong></div><div><span>H1 / M15</span><strong id="btcStructure">—</strong></div><div><span>M5 / M1 Trigger</span><strong id="btcTrigger">—</strong></div><div><span>Laura Bias</span><strong id="btcBias">—</strong></div><div><span>الاستراتيجية</span><strong id="btcStrategy">LAURA_ONLY</strong></div><div><span>الدخول</span><strong id="btcEntry">—</strong></div><div><span>وقف الخسارة</span><strong id="btcStop">—</strong></div><div><span>TP1</span><strong id="btcTp1">—</strong></div><div><span>TP2</span><strong id="btcTp2">—</strong></div><div><span>TP3</span><strong id="btcTp3">—</strong></div><div><span>TP4</span><strong id="btcTp4">—</strong></div><div><span>التنفيذ</span><strong>إشارات فقط — لا تداول آلي</strong></div><div><span>سبب القرار</span><strong id="btcReason">بانتظار البيانات…</strong></div></div></section>`;
+  const js = `<script>(function(){async function refreshBtc(){try{const r=await fetch('/api/btc-signal',{cache:'no-store'}),s=await r.json(),pa=s.priceAction||{},la=s.laura||{},reads=la.reads||{},word=document.getElementById('btcSignalWord');if(!word)return;word.textContent=s.action||'WAIT';word.className=s.action==='BUY'?'btcBuy':s.action==='SELL'?'btcSell':'btcWait';const fmt=v=>Number.isFinite(Number(v))?Number(v).toFixed(2):'—';document.getElementById('btcPrice').textContent=fmt(s.price);document.getElementById('btcConfidence').textContent=Math.round(Number(s.confidence)||0)+'/100';document.getElementById('btcContext').textContent='W1 '+(reads.W1?.side||'—')+' • D1 '+(reads.D1?.side||'—')+' • H4 '+(reads.H4?.side||'—');document.getElementById('btcStructure').textContent='H1 '+(reads.H1?.side||'—')+' • M15 '+(reads.M15?.side||'—');document.getElementById('btcTrigger').textContent=Array.isArray(pa.triggers)&&pa.triggers.length?pa.triggers.join(' + '):('M5 '+(reads.M5?.side||'—')+' • M1 '+(reads.M1?.side||'—'));document.getElementById('btcBias').textContent=(la.outlook?.bias||'NEUTRAL')+' • '+(la.outlook?.strength||'LOW');document.getElementById('btcStrategy').textContent=s.strategy||'LAURA_CLASSICAL_PRICE_ACTION';document.getElementById('btcEntry').textContent=fmt(s.entry);document.getElementById('btcStop').textContent=fmt(s.stopLoss);document.getElementById('btcTp1').textContent=fmt(s.target1);document.getElementById('btcTp2').textContent=fmt(s.target2);document.getElementById('btcTp3').textContent=fmt(s.target3);document.getElementById('btcTp4').textContent=fmt(s.target4);document.getElementById('btcReason').textContent=s.reason||'—';}catch(e){const w=document.getElementById('btcSignalWord');if(w){w.textContent='WAIT';w.className='btcWait';}const x=document.getElementById('btcReason');if(x)x.textContent='BTC data temporarily unavailable';}}(async function loop(){await refreshBtc();setTimeout(loop,5000)})();})();</script>`;
   html = html.replace('</head>', `${css}</head>`);
   html = html.replace('<main', `${panel}<main`);
   html = html.replace('</body>', `${js}</body>`);
@@ -130,7 +130,7 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && url.pathname === '/api/btc-signal') {
     try {
-      const payload = await getBtcPriceActionSignal();
+      const payload = await getBtcLauraSignal();
       res.writeHead(200, {'content-type':'application/json; charset=utf-8','cache-control':'no-store','access-control-allow-origin':'*','x-gold-alpha-build':BUILD});
       return res.end(JSON.stringify(payload));
     } catch (error) {
@@ -158,6 +158,6 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => console.log(`[render-start] ${BUILD} listening on ${PORT}; gold-inner=${INNER_PORT}; BTCUSD price-action-only signals-only=on`));
+server.listen(PORT, '0.0.0.0', () => console.log(`[render-start] ${BUILD} listening on ${PORT}; gold-inner=${INNER_PORT}; BTCUSD Laura-only signals-only=on`));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
