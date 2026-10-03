@@ -293,5 +293,20 @@ for (const [from, to] of replacements) {
   source=source.replace("const BUILD='site-signal-noai-v64-ict-external-only';","const BUILD='site-signal-noai-v66-stop-advisory-only';");
 }
 
+
+{
+  // Laura is an independent classical desk; expose its own OHLC/levels to Telegram/site
+  // without changing the ICT-owned trade signal.
+  const activeAnchor="tradeStyle:m.tradeStyle||'ICT_ONLY_EXTERNAL_LIQUIDITY',multiTimeframe:m.multiTimeframe||m.confluence?.multiTimeframe||null,priceAction:";
+  if(!source.includes(activeAnchor))throw new Error('laura-context patch: active payload anchor missing');
+  source=source.replace(activeAnchor,"tradeStyle:m.tradeStyle||'ICT_ONLY_EXTERNAL_LIQUIDITY',multiTimeframe:m.multiTimeframe||m.confluence?.multiTimeframe||null,lauraContext:m.lauraContext||null,priceAction:");
+
+  const responseAnchor="tradeStyle:state.signal?.tradeStyle||model.tradeStyle||'ICT_ONLY_EXTERNAL_LIQUIDITY',multiTimeframe:model.multiTimeframe||model.confluence?.multiTimeframe||state.signal?.multiTimeframe||null,sessionLevels:";
+  if(!source.includes(responseAnchor))throw new Error('laura-context patch: response payload anchor missing');
+  source=source.replace(responseAnchor,"tradeStyle:state.signal?.tradeStyle||model.tradeStyle||'ICT_ONLY_EXTERNAL_LIQUIDITY',multiTimeframe:model.multiTimeframe||model.confluence?.multiTimeframe||state.signal?.multiTimeframe||null,lauraContext:model.lauraContext||state.signal?.lauraContext||null,sessionLevels:");
+
+  source=source.replace("const BUILD='site-signal-noai-v66-stop-advisory-only';","const BUILD='site-signal-noai-v67-laura-context';");
+}
+
 fs.writeFileSync(runtimeUrl, source, 'utf8');
 await import(`${runtimeUrl.href}?v=${Date.now()}`);

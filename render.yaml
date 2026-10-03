@@ -108,7 +108,21 @@ services:
       - key: BTC_MIN_CONFIDENCE
         value: "70"
       - key: BTC_TELEGRAM_MIN_CONFIDENCE
-        value: "70"
+        value: "75"
+      - key: BTC_TELEGRAM_ENABLED
+        value: "true"
+      - key: BTC_LAURA_MIN_CONFIDENCE
+        value: "75"
+      - key: BTC_LAURA_DECISIVE_CLOSE_USD
+        value: "25"
+      - key: BTC_LAURA_RETEST_TOLERANCE_USD
+        value: "35"
+      - key: TELEGRAM_LAURA_ALERTS_ENABLED
+        value: "true"
+      - key: TELEGRAM_LAURA_WEEKLY_OUTLOOK_ENABLED
+        value: "true"
+      - key: TELEGRAM_LAURA_WEEKLY_SEND_HOUR_RIYADH
+        value: "9"
       - key: TELEGRAM_EARLY_MIN_CONFIDENCE
         value: "82"
       - key: TELEGRAM_CANDIDATE_MIN_CONFIDENCE

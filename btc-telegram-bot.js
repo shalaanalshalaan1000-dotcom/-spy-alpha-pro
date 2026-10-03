@@ -110,7 +110,7 @@ function closeBtcJournalTrade(trade, outcome, exitPrice, closedAtMs = Date.now()
     setupId: trade.key,
     side: trade.side,
     action: trade.side,
-    strategy: trade.strategy || 'PRICE_ACTION_ONLY',
+    strategy: trade.strategy || 'LAURA_CLASSICAL_PRICE_ACTION',
     confidence: Number(trade.confidence) || 0,
     signalConfidence: Number(trade.confidence) || 0,
     entry,
@@ -144,7 +144,7 @@ function startTracking(signal, key, announcedAtMs = Date.now()) {
   trackedTrade = {
     key,
     side: signal.action,
-    strategy: signal.strategy || 'PRICE_ACTION_ONLY',
+    strategy: signal.strategy || 'LAURA_CLASSICAL_PRICE_ACTION',
     confidence: Number(signal.confidence) || 0,
     announcedAtMs,
     entry: Number(signal.entry),
@@ -241,12 +241,14 @@ async function telegram(method, body) {
 
 function message(signal) {
   const icon = signal.action === 'BUY' ? '🟢' : '🔴';
-  const strategy = signal.strategy || 'PRICE_ACTION_ONLY';
+  const strategy = signal.strategy || 'LAURA_CLASSICAL_PRICE_ACTION';
   const pa = signal.priceAction || {};
+  const laura = signal.laura || {};
+  const reads = laura.reads || {};
   const targets = Array.isArray(signal.targetLabels) ? signal.targetLabels : [];
   const triggers = Array.isArray(pa.triggers) && pa.triggers.length
     ? pa.triggers.join(' + ')
-    : (pa.breakout5?.type || pa.candle5?.pattern || 'CONFIRMED');
+    : `M5 ${reads.M5?.side || '—'} • M1 ${reads.M1?.side || '—'}`;
   const stamp = new Intl.DateTimeFormat('ar-SA', {
     timeZone: 'Asia/Riyadh', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
   }).format(new Date());
@@ -254,14 +256,14 @@ function message(signal) {
   const sizing = lotSizingLines(signal.entry, signal.stopLoss);
   const keyCandle = signal.importantCandles?.primary || pa.importantCandle || null;
   const keyCandleLine = keyCandle ? `🕯️ Key candle: ${keyCandle.pattern} • ${keyCandle.side} • ${Math.round(Number(keyCandle.score)||0)}/100 • ${keyCandle.status||'CANDIDATE'}\n` : '';
-  return `${icon} BTCUSD — PRICE ACTION CONFIRMED ${signal.action}\n` +
+  return `${icon} 🟣 BTCUSD — LAURA ${signal.action}\n` +
     `🧠 Strategy: ${strategy}\n` +
     `📊 Setup strength: ${Math.round(Number(signal.confidence) || 0)}/100\n` +
-    `🧭 15m context: ${pa.context15 || '—'}\n` +
-    `🔎 5m structure: ${pa.structure5 || '—'}\n` +
-    `⚡ 5m trigger: ${triggers}\n` +
+    `🧭 MN1 ${reads.MN1?.side || '—'} • W1 ${reads.W1?.side || '—'} • D1 ${reads.D1?.side || '—'}\n` +
+    `🏗️ H4 ${reads.H4?.side || '—'} • H1 ${reads.H1?.side || '—'} • M15 ${reads.M15?.side || '—'}\n` +
+    `⚡ Trigger: ${triggers}\n` +
     keyCandleLine +
-    `🕐 1h bias: ${pa.bias1h || '—'} (bias only)\n` +
+    `🟣 Laura bias: ${laura.outlook?.bias || 'NEUTRAL'} • ${laura.outlook?.strength || 'LOW'}\n` +
     `💵 Price: ${n(signal.price)}\n` +
     `📍 Entry: ${n(signal.entry)}\n` +
     `🛑 SL: ${n(signal.stopLoss)}\n` +
@@ -270,7 +272,7 @@ function message(signal) {
     `🎯 TP3: ${n(signal.target3)} • ${targets[2] || 'price-action level'}\n` +
     `🎯 TP4: ${n(signal.target4)} • ${targets[3] || 'price-action level'}\n\n` +
     `${sizing.join('\\n')}\n` +
-    `⏱️ 15m context → 5m setup + confirmation • 1h does not block\n` +
+    `⏱️ MN1→W1→D1→H4→H1→M15→M5→M1 • Laura-only classical S/R\n` +
     `🕒 ${stamp} بتوقيت السعودية\n` +
     `⚪ إشارات فقط — لا تداول آلي`;
 }
@@ -327,7 +329,7 @@ async function tick() {
   previousActive = true;
 }
 
-console.log(`[btc-telegram] ${BOT_TOKEN && CHAT_ID ? 'enabled' : 'disabled: token/chat id missing'}; source=${SIGNAL_URL}; mode=price-action-only`);
+console.log(`[btc-telegram] ${BOT_TOKEN && CHAT_ID ? 'enabled' : 'disabled: token/chat id missing'}; source=${SIGNAL_URL}; mode=laura-only`);
 
 if (process.env.NODE_ENV !== 'test' && BOT_TOKEN && CHAT_ID) {
   (async function loop() {

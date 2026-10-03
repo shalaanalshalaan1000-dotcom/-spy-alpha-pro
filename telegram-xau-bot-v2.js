@@ -30,9 +30,17 @@ const SESSION_LEVEL_ALERTS_ENABLED=String(process.env.TELEGRAM_SESSION_LEVEL_ALE
 const TRADE_SIGNALS_ENABLED=String(process.env.TELEGRAM_TRADE_SIGNALS_ENABLED||'true').toLowerCase()!=='false';
 const SESSION_BREAK_BUFFER_USD=Math.max(0.05,Number(process.env.TELEGRAM_SESSION_BREAK_BUFFER_USD||0.10));
 const SESSION_SWEEP_CLOSE_TOLERANCE_USD=Math.max(SESSION_BREAK_BUFFER_USD,Number(process.env.TELEGRAM_SESSION_SWEEP_CLOSE_TOLERANCE_USD||0.10));
+const SESSION_DECISIVE_CLOSE_USD=Math.max(SESSION_BREAK_BUFFER_USD,Number(process.env.TELEGRAM_SESSION_DECISIVE_CLOSE_USD||0.25));
+const GOLD_CLASSICAL_CONFIRMATION_ENABLED=String(process.env.GOLD_CLASSICAL_CONFIRMATION_ENABLED||'true').toLowerCase()!=='false';
 const SESSION_RETEST_TOLERANCE_USD=Math.max(0.10,Number(process.env.TELEGRAM_SESSION_RETEST_TOLERANCE_USD||0.60));
 const SESSION_SL_BUFFER_USD=Math.max(0.10,Number(process.env.TELEGRAM_SESSION_SL_BUFFER_USD||0.25));
 const FRIDAY_PRIMARY_MAX_DISTANCE_USD=Math.max(1,Number(process.env.TELEGRAM_FRIDAY_PRIMARY_MAX_DISTANCE_USD||25));
+const LAURA_ALERTS_ENABLED=String(process.env.TELEGRAM_LAURA_ALERTS_ENABLED||'true').toLowerCase()!=='false';
+const LAURA_WEEKLY_OUTLOOK_ENABLED=String(process.env.TELEGRAM_LAURA_WEEKLY_OUTLOOK_ENABLED||'true').toLowerCase()!=='false';
+const LAURA_WEEKLY_SEND_HOUR_RIYADH=Math.max(0,Math.min(23,Number(process.env.TELEGRAM_LAURA_WEEKLY_SEND_HOUR_RIYADH||9)));
+const lauraSeenKeys=new Set();
+const lauraWeeklyKeys=new Set();
+const lauraTrade={active:false,setupId:null,side:null,entry:null,stopLoss:null,target1:null,target2:null,openedAtMs:0};
 const sessionLevelAlertKeys=new Set();
 const sessionStatusSeen=new Map();
 const sessionBreakState=new Map();
@@ -201,20 +209,22 @@ function sessionFinalMessage(x){
   return `${x.icon||'📍'} XAUUSD — ${x.label||x.id} RANGE FINAL\n✅ تم تثبيت قمة وقاع الجلسة\n⬆️ High: ${n(x.high)}\n⬇️ Low: ${n(x.low)}\n📏 Range: ${n(x.range)}\n🗓️ ${x.date||'—'} • M15 (${x.startLocal||'—'}–${x.endLocal||'—'} ${x.timeZone||''})`;
 }
 function sessionBreakMessage(x,side,bar){
-  const high=side==='HIGH',level=Number(high?x.high:x.low);
-  return `${high?'🚨⬆️':'🚨⬇️'} XAUUSD — ${x.label||x.id} LEVEL BROKEN — NO ENTRY YET\n✅ M15 أغلق ${high?'فوق القمة':'تحت القاع'}\n📍 المستوى: ${n(level)}\n🕯️ M15 close: ${n(bar.close)}\n⏳ الآن ننتظر M5: retest + hold للاستمرار، أو reclaim لاكتشاف false break.\n🚫 لا دخول ولا SL لمجرد الكسر.`;
+  const high=side==='HIGH',level=Number(high?x.high:x.low),distance=Math.abs(Number(bar.close)-level);
+  return `${high?'🚨⬆️':'🚨⬇️'} XAUUSD — ${x.label||x.id} DECISIVE LEVEL BREAK — NO ENTRY YET\n✅ M15 أغلق ${high?'فوق القمة':'تحت القاع'} بإغلاق واضح\n📍 المستوى: ${n(level)}\n🕯️ M15 close: ${n(bar.close)} • مسافة الإغلاق: ${distance.toFixed(2)}\n🧭 Classical confirmation: close distance ≥ ${SESSION_DECISIVE_CLOSE_USD.toFixed(2)}\n⏳ الآن ننتظر M5 retest + hold + توافق اتجاه النموذج قبل الدخول.\n🚫 لا دخول ولا SL لمجرد الكسر.`;
 }
 function sessionSweepMessage(x,side,bar){
   const high=side==='HIGH',level=Number(high?x.high:x.low),distance=Math.abs(Number(bar.close)-level),reversal=high?'SELL':'BUY';
   return `🧹 XAUUSD — ${x.label||x.id} LIQUIDITY SWEEP\n${high?'أخذ سيولة فوق القمة ثم عاد إغلاق M15 إلى نطاق المستوى':'أخذ سيولة تحت القاع ثم عاد إغلاق M15 إلى نطاق المستوى'}\n📍 المستوى: ${n(level)}\n🕯️ High/Low: ${n(high?bar.high:bar.low)} • Close: ${n(bar.close)} • فرق الإغلاق: ${distance.toFixed(2)}\n🧮 Sweep close tolerance: ±${SESSION_SWEEP_CLOSE_TOLERANCE_USD.toFixed(2)}\n🚫 ليس Breakout مؤكدًا؛ لا نستخدم خطة retest breakout.\n⏳ REVERSAL WATCH: ننتظر ${reversal} M5 MSS/structure shift ثم retest قبل أي دخول.`;
 }
-function sessionRetestMessage(x,side,bar,st){
-  const buy=side==='HIGH',level=Number(st.level),range=Math.max(0,bar.high-bar.low),buffer=Math.max(SESSION_SL_BUFFER_USD,Math.min(.75,range*.15));
+function sessionRetestMessage(x,side,bar,st,rows=[],now=Date.now()){
+  const buy=side==='HIGH',tradeSide=buy?'BUY':'SELL',level=Number(st.level),range=Math.max(0,bar.high-bar.low),buffer=Math.max(SESSION_SL_BUFFER_USD,Math.min(.75,range*.15));
   const sl=buy?bar.low-buffer:bar.high+buffer;
   const entry=bar.close,risk=Math.abs(entry-sl);
   const zoneLo=level-SESSION_RETEST_TOLERANCE_USD;
   const zoneHi=level+SESSION_RETEST_TOLERANCE_USD;
-  return `${buy?'🟢':'🔴'} XAUUSD — ${x.label||x.id} RETEST CONFIRMED\n✅ ${buy?'BUY':'SELL'} continuation after M15 break + M5 retest/hold\n📍 المستوى المكسور: ${n(level)}\n🎯 منطقة إعادة الاختبار: ${n(zoneLo)} – ${n(zoneHi)}\n💵 Entry reference: ${n(entry)}\n🛑 SL: ${n(sl)}\n📏 مسافة الوقف: $${risk.toFixed(2)}\n🧱 الوقف خلف ${buy?'قاع':'قمة'} شمعة إعادة الاختبار M5 + buffer\n⚠️ إذا تحرك السعر بعيدًا عن منطقة الـretest، لا تطارد الدخول.`;
+  const targets=sessionTradeTargets(rows,tradeSide,entry,now);
+  const targetLines=sessionTargetLines(targets,tradeSide);
+  return `${buy?'🟢':'🔴'} XAUUSD — ${x.label||x.id} RETEST CONFIRMED\n✅ ${tradeSide} continuation: decisive M15 close → M5 retest/hold → model alignment\n📍 المستوى المكسور: ${n(level)}\n🎯 منطقة إعادة الاختبار: ${n(zoneLo)} – ${n(zoneHi)}\n💵 Entry reference: ${n(entry)}\n🛑 SL: ${n(sl)}\n📏 مسافة الوقف: ${risk.toFixed(2)}\n${targetLines.join('\n')}\n🧭 Classical S/R يحدد الهدف القريب؛ ICT external liquidity يبقى المرجع البنيوي.\n🧱 الوقف خلف ${buy?'قاع':'قمة'} شمعة إعادة الاختبار M5 + buffer\n⚠️ إذا تحرك السعر بعيدًا عن منطقة الـretest، لا تطارد الدخول.`;
 }
 function sessionFailedBreakMessage(x,side,bar,st){
   const failedHighBreak=side==='HIGH',reversal=failedHighBreak?'SELL':'BUY';
@@ -224,9 +234,9 @@ function sessionReversalMssMessage(x,side,bar,st){
   const buy=side==='LOW',expected=buy?'BUY':'SELL',trigger=buy?bar.high:bar.low;
   return `🔄 XAUUSD — ${x.label||x.id} ${expected} STRUCTURE SHIFT DETECTED\n✅ بعد false break ظهر M5 shift موافق للانعكاس\n📍 Session level: ${n(st.level)}\n🧭 MSS trigger: ${n(trigger)}\n📊 Model side: ${expected} • confidence ${Math.round(Number(st.reversalConfidence)||0)}%\n⏳ WAIT FOR M5 RETEST — لا دخول قبل إعادة الاختبار.`;
 }
-function sessionLiquidityTargets(rows,side,entry,now=Date.now()){
-  const buy=side==='LOW',price=Number(entry);
-  if(!Number.isFinite(price))return {primary:null,secondary:null,friday:false,primaryFiltered:false};
+function sessionTradeTargets(rows,tradeSide,entry,now=Date.now()){
+  const buy=tradeSide==='BUY',price=Number(entry);
+  if(!['BUY','SELL'].includes(tradeSide)||!Number.isFinite(price))return {primary:null,secondary:null,friday:false,primaryFiltered:false};
   const candidates=[];
   for(const row of Array.isArray(rows)?rows:[]){
     if(String(row?.status||'').toUpperCase()!=='CLOSED')continue;
@@ -253,17 +263,24 @@ function sessionLiquidityTargets(rows,side,entry,now=Date.now()){
     strategicCandidate:strategic
   };
 }
+function sessionLiquidityTargets(rows,side,entry,now=Date.now()){
+  return sessionTradeTargets(rows,side==='LOW'?'BUY':'SELL',entry,now);
+}
+function sessionTargetLines(targets,tradeSide){
+  const liquidityType=tradeSide==='BUY'?'BSL':'SSL',lines=[];
+  if(targets.secondary)lines.push(`🎯 Secondary ${liquidityType}: ${n(targets.secondary.level)} (${targets.secondary.label})`);
+  if(targets.primary)lines.push(`🎯 Primary ${liquidityType}: ${n(targets.primary.level)} (${targets.primary.label})`);
+  else if(targets.friday&&targets.primaryFiltered)lines.push(`🎯 Primary ${liquidityType}: — (Friday: strategic external draw is beyond ${FRIDAY_PRIMARY_MAX_DISTANCE_USD.toFixed(0)} USD)`);
+  if(targets.friday)lines.push(`🗓️ Friday filter: Primary max distance = ${FRIDAY_PRIMARY_MAX_DISTANCE_USD.toFixed(0)} USD from entry`);
+  if(!lines.length)lines.push('🎯 Next S/R / external liquidity: N/A — لا يوجد مستوى جلسة خارجي صالح بعد الدخول');
+  return lines;
+}
 function sessionReversalSetupMessage(x,side,bar,st,rows=[],now=Date.now()){
   const buy=side==='LOW',expected=buy?'BUY':'SELL',range=Math.max(0,bar.high-bar.low),buffer=Math.max(SESSION_SL_BUFFER_USD,Math.min(.75,range*.15));
   const sweepExtreme=Number(st.sweepExtreme),entry=bar.close;
   const sl=buy?Math.min(Number.isFinite(sweepExtreme)?sweepExtreme:bar.low,bar.low)-buffer:Math.max(Number.isFinite(sweepExtreme)?sweepExtreme:bar.high,bar.high)+buffer;
-  const risk=Math.abs(entry-sl),targets=sessionLiquidityTargets(rows,side,entry,now),liquidityType=buy?'BSL':'SSL';
-  const targetLines=[];
-  if(targets.secondary)targetLines.push(`🎯 Secondary ${liquidityType}: ${n(targets.secondary.level)} (${targets.secondary.label})`);
-  if(targets.primary)targetLines.push(`🎯 Primary ${liquidityType}: ${n(targets.primary.level)} (${targets.primary.label})`);
-  else if(targets.friday&&targets.primaryFiltered)targetLines.push(`🎯 Primary ${liquidityType}: — (Friday: strategic external draw is beyond ${FRIDAY_PRIMARY_MAX_DISTANCE_USD.toFixed(0)} USD)`);
-  if(targets.friday)targetLines.push(`🗓️ Friday filter: Primary max distance = ${FRIDAY_PRIMARY_MAX_DISTANCE_USD.toFixed(0)} USD from entry`);
-  if(!targetLines.length)targetLines.push('🎯 External liquidity targets: N/A — لا يوجد مستوى جلسة خارجي صالح بعد الدخول');
+  const risk=Math.abs(entry-sl),targets=sessionLiquidityTargets(rows,side,entry,now);
+  const targetLines=sessionTargetLines(targets,expected);
   return `${buy?'🟢':'🔴'} XAUUSD — ${x.label||x.id} FALSE-BREAK REVERSAL SETUP\n✅ ${expected} confirmed: reclaim → M5 structure shift → retest/hold\n📍 Swept level: ${n(st.level)}\n🧭 MSS trigger: ${n(st.reversalTrigger)}\n💵 Entry reference: ${n(entry)}\n🛑 Structural SL: ${n(sl)}\n📏 مسافة الوقف: ${risk.toFixed(2)} USD\n${targetLines.join('\n')}\n🧱 BUY يستهدف BSL وSELL يستهدف SSL. Secondary = الأقرب؛ Primary = الهدف الخارجي الاستراتيجي التالي.\n🧱 SL خلف sweep extreme / retest structure، وليس رقمًا ثابتًا عند لحظة الكسر.`;
 }
 async function maybeSendSessionLevelAlerts(s,now=Date.now()){
@@ -292,8 +309,9 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
         if(sessionLevelAlertKeys.has(seenKey))continue;
         const level=Number(side==='HIGH'?x.high:x.low),threshold=side==='HIGH'?level+SESSION_BREAK_BUFFER_USD:level-SESSION_BREAK_BUFFER_USD;
         const rawBreak=side==='HIGH'?m15.close>level+SESSION_BREAK_BUFFER_USD:m15.close<level-SESSION_BREAK_BUFFER_USD;
+        const decisiveBreak=side==='HIGH'?m15.close>level+SESSION_DECISIVE_CLOSE_USD:m15.close<level-SESSION_DECISIVE_CLOSE_USD;
         const conflicted=side==='LOW'?reclaimedLowerLow:reclaimedHigherHigh;
-        const broke=rawBreak&&!conflicted;
+        const broke=decisiveBreak&&!conflicted;
         const swept=side==='HIGH'?(m15.high>threshold&&m15.close<=level+SESSION_SWEEP_CLOSE_TOLERANCE_USD):(m15.low<threshold&&m15.close>=level-SESSION_SWEEP_CLOSE_TOLERANCE_USD);
         if(rawBreak&&conflicted){
           const mixKey=`MIXED:${key}:${m15.t}`;
@@ -359,10 +377,12 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
         const retestTouch=continuationBuy?m5.low<=level+SESSION_RETEST_TOLERANCE_USD:m5.high>=level-SESSION_RETEST_TOLERANCE_USD;
         const held=continuationBuy?m5.close>level:m5.close<level;
         const failed=continuationBuy?m5.close<level-SESSION_BREAK_BUFFER_USD:m5.close>level+SESSION_BREAK_BUFFER_USD;
-        if(retestTouch&&held){
-          await send(sessionRetestMessage(x,side,m5,st));
+        const expected=continuationBuy?'BUY':'SELL',modelSide=sessionModelSide(s),conf=confidenceOf(s),minConf=Math.max(75,Number(process.env.GOLD_TELEGRAM_MIN_CONFIDENCE||process.env.TELEGRAM_MIN_CONFIDENCE||75));
+        const classicalAligned=!GOLD_CLASSICAL_CONFIRMATION_ENABLED||(modelSide===expected&&conf>=minConf);
+        if(retestTouch&&held&&classicalAligned){
+          await send(sessionRetestMessage(x,side,m5,st,rows,now));
           st.retestSent=true;st.retestBarT=m5.t;sessionBreakState.set(key,st);
-          console.log(`[telegram-session-level] M5 retest ${key} entry=${n(m5.close)}`);
+          console.log(`[telegram-session-level] M5 retest ${key} side=${expected} confidence=${Math.round(conf)} entry=${n(m5.close)}`);
         }else if(failed){
           st.failed=true;
           st.failedBarT=m5.t;
@@ -375,6 +395,95 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
           console.log(`[telegram-session-level] false break / reversal watch ${key} close=${n(m5.close)}`);
         }
       }
+    }
+  }
+}
+
+function lauraAgentOf(s){return s?.agentStack?.agents?.laura||null;}
+function lauraWeeklyMessage(laura){
+  const o=laura?.outlook||{},w=o?.lastWeek||{},d=o?.lastDaily||{},h=o?.lastH4||{};
+  const bias=o.bias||'NEUTRAL',icon=bias==='BUY'?'🟢':bias==='SELL'?'🔴':'🟡';
+  const support=o?.nearestSupport,resistance=o?.nearestResistance,invalidation=o?.invalidation;
+  return `🟣 LAURA — WEEKLY OUTLOOK
+${icon} تصور الأسبوع القادم: ${bias} • القوة: ${o.strength||'LOW'}
+🧭 W1 ${o?.reads?.W1||'—'} • D1 ${o?.reads?.D1||'—'} • H4 ${o?.reads?.H4||'—'}
+
+📆 ملخص الأسبوع الماضي
+Open: ${n(w.open)} • High: ${n(w.high)}
+Low: ${n(w.low)} • Close: ${n(w.close)}
+شكل الإغلاق: ${w.pattern||'—'}
+
+📍 أقرب مقاومة: ${resistance?resistance.label+' '+n(resistance.level):'—'}
+📍 أقرب دعم: ${support?support.label+' '+n(support.level):'—'}
+🎯 السيناريو: ${o.nextWeekPath||'WAIT'}
+❌ إبطال التصور: ${invalidation?invalidation.label+' '+n(invalidation.level):'لا يوجد مستوى واحد حاسم'}
+
+D1 close: ${n(d.close)} • H4 close: ${n(h.close)}
+🧠 هذا تقرير LAURA فقط — مستقل عن ICT.`;
+}
+function lauraEntryMessage(a){
+  const sig=a?.signal||{},t1=sig?.target1,t2=sig?.target2;
+  return `🟣 LAURA — ${sig.action} ENTRY
+✅ Laura-only setup confirmed
+🧭 Weekly bias: ${a?.outlook?.bias||'—'} • W1 ${a?.outlook?.reads?.W1||'—'} / D1 ${a?.outlook?.reads?.D1||'—'} / H4 ${a?.outlook?.reads?.H4||'—'}
+📍 Broken level: ${sig?.brokenLevel?.label||'—'} ${n(sig?.brokenLevel?.level)}
+🕯️ M15 decisive close: ${n(sig?.m15Close)}
+🔁 M5 retest/hold close: ${n(sig?.m5RetestClose)}
+💵 Entry: ${n(sig.entry)}
+🛑 SL: ${n(sig.stopLoss)}
+🎯 Exit target: ${t1?t1.label+' '+n(t1.level):'—'}
+🎯 Secondary target: ${t2?t2.label+' '+n(t2.level):'—'}
+
+القرار مبني على نظرية Laura وحدها: W1/D1/H4 → S/R break → retest.`;
+}
+function lauraExitMessage(reason,price){
+  const label=reason==='TARGET'?'✅ TARGET REACHED':reason==='STOP'?'🛑 STRUCTURE INVALIDATED':'🔄 OPPOSITE LAURA SETUP';
+  return `🟣 LAURA — EXIT
+${label}
+${lauraTrade.side||'—'} from ${n(lauraTrade.entry)} → Exit ${n(price)}
+🛑 SL reference: ${n(lauraTrade.stopLoss)}
+🎯 Planned target: ${n(lauraTrade.target1)}
+📌 Setup: ${lauraTrade.setupId||'—'}`;
+}
+function resetLauraTrade(){
+  lauraTrade.active=false;lauraTrade.setupId=null;lauraTrade.side=null;lauraTrade.entry=null;lauraTrade.stopLoss=null;lauraTrade.target1=null;lauraTrade.target2=null;lauraTrade.openedAtMs=0;
+}
+async function maybeSendLauraAlerts(s,now=Date.now()){
+  if(!LAURA_ALERTS_ENABLED)return;
+  const a=lauraAgentOf(s);
+  if(!a)return;
+
+  if(LAURA_WEEKLY_OUTLOOK_ENABLED){
+    const clock=zonedClock(now,'Asia/Riyadh');
+    if(clock.weekday==='Sat'&&clock.hour>=LAURA_WEEKLY_SEND_HOUR_RIYADH){
+      const key=`LAURA_WEEKLY:${clock.date}`;
+      if(!lauraWeeklyKeys.has(key)){
+        await send(lauraWeeklyMessage(a));
+        lauraWeeklyKeys.add(key);
+        console.log(`[laura] weekly outlook sent ${key} bias=${a?.outlook?.bias||'NEUTRAL'}`);
+      }
+    }
+  }
+
+  const sig=a?.signal||{},live=num(s?.price);
+  if(lauraTrade.active&&valid(live)){
+    const hitStop=lauraTrade.side==='BUY'?live<=lauraTrade.stopLoss:live>=lauraTrade.stopLoss;
+    const hitTarget=lauraTrade.side==='BUY'?live>=lauraTrade.target1:live<=lauraTrade.target1;
+    const opposite=['BUY','SELL'].includes(sig.action)&&sig.action!==lauraTrade.side&&sig.state==='ENTRY';
+    if(hitStop||hitTarget||opposite){
+      await send(lauraExitMessage(hitStop?'STOP':hitTarget?'TARGET':'OPPOSITE',live));
+      console.log(`[laura] exit ${lauraTrade.setupId} reason=${hitStop?'STOP':hitTarget?'TARGET':'OPPOSITE'} price=${n(live)}`);
+      resetLauraTrade();
+    }
+  }
+
+  if(!lauraTrade.active&&sig.state==='ENTRY'&&['BUY','SELL'].includes(sig.action)&&sig.setupId&&!lauraSeenKeys.has(sig.setupId)){
+    const target1=num(sig?.target1?.level),entry=num(sig.entry),sl=num(sig.stopLoss);
+    if(valid(target1)&&valid(entry)&&valid(sl)&&stopValid(sig.action,entry,sl)){
+      await send(lauraEntryMessage(a));
+      lauraSeenKeys.add(sig.setupId);
+      lauraTrade.active=true;lauraTrade.setupId=sig.setupId;lauraTrade.side=sig.action;lauraTrade.entry=entry;lauraTrade.stopLoss=sl;lauraTrade.target1=target1;lauraTrade.target2=num(sig?.target2?.level);lauraTrade.openedAtMs=now;
+      console.log(`[laura] entry ${sig.setupId} side=${sig.action} entry=${n(entry)} target=${n(target1)}`);
     }
   }
 }
@@ -423,6 +532,7 @@ async function startup(){
     const me=await tg('getMe');
     await tg('setMyCommands',{commands:[
       {command:'evaluate',description:'📊 تقييم صفقات الذهب والبيتكوين'},
+      {command:'laura',description:'🟣 Laura: النظرة الأسبوعية والإشارة الحالية'},
       {command:'sessions',description:'📍 قمم وقيعان طوكيو ولندن ونيويورك'},
       {command:'signals_off',description:'⏸ إيقاف إرسال التنبيهات'},
       {command:'signals_on',description:'▶️ تشغيل إرسال التنبيهات'},
@@ -644,13 +754,14 @@ async function tick(){
     }
     if(lastSendControlEnabled===false)console.log('[telegram-xau-confirmed] trade alerts resumed by bot control');
     lastSendControlEnabled=true;
-    await maybeSendSessionOpenAlert(now);
-    if(!TRADE_SIGNALS_ENABLED)return;
-    if(!s){
+    if(!s&&(LAURA_ALERTS_ENABLED||TRADE_SIGNALS_ENABLED)){
       const r=await fetch(AUTO_URL,{cache:'no-store',signal:AbortSignal.timeout(7000)});
       if(!r.ok)throw new Error(`signal ${r.status}`);
       s=await r.json();
     }
+    if(s)await maybeSendLauraAlerts(s,now);
+    await maybeSendSessionOpenAlert(now);
+    if(!TRADE_SIGNALS_ENABLED)return;
     cleanupRecent(now);
 
     if(terminalMatchesLock(tradeLock,s)){
@@ -710,10 +821,10 @@ async function tick(){
   }catch(e){console.error('[telegram-xau-confirmed]',e?.message||e);}
 }
 
-console.log(`[telegram-xau-confirmed] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} session-level-alerts=${SESSION_LEVEL_ALERTS_ENABLED?'on':'off'}; trade-signals=${TRADE_SIGNALS_ENABLED?'on':'off'}; one-active-trade lock; TP/SL lifecycle alerts=on`);
+console.log(`[telegram-xau-confirmed] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} session-level-alerts=${SESSION_LEVEL_ALERTS_ENABLED?'on':'off'}; trade-signals=${TRADE_SIGNALS_ENABLED?'on':'off'}; laura=${LAURA_ALERTS_ENABLED?'on':'off'}; one-active-trade lock; TP/SL lifecycle alerts=on`);
 if(process.env.NODE_ENV!=='test'){
   (async function loop(){while(true){await tick();await new Promise(r=>setTimeout(r,POLL_MS));}})();
   (async function commands(){await botCommandLoop();})();
 }
 
-export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionLiquidityTargets,sessionReversalSetupMessage};
+export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,lauraWeeklyMessage,lauraEntryMessage};
