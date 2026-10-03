@@ -29,7 +29,9 @@ test('gold Laura is independent from ICT and uses all-timeframe classical confir
   assert.equal(a.usesIctSignalLogic,false);
   assert.deepEqual(a.timeframes.macro,['MN1','W1','D1']);
   assert.deepEqual(a.timeframes.structure,['H4','H1']);
-  assert.deepEqual(a.timeframes.trigger,['M15','M5','M1']);
+  assert.deepEqual(a.timeframes.break,['M15']);
+  assert.deepEqual(a.timeframes.retest,['M5']);
+  assert.deepEqual(a.timeframes.timing,['M1']);
   assert.equal(a.outlook.bias,'BUY');
   assert.equal(a.signal.action,'BUY');
   assert.equal(a.signal.state,'ENTRY');
