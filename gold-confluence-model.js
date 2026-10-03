@@ -94,7 +94,17 @@ function liquidityReversalInvalidated(key,lastM5){
 export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimeframes={}){
   const price=n(rawPrice),classic=analyzeClassicModel(samples,rawPrice,now),ict=analyzeIctModel(samples,rawPrice,now,higherTimeframes);
   const m1all=minuteBars(samples),m1=closed(m1all,1,now),m5=closed(aggregate(m1all,5),5,now),m15=closed(aggregate(m1all,15),15,now),h1=closed(aggregate(m1all,60),60,now),h4=closed(aggregate(m1all,240),240,now);
-  const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'MULTI_MODEL_CONFLUENCE',tradeStyle:'MULTI_MODEL_CONFLUENCE',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',sampleCount:samples.length,modelTimeframes:{macro:'MN1/W1/D2/D1',context:'H4/H1/M15',setup:'M5 multi-model confluence',timing:'M1'},confluence:null,importantCandles:null,technicalRead:ict?.technicalRead||null,priceAction:ict?.priceAction||null,liquidityContext:ict?.ict||null,ict:ict?.ict||null,updatedAt:new Date(now).toISOString(),reason:'Building multi-model context'};
+  const weeklyBars=cleanBars(higherTimeframes?.W1||[]),dailyBars=cleanBars(higherTimeframes?.D1||[]);
+  const weekend=[0,6].includes(new Date(now).getUTCDay());
+  const weeklyClosed=weekend?weeklyBars.at(-1)||null:weeklyBars.at(-2)||weeklyBars.at(-1)||null;
+  const lauraContext={
+    weekly:{closed:weeklyClosed},
+    daily:{closed:dailyBars.at(-1)||null},
+    h4:{closed:h4.at(-1)||null},
+    levels:ict?.ict?.levels||null,
+    updatedAt:new Date(now).toISOString()
+  };
+  const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'MULTI_MODEL_CONFLUENCE',tradeStyle:'MULTI_MODEL_CONFLUENCE',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',sampleCount:samples.length,modelTimeframes:{macro:'MN1/W1/D2/D1',context:'H4/H1/M15',setup:'M5 multi-model confluence',timing:'M1'},confluence:null,importantCandles:null,technicalRead:ict?.technicalRead||null,priceAction:ict?.priceAction||null,liquidityContext:ict?.ict||null,ict:ict?.ict||null,lauraContext,updatedAt:new Date(now).toISOString(),reason:'Building multi-model context'};
   if(price==null||m1.length<45||m5.length<24||m15.length<16||h1.length<6)return base;
 
   const bars={m1,m5,m15,h1,h4};const topDown=buildTopDownContext(bars,higherTimeframes);base.multiTimeframe=topDown;if(!topDown.ready)return{...base,status:'COLLECTING',reason:'TOP_DOWN COLLECTING — waiting for daily/2D/weekly/monthly context before any gold signal'};
