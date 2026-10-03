@@ -307,6 +307,23 @@ function precisionReason(stage,bias,poi){
   if(stage==='WAIT_FVG_RETRACE')return prefix+'FVG formed; waiting for M5 retrace/hold.';
   return prefix+'confirmed.';
 }
+function scoreLabel(score){
+  const n=Number(score)||0;
+  return n>=70?'EXCELLENT':n>=55?'GOOD':n>=40?'WATCH':'WEAK';
+}
+function entryReadiness({outlook,poi,m5}){
+  let score=0;
+  const gates={};
+  gates.htf=Boolean(['BUY','SELL'].includes(outlook?.bias)&&(Number(outlook?.confidence)||0)>=MIN_CONFIDENCE);if(gates.htf)score+=20;
+  gates.poi=Boolean(poi?.valid);if(gates.poi)score+=20;
+  gates.sweep=Boolean(m5?.sweep);if(gates.sweep)score+=15;
+  gates.delivery=Boolean(m5?.cisd||m5?.mss);if(gates.delivery)score+=15;
+  gates.displacement=Boolean((Number(m5?.dispIdx)||-1)>=0);if(gates.displacement)score+=10;
+  gates.fvg=Boolean(m5?.fvg);if(gates.fvg)score+=10;
+  gates.retrace=Boolean(m5?.retest);if(gates.retrace)score+=10;
+  const remaining=Object.entries(gates).filter(([,ok])=>!ok).map(([name])=>name.toUpperCase());
+  return{score,grade:scoreLabel(score),gates,remaining,complete:score===100};
+}
 
 function analyze({M1=[],M5=[],M15=[],H1=[],H4=[],D1=[],W1=[],MN1=[],ETHH1=[],ticker={}}){
   const price=num(ticker?.price)??num(M1.at(-1)?.close)??num(M5.at(-1)?.close);
@@ -348,14 +365,18 @@ function analyze({M1=[],M5=[],M15=[],H1=[],H4=[],D1=[],W1=[],MN1=[],ETHH1=[],tic
   if(m5.complete)quality+=5;
   if(psp.aligned)quality+=3;
   quality=clamp(Math.round(quality),0,100);
+  const readiness=entryReadiness({outlook,poi,m5});
 
   const base={
     symbol:'BTCUSD',status:'WAIT',action:'WAIT',side:null,executable:false,executionMode:'SIGNALS_ONLY',
     strategy:'LAURA_PRECISION_HYBRID',tradeStyle:'LAURA_PLUS_PRECISION',confidence:quality,
-    scoreMeaning:'DESCRIPTIVE_SETUP_STRENGTH_NOT_WIN_PROBABILITY',price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,
+    setupQuality:{score:quality,grade:scoreLabel(quality),excellentFrom:70},
+    entryReadiness:readiness,
+    htfStrength:{score:round(outlook.confidence,0),grade:scoreLabel(outlook.confidence)},
+    scoreMeaning:'SETUP_QUALITY_AND_ENTRY_READINESS_ARE_DESCRIPTIVE_NOT_WIN_PROBABILITY',price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,
     target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,lotSizing:null,setupId:null,
     laura:{mode:'LAURA_PLUS_PRECISION',reads,outlook:{...outlook,lastWeek,nearestSupport:support,nearestResistance:resistance,nextWeekPath},levels:levels.slice().sort((a,b)=>(a.distance??Infinity)-(b.distance??Infinity)).slice(0,16)},
-    precision:{model:'LIVE_V1',requiredGates:['LAURA_HTF_BIAS','D1_H1_POI','M5_SWEEP_CISD_OR_MSS_DISPLACEMENT_FVG_RETRACE'],confluence,m5},
+    precision:{model:'LIVE_V1',requiredGates:['LAURA_HTF_BIAS','D1_H1_POI','M5_SWEEP_CISD_OR_MSS_DISPLACEMENT_FVG_RETRACE'],confluence,m5,entryReadiness:readiness},
     priceAction:{bias1h:reads.H1.side,context15:reads.M15.side,structure5:reads.M5.side,triggers:[]},
     smc:null,ict:null,updatedAt:new Date().toISOString(),
     reason:'LAURA+PRECISION WAIT.'
