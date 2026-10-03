@@ -1,3 +1,4 @@
-// Compatibility wrapper: BTC runtime uses the always-on Laura + Precision hybrid.
-// Legacy callers keep the same import path while the entry model is W1/D1/H4/H1 -> POI -> M5 precision.
-export { getBtcSignal, analyzeBtcLaura, analyzeBtcLauraPrecision, injectBtcPanel } from './btc-laura-precision-engine.js';
+// Compatibility wrapper: BTC runtime uses Laura classical price action only.
+// No ICT/SMC/Precision hybrid gates are allowed in the BTC decision path.
+export { getBtcSignal, analyzeBtcLaura, injectBtcPanel } from './btc-laura-engine.js';
+export { analyzeBtcLaura as analyzeBtcLauraPrecision } from './btc-laura-engine.js';
