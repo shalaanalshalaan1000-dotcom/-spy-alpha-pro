@@ -241,29 +241,38 @@ async function telegram(method, body) {
 
 function message(signal) {
   const icon = signal.action === 'BUY' ? '🟢' : '🔴';
-  const strategy = signal.strategy || 'LAURA_CLASSICAL_PRICE_ACTION';
+  const strategy = signal.strategy || 'LAURA_PRECISION_HYBRID';
   const pa = signal.priceAction || {};
   const laura = signal.laura || {};
   const reads = laura.reads || {};
   const targets = Array.isArray(signal.targetLabels) ? signal.targetLabels : [];
   const triggers = Array.isArray(pa.triggers) && pa.triggers.length
     ? pa.triggers.join(' + ')
-    : `M5 ${reads.M5?.side || '—'} • M1 ${reads.M1?.side || '—'}`;
+    : `M5 ${reads.M5?.side || '—'} • ${signal?.precision?.m5?.stage || 'WAIT'}`;
   const stamp = new Intl.DateTimeFormat('ar-SA', {
     timeZone: 'Asia/Riyadh', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
   }).format(new Date());
 
   const sizing = lotSizingLines(signal.entry, signal.stopLoss);
+  const precision = signal.precision || {};
+  const conf = precision.confluence || {};
+  const poi = conf.poi?.chosen || null;
+  const m5 = precision.m5 || {};
   const keyCandle = signal.importantCandles?.primary || pa.importantCandle || null;
   const keyCandleLine = keyCandle ? `🕯️ Key candle: ${keyCandle.pattern} • ${keyCandle.side} • ${Math.round(Number(keyCandle.score)||0)}/100 • ${keyCandle.status||'CANDIDATE'}\n` : '';
-  return `${icon} 🟣 BTCUSD — LAURA ${signal.action}\n` +
+  const poiLine = poi ? `📍 POI: ${poi.label || poi.type || 'D1/H1'} ${n(poi.low)}–${n(poi.high)}\n` : '';
+  const sweepLine = m5?.sweep ? `🧹 M5 sweep: ${n(m5.sweep.level)} • extreme ${n(m5.sweep.extreme)}\n` : '';
+  const deliveryLine = `⚙️ Delivery: ${m5.cisd ? 'CISD' : '—'} • ${m5.mss ? 'MSS' : '—'} • ${m5.dispIdx >= 0 ? 'DISPLACEMENT' : '—'} • ${m5.fvg?.type || 'FVG'}\n`;
+  const pspLine = conf.psp?.available ? `🔗 PSP BTC/ETH: ${conf.psp.type || 'NONE'}${conf.psp.aligned ? ' ✅' : ''}\n` : '';
+  return `${icon} 🟣 BTCUSD — LAURA + PRECISION ${signal.action}\n` +
     `🧠 Strategy: ${strategy}\n` +
     `📊 Setup strength: ${Math.round(Number(signal.confidence) || 0)}/100\n` +
     `🧭 MN1 ${reads.MN1?.side || '—'} • W1 ${reads.W1?.side || '—'} • D1 ${reads.D1?.side || '—'}\n` +
     `🏗️ H4 ${reads.H4?.side || '—'} • H1 ${reads.H1?.side || '—'} • M15 ${reads.M15?.side || '—'}\n` +
     `⚡ Trigger: ${triggers}\n` +
+    poiLine + sweepLine + deliveryLine + pspLine +
     keyCandleLine +
-    `🟣 Laura bias: ${laura.outlook?.bias || 'NEUTRAL'} • ${laura.outlook?.strength || 'LOW'}\n` +
+    `🟣 Laura HTF bias: ${laura.outlook?.bias || 'NEUTRAL'} • ${laura.outlook?.strength || 'LOW'}\n` +
     `💵 Price: ${n(signal.price)}\n` +
     `📍 Entry: ${n(signal.entry)}\n` +
     `🛑 SL: ${n(signal.stopLoss)}\n` +
@@ -272,7 +281,7 @@ function message(signal) {
     `🎯 TP3: ${n(signal.target3)} • ${targets[2] || 'price-action level'}\n` +
     `🎯 TP4: ${n(signal.target4)} • ${targets[3] || 'price-action level'}\n\n` +
     `${sizing.join('\\n')}\n` +
-    `⏱️ MN1→W1→D1→H4→H1→M15→M5→M1 • Laura-only classical S/R\n` +
+    `⏱️ Laura HTF → D1/H1 POI → M5 sweep → CISD/MSS → displacement → FVG retrace\n` +
     `🕒 ${stamp} بتوقيت السعودية\n` +
     `⚪ إشارات فقط — لا تداول آلي`;
 }
@@ -329,7 +338,7 @@ async function tick() {
   previousActive = true;
 }
 
-console.log(`[btc-telegram] ${BOT_TOKEN && CHAT_ID ? 'enabled' : 'disabled: token/chat id missing'}; source=${SIGNAL_URL}; mode=laura-only`);
+console.log(`[btc-telegram] ${BOT_TOKEN && CHAT_ID ? 'enabled' : 'disabled: token/chat id missing'}; source=${SIGNAL_URL}; mode=laura-precision-hybrid`);
 
 if (process.env.NODE_ENV !== 'test' && BOT_TOKEN && CHAT_ID) {
   (async function loop() {
