@@ -5,45 +5,36 @@ import { analyzeBtcLaura } from '../btc-ict-fast.js';
 function trend(base,step,n=10){
   return Array.from({length:n},(_,i)=>{
     const open=base+i*step,close=open+step*.6;
-    return{t:(i+1)*3600000,open,high:Math.max(open,close)+2,low:Math.min(open,close)-2,close,volume:100+i};
+    return{t:(i+1)*3600000,open,high:Math.max(open,close)+30,low:Math.min(open,close)-30,close,volume:100+i};
   });
 }
-function precisionM5(){
-  return [
-    {t:1,open:122,high:124,low:121,close:123,volume:10},
-    {t:2,open:123,high:125,low:122,close:124,volume:10},
-    {t:3,open:124,high:126,low:123,close:125,volume:10},
-    {t:4,open:125,high:126,low:123.5,close:124,volume:10},
-    {t:5,open:124,high:125,low:120,close:124.8,volume:20},
-    {t:6,open:124.8,high:128,low:126.5,close:127.5,volume:30},
-    {t:7,open:127.4,high:129,low:127,close:128,volume:20},
-    {t:8,open:127,high:127.2,low:126.1,close:126.3,volume:18}
-  ];
-}
 
-test('BTC always-on Laura Precision uses HTF bias with M5 precision entry model',()=>{
-  process.env.BTC_LAURA_MIN_CONFIDENCE='60';
-  const MN1=trend(80,3),W1=trend(90,2.5),D1=trend(95,2),H4=trend(100,1.5),H1=trend(105,1.2);
-  H1[2]={...H1[2],low:116,high:118,open:116.5,close:117.5};
-  H1[0]={...H1[0],high:110};
-  const M15=trend(112,1,10);
-  const M5=precisionM5();
-  const M1=trend(120,.4,12);
-  const ETHH1=trend(2000,8,10);
-  const s=analyzeBtcLaura({MN1,W1,D1,H4,H1,M15,M5,M1,ETHH1,ticker:{price:'126.3'}});
-  assert.equal(s.strategy,'LAURA_PRECISION_HYBRID');
-  assert.equal(s.tradeStyle,'LAURA_PLUS_PRECISION');
-  assert.equal(s.laura.mode,'LAURA_PLUS_PRECISION');
-  assert.deepEqual(s.precision.requiredGates,[
-    'LAURA_HTF_BIAS',
-    'D1_H1_POI',
-    'M5_SWEEP_CISD_OR_MSS_DISPLACEMENT_FVG_RETRACE'
-  ]);
-  assert.equal(s.precision.confluence.poi.valid,true);
-  assert.equal(s.precision.m5.complete,true);
+test('BTC runtime is Laura-only and does not require Precision/SMC/ICT gates',()=>{
+  process.env.BTC_LAURA_MIN_CONFIDENCE='70';
+  const MN1=trend(82000,500);
+  const W1=trend(89000,200);
+  W1[8]={...W1[8],high:92000};
+  const D1=trend(90000,100);
+  const H4=trend(90000,100);
+  const H1=trend(90000,100);
+  const M15=trend(90400,40);
+  M15[M15.length-1]={...M15.at(-1),open:90880,high:90980,low:90860,close:90940};
+  const M5=trend(90600,30);
+  M5[M5.length-1]={...M5.at(-1),open:90910,high:90980,low:90880,close:90950};
+  const M1=trend(90700,20);
+  M1[M1.length-1]={...M1.at(-1),open:90940,high:90980,low:90930,close:90960};
+
+  const s=analyzeBtcLaura({MN1,W1,D1,H4,H1,M15,M5,M1,ticker:{price:'90960'}});
+  assert.equal(s.strategy,'LAURA_CLASSICAL_PRICE_ACTION');
+  assert.equal(s.tradeStyle,'LAURA_ONLY');
+  assert.equal(s.laura.mode,'LAURA_ONLY');
+  assert.equal(s.smc,null);
+  assert.equal(s.ict,null);
+  assert.equal('precision' in s,false);
   assert.equal(s.status,'ACTIVE');
   assert.equal(s.action,'BUY');
   assert.ok(s.entry>s.stopLoss);
-  assert.deepEqual(s.priceAction.triggers.slice(0,3),['M5_LIQUIDITY_SWEEP','CISD_OR_MSS','DISPLACEMENT']);
-  assert.doesNotMatch(s.reason,/M15 decisive|M1 timing/i);
+  assert.deepEqual(s.priceAction.triggers,['DECISIVE_M15_CLOSE','M5_RETEST_HOLD','M1_TIMING']);
+  assert.match(s.reason,/LAURA BUY/);
+  assert.doesNotMatch(s.reason,/CISD|MSS|FVG|sweep|precision|PSP|POI/i);
 });
