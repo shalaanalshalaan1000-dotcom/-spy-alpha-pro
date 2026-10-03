@@ -308,5 +308,11 @@ for (const [from, to] of replacements) {
   source=source.replace("const BUILD='site-signal-noai-v66-stop-advisory-only';","const BUILD='site-signal-noai-v67-laura-context';");
 }
 
+// marketClock runs for every retained M15 bar. Reuse its native formatter.
+{
+  const allocation="new Intl.DateTimeFormat('en-GB',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',weekday:'short',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(new Date(ms))";
+  if(!source.includes(allocation))throw new Error('memory patch: marketClock anchor missing');
+  source="import { clockParts } from './runtime-memory-policy.js';\n"+source.replace(allocation,'clockParts(ms,timeZone)');
+}
 fs.writeFileSync(runtimeUrl, source, 'utf8');
 await import(`${runtimeUrl.href}?v=${Date.now()}`);
