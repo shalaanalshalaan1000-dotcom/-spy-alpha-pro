@@ -1,3 +1,5 @@
+import { analyzeLaura } from './gold-laura-agent.js';
+
 const toNum = value => Number.isFinite(Number(value)) ? Number(value) : null;
 const round = (value, digits = 2) => {
   const n = toNum(value);
@@ -830,6 +832,7 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
   const liquidityDecision = liquidityDecisionAgent(source, setup, now);
   const drawOnLiquidity = drawOnLiquidityAgent(source, setup, session, liquidityDecision, now);
   const dailyOpportunity = dailyOpportunityAgent(source, now);
+  const laura = analyzeLaura(source, now);
   const stateEngine = stateEngineAgent(source, market);
   const brain = brainAgent(source, setup, stateEngine, research);
   const risk = hardRiskLayer(source, stateEngine, setup, baseRisk);
@@ -847,7 +850,8 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
     architecture: 'GOLD_AGENT_STACK_V3_TRADING_HUB',
     layers: {
       SPECIALISTS: 'Market + setup + state + session + H4/H1/M15 liquidity decision + AMD context + draw-on-liquidity + daily opportunity + research + risk + journal + review',
-      TRADING_AGENT: 'Single consolidated consumer and decision publisher',
+      LAURA_AGENT: 'Independent classical price-action desk: W1/D1/H4 outlook + M15 break + M5 retest; does not feed or override ICT execution',
+      TRADING_AGENT: 'Single consolidated consumer and decision publisher for the ICT stack',
       EXECUTION: 'Deterministic permission gate; manual MT5 remains possible when execution permission is off'
     },
     symbol: 'XAUUSD',
@@ -863,7 +867,7 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
     },
     decisionSchema: schema,
     telegramBrief: trading.telegramBrief,
-    agents: {brain, reflex, stateEngine, market, setup, risk, tradeManager, session, amd, liquidityDecision, drawOnLiquidity, dailyOpportunity, research, journal, selfImprovement, finalCheck, trading},
+    agents: {brain, reflex, stateEngine, market, setup, risk, tradeManager, session, amd, liquidityDecision, drawOnLiquidity, dailyOpportunity, research, journal, selfImprovement, finalCheck, trading, laura},
     updatedAt: new Date(now).toISOString()
   };
 }
