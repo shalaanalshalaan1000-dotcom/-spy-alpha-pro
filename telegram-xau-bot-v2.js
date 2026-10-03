@@ -35,6 +35,12 @@ const GOLD_CLASSICAL_CONFIRMATION_ENABLED=String(process.env.GOLD_CLASSICAL_CONF
 const SESSION_RETEST_TOLERANCE_USD=Math.max(0.10,Number(process.env.TELEGRAM_SESSION_RETEST_TOLERANCE_USD||0.60));
 const SESSION_SL_BUFFER_USD=Math.max(0.10,Number(process.env.TELEGRAM_SESSION_SL_BUFFER_USD||0.25));
 const FRIDAY_PRIMARY_MAX_DISTANCE_USD=Math.max(1,Number(process.env.TELEGRAM_FRIDAY_PRIMARY_MAX_DISTANCE_USD||25));
+const LAURA_ALERTS_ENABLED=String(process.env.TELEGRAM_LAURA_ALERTS_ENABLED||'true').toLowerCase()!=='false';
+const LAURA_WEEKLY_OUTLOOK_ENABLED=String(process.env.TELEGRAM_LAURA_WEEKLY_OUTLOOK_ENABLED||'true').toLowerCase()!=='false';
+const LAURA_WEEKLY_SEND_HOUR_RIYADH=Math.max(0,Math.min(23,Number(process.env.TELEGRAM_LAURA_WEEKLY_SEND_HOUR_RIYADH||9)));
+const lauraSeenKeys=new Set();
+const lauraWeeklyKeys=new Set();
+const lauraTrade={active:false,setupId:null,side:null,entry:null,stopLoss:null,target1:null,target2:null,openedAtMs:0};
 const sessionLevelAlertKeys=new Set();
 const sessionStatusSeen=new Map();
 const sessionBreakState=new Map();
@@ -393,6 +399,95 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
   }
 }
 
+function lauraAgentOf(s){return s?.agentStack?.agents?.laura||null;}
+function lauraWeeklyMessage(laura){
+  const o=laura?.outlook||{},w=o?.lastWeek||{},d=o?.lastDaily||{},h=o?.lastH4||{};
+  const bias=o.bias||'NEUTRAL',icon=bias==='BUY'?'🟢':bias==='SELL'?'🔴':'🟡';
+  const support=o?.nearestSupport,resistance=o?.nearestResistance,invalidation=o?.invalidation;
+  return `🟣 LAURA — WEEKLY OUTLOOK
+${icon} تصور الأسبوع القادم: ${bias} • القوة: ${o.strength||'LOW'}
+🧭 W1 ${o?.reads?.W1||'—'} • D1 ${o?.reads?.D1||'—'} • H4 ${o?.reads?.H4||'—'}
+
+📆 ملخص الأسبوع الماضي
+Open: ${n(w.open)} • High: ${n(w.high)}
+Low: ${n(w.low)} • Close: ${n(w.close)}
+شكل الإغلاق: ${w.pattern||'—'}
+
+📍 أقرب مقاومة: ${resistance?resistance.label+' '+n(resistance.level):'—'}
+📍 أقرب دعم: ${support?support.label+' '+n(support.level):'—'}
+🎯 السيناريو: ${o.nextWeekPath||'WAIT'}
+❌ إبطال التصور: ${invalidation?invalidation.label+' '+n(invalidation.level):'لا يوجد مستوى واحد حاسم'}
+
+D1 close: ${n(d.close)} • H4 close: ${n(h.close)}
+🧠 هذا تقرير LAURA فقط — مستقل عن ICT.`;
+}
+function lauraEntryMessage(a){
+  const sig=a?.signal||{},t1=sig?.target1,t2=sig?.target2;
+  return `🟣 LAURA — ${sig.action} ENTRY
+✅ Laura-only setup confirmed
+🧭 Weekly bias: ${a?.outlook?.bias||'—'} • W1 ${a?.outlook?.reads?.W1||'—'} / D1 ${a?.outlook?.reads?.D1||'—'} / H4 ${a?.outlook?.reads?.H4||'—'}
+📍 Broken level: ${sig?.brokenLevel?.label||'—'} ${n(sig?.brokenLevel?.level)}
+🕯️ M15 decisive close: ${n(sig?.m15Close)}
+🔁 M5 retest/hold close: ${n(sig?.m5RetestClose)}
+💵 Entry: ${n(sig.entry)}
+🛑 SL: ${n(sig.stopLoss)}
+🎯 Exit target: ${t1?t1.label+' '+n(t1.level):'—'}
+🎯 Secondary target: ${t2?t2.label+' '+n(t2.level):'—'}
+
+القرار مبني على نظرية Laura وحدها: W1/D1/H4 → S/R break → retest.`;
+}
+function lauraExitMessage(reason,price){
+  const label=reason==='TARGET'?'✅ TARGET REACHED':reason==='STOP'?'🛑 STRUCTURE INVALIDATED':'🔄 OPPOSITE LAURA SETUP';
+  return `🟣 LAURA — EXIT
+${label}
+${lauraTrade.side||'—'} from ${n(lauraTrade.entry)} → Exit ${n(price)}
+🛑 SL reference: ${n(lauraTrade.stopLoss)}
+🎯 Planned target: ${n(lauraTrade.target1)}
+📌 Setup: ${lauraTrade.setupId||'—'}`;
+}
+function resetLauraTrade(){
+  lauraTrade.active=false;lauraTrade.setupId=null;lauraTrade.side=null;lauraTrade.entry=null;lauraTrade.stopLoss=null;lauraTrade.target1=null;lauraTrade.target2=null;lauraTrade.openedAtMs=0;
+}
+async function maybeSendLauraAlerts(s,now=Date.now()){
+  if(!LAURA_ALERTS_ENABLED)return;
+  const a=lauraAgentOf(s);
+  if(!a)return;
+
+  if(LAURA_WEEKLY_OUTLOOK_ENABLED){
+    const clock=zonedClock(now,'Asia/Riyadh');
+    if(clock.weekday==='Sat'&&clock.hour>=LAURA_WEEKLY_SEND_HOUR_RIYADH){
+      const key=`LAURA_WEEKLY:${clock.date}`;
+      if(!lauraWeeklyKeys.has(key)){
+        await send(lauraWeeklyMessage(a));
+        lauraWeeklyKeys.add(key);
+        console.log(`[laura] weekly outlook sent ${key} bias=${a?.outlook?.bias||'NEUTRAL'}`);
+      }
+    }
+  }
+
+  const sig=a?.signal||{},live=num(s?.price);
+  if(lauraTrade.active&&valid(live)){
+    const hitStop=lauraTrade.side==='BUY'?live<=lauraTrade.stopLoss:live>=lauraTrade.stopLoss;
+    const hitTarget=lauraTrade.side==='BUY'?live>=lauraTrade.target1:live<=lauraTrade.target1;
+    const opposite=['BUY','SELL'].includes(sig.action)&&sig.action!==lauraTrade.side&&sig.state==='ENTRY';
+    if(hitStop||hitTarget||opposite){
+      await send(lauraExitMessage(hitStop?'STOP':hitTarget?'TARGET':'OPPOSITE',live));
+      console.log(`[laura] exit ${lauraTrade.setupId} reason=${hitStop?'STOP':hitTarget?'TARGET':'OPPOSITE'} price=${n(live)}`);
+      resetLauraTrade();
+    }
+  }
+
+  if(!lauraTrade.active&&sig.state==='ENTRY'&&['BUY','SELL'].includes(sig.action)&&sig.setupId&&!lauraSeenKeys.has(sig.setupId)){
+    const target1=num(sig?.target1?.level),entry=num(sig.entry),sl=num(sig.stopLoss);
+    if(valid(target1)&&valid(entry)&&valid(sl)&&stopValid(sig.action,entry,sl)){
+      await send(lauraEntryMessage(a));
+      lauraSeenKeys.add(sig.setupId);
+      lauraTrade.active=true;lauraTrade.setupId=sig.setupId;lauraTrade.side=sig.action;lauraTrade.entry=entry;lauraTrade.stopLoss=sl;lauraTrade.target1=target1;lauraTrade.target2=num(sig?.target2?.level);lauraTrade.openedAtMs=now;
+      console.log(`[laura] entry ${sig.setupId} side=${sig.action} entry=${n(entry)} target=${n(target1)}`);
+    }
+  }
+}
+
 function canSendSignal(s,now=Date.now()){
   const side=sideOf(s),entry=entryOf(s),sl=stopOf(s),p=num(s?.price),t=targetsOf(s),age=num(s?.quoteAgeMs),at=Date.parse(s?.updatedAt);
   if(s?.degraded||s?.liveFeedFresh!==true||age==null||age<0||age>20000||!Number.isFinite(at)||now-at>20000||at>now+5000)return false;
@@ -437,6 +532,7 @@ async function startup(){
     const me=await tg('getMe');
     await tg('setMyCommands',{commands:[
       {command:'evaluate',description:'📊 تقييم صفقات الذهب والبيتكوين'},
+      {command:'laura',description:'🟣 Laura: النظرة الأسبوعية والإشارة الحالية'},
       {command:'sessions',description:'📍 قمم وقيعان طوكيو ولندن ونيويورك'},
       {command:'signals_off',description:'⏸ إيقاف إرسال التنبيهات'},
       {command:'signals_on',description:'▶️ تشغيل إرسال التنبيهات'},
@@ -658,13 +754,14 @@ async function tick(){
     }
     if(lastSendControlEnabled===false)console.log('[telegram-xau-confirmed] trade alerts resumed by bot control');
     lastSendControlEnabled=true;
-    await maybeSendSessionOpenAlert(now);
-    if(!TRADE_SIGNALS_ENABLED)return;
-    if(!s){
+    if(!s&&(LAURA_ALERTS_ENABLED||TRADE_SIGNALS_ENABLED)){
       const r=await fetch(AUTO_URL,{cache:'no-store',signal:AbortSignal.timeout(7000)});
       if(!r.ok)throw new Error(`signal ${r.status}`);
       s=await r.json();
     }
+    if(s)await maybeSendLauraAlerts(s,now);
+    await maybeSendSessionOpenAlert(now);
+    if(!TRADE_SIGNALS_ENABLED)return;
     cleanupRecent(now);
 
     if(terminalMatchesLock(tradeLock,s)){
@@ -724,10 +821,10 @@ async function tick(){
   }catch(e){console.error('[telegram-xau-confirmed]',e?.message||e);}
 }
 
-console.log(`[telegram-xau-confirmed] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} session-level-alerts=${SESSION_LEVEL_ALERTS_ENABLED?'on':'off'}; trade-signals=${TRADE_SIGNALS_ENABLED?'on':'off'}; one-active-trade lock; TP/SL lifecycle alerts=on`);
+console.log(`[telegram-xau-confirmed] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} session-level-alerts=${SESSION_LEVEL_ALERTS_ENABLED?'on':'off'}; trade-signals=${TRADE_SIGNALS_ENABLED?'on':'off'}; laura=${LAURA_ALERTS_ENABLED?'on':'off'}; one-active-trade lock; TP/SL lifecycle alerts=on`);
 if(process.env.NODE_ENV!=='test'){
   (async function loop(){while(true){await tick();await new Promise(r=>setTimeout(r,POLL_MS));}})();
   (async function commands(){await botCommandLoop();})();
 }
 
-export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage};
+export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,lauraWeeklyMessage,lauraEntryMessage};
