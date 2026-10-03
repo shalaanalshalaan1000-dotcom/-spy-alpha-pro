@@ -400,13 +400,21 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
 }
 
 function lauraAgentOf(s){return s?.agentStack?.agents?.laura||null;}
+function lauraWeeklyReady(laura){
+  const o=laura?.outlook||{},w=o?.lastWeek,d=o?.lastDaily,h4=o?.lastH4,reads=o?.reads||{};
+  const barReady=b=>Boolean(b&&[b.open,b.high,b.low,b.close].every(valid));
+  const directionReady=['W1','D1','H4','H1'].every(tf=>['BUY','SELL','NEUTRAL'].includes(String(reads?.[tf]||'')));
+  const hasMappedLevel=Boolean(o?.nearestSupport||o?.nearestResistance||(Array.isArray(o?.levels)&&o.levels.some(x=>valid(x?.level))));
+  return barReady(w)&&barReady(d)&&barReady(h4)&&directionReady&&hasMappedLevel;
+}
 function lauraWeeklyMessage(laura){
-  const o=laura?.outlook||{},w=o?.lastWeek||{},d=o?.lastDaily||{},h=o?.lastH4||{};
+  const o=laura?.outlook||{},w=o?.lastWeek||{},d=o?.lastDaily||{},h=o?.lastH4||{},m=o?.lastMonth||{};
   const bias=o.bias||'NEUTRAL',icon=bias==='BUY'?'🟢':bias==='SELL'?'🔴':'🟡';
   const support=o?.nearestSupport,resistance=o?.nearestResistance,invalidation=o?.invalidation;
   return `🟣 LAURA — WEEKLY OUTLOOK
-${icon} تصور الأسبوع القادم: ${bias} • القوة: ${o.strength||'LOW'}
-🧭 W1 ${o?.reads?.W1||'—'} • D1 ${o?.reads?.D1||'—'} • H4 ${o?.reads?.H4||'—'}
+${icon} تصور الأسبوع القادم: ${bias} • القوة: ${o.strength||'LOW'} • ${Math.round(Number(o.confidence)||0)}/100
+🧭 MN1 ${o?.reads?.MN1||'—'} • W1 ${o?.reads?.W1||'—'} • D1 ${o?.reads?.D1||'—'}
+🏗️ H4 ${o?.reads?.H4||'—'} • H1 ${o?.reads?.H1||'—'}
 
 📆 ملخص الأسبوع الماضي
 Open: ${n(w.open)} • High: ${n(w.high)}
@@ -418,8 +426,8 @@ Low: ${n(w.low)} • Close: ${n(w.close)}
 🎯 السيناريو: ${o.nextWeekPath||'WAIT'}
 ❌ إبطال التصور: ${invalidation?invalidation.label+' '+n(invalidation.level):'لا يوجد مستوى واحد حاسم'}
 
-D1 close: ${n(d.close)} • H4 close: ${n(h.close)}
-🧠 هذا تقرير LAURA فقط — مستقل عن ICT.`;
+MN1 close: ${n(m.close)} • D1 close: ${n(d.close)} • H4 close: ${n(h.close)}
+🧠 هذا تقرير LAURA فقط — مستقل عن ICT/SMC.`;
 }
 function lauraEntryMessage(a){
   const sig=a?.signal||{},t1=sig?.target1,t2=sig?.target2;
@@ -434,7 +442,7 @@ function lauraEntryMessage(a){
 🎯 Exit target: ${t1?t1.label+' '+n(t1.level):'—'}
 🎯 Secondary target: ${t2?t2.label+' '+n(t2.level):'—'}
 
-القرار مبني على نظرية Laura وحدها: W1/D1/H4 → S/R break → retest.`;
+القرار مبني على نظرية Laura وحدها: MN1/W1/D1 → H4/H1 structure → M15 decisive break → M5 retest/hold → M1 timing.`;
 }
 function lauraExitMessage(reason,price){
   const label=reason==='TARGET'?'✅ TARGET REACHED':reason==='STOP'?'🛑 STRUCTURE INVALIDATED':'🔄 OPPOSITE LAURA SETUP';
@@ -458,9 +466,13 @@ async function maybeSendLauraAlerts(s,now=Date.now()){
     if(clock.weekday==='Sat'&&clock.hour>=LAURA_WEEKLY_SEND_HOUR_RIYADH){
       const key=`LAURA_WEEKLY:${clock.date}`;
       if(!lauraWeeklyKeys.has(key)){
-        await send(lauraWeeklyMessage(a));
-        lauraWeeklyKeys.add(key);
-        console.log(`[laura] weekly outlook sent ${key} bias=${a?.outlook?.bias||'NEUTRAL'}`);
+        if(!lauraWeeklyReady(a)){
+          console.log(`[laura] weekly outlook deferred ${key}: HTF OHLC/levels not ready`);
+        }else{
+          await send(lauraWeeklyMessage(a));
+          lauraWeeklyKeys.add(key);
+          console.log(`[laura] weekly outlook sent ${key} bias=${a?.outlook?.bias||'NEUTRAL'}`);
+        }
       }
     }
   }
@@ -827,4 +839,4 @@ if(process.env.NODE_ENV!=='test'){
   (async function commands(){await botCommandLoop();})();
 }
 
-export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,lauraWeeklyMessage,lauraEntryMessage};
+export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,lauraWeeklyReady,lauraWeeklyMessage,lauraEntryMessage};
