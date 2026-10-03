@@ -11,15 +11,22 @@ const child = spawn(process.execPath, ['site-indicator-start.js'], {
   env: { ...process.env, PORT: String(INNER_PORT) },
   stdio: ['ignore', 'inherit', 'inherit']
 });
+const btcTelegramEnabled=String(process.env.BTC_TELEGRAM_ENABLED||'true').toLowerCase()!=='false'&&String(process.env.TELEGRAM_ENABLED||'true').toLowerCase()!=='false'&&Boolean(process.env.TELEGRAM_BOT_TOKEN)&&Boolean(process.env.TELEGRAM_CHAT_ID);
+const btcTelegram=btcTelegramEnabled?spawn(process.execPath,['btc-telegram-bot.js'],{
+  env:{...process.env,BTC_TELEGRAM_SIGNAL_URL:`http://127.0.0.1:${PORT}/api/btc-signal`},
+  stdio:['ignore','inherit','inherit']
+}):null;
 
 child.on('exit', code => {
   console.error('[render-start] site indicator exited', code);
   if (!stopping) process.exit(code || 1);
 });
+if(btcTelegram)btcTelegram.on('exit',code=>console.error('[render-start] BTC Laura Telegram exited',code));
 
 function shutdown(signal) {
   stopping = true;
   if (!child.killed) child.kill(signal);
+  if (btcTelegram && !btcTelegram.killed) btcTelegram.kill(signal);
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(1), 5000).unref();
 }
@@ -158,6 +165,6 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => console.log(`[render-start] ${BUILD} listening on ${PORT}; gold-inner=${INNER_PORT}; BTCUSD Laura-only signals-only=on`));
+server.listen(PORT, '0.0.0.0', () => console.log(`[render-start] ${BUILD} listening on ${PORT}; gold-inner=${INNER_PORT}; BTCUSD Laura-only signals-only=on; btc-telegram=${btcTelegramEnabled?'on':'off'}`));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
