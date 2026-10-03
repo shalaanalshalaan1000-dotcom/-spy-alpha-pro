@@ -1,5 +1,5 @@
 const CACHE_MS=Math.max(5000,Math.min(30000,Number(process.env.BTC_CACHE_MS||12000)||12000));
-const MIN_CONFIDENCE=Math.max(60,Math.min(95,Number(process.env.BTC_LAURA_MIN_CONFIDENCE||75)||75));
+const MIN_CONFIDENCE=Math.max(60,Math.min(95,Number(process.env.BTC_LAURA_MIN_CONFIDENCE||70)||70));
 const CONTRACT_SIZE=Math.max(.000001,Number(process.env.EXNESS_BTC_CONTRACT_SIZE||1));
 const LOT_STEP=Math.max(.001,Number(process.env.EXNESS_BTC_LOT_STEP||.01));
 const SAFE_RISK_USD=Math.max(1,Number(process.env.BTC_SAFE_RISK_USD||5));
