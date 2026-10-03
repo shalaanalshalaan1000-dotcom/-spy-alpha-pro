@@ -3,11 +3,10 @@ import { spawn } from 'node:child_process';
 import { renderTradeJournalPage } from './trade-journal.js';
 import { configureTelegramWebhook, handleTelegramWebhook } from './telegram-command-webhook.js';
 import { orchestrateGoldAgents, applyAgentExecutionGate } from './gold-agent-orchestrator.js';
-import { getBtcSignal } from './btc-laura-engine.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_INNER_PORT || 3100);
-const BUILD_TAG = 'site-indicator-v19-btc-laura-live';
+const BUILD_TAG = 'site-indicator-v18-brain-reflex';
 
 const app = spawn(process.execPath, ['gold-unified-start.js'], {
   env: { ...process.env, PORT: String(INNER_PORT) },
@@ -16,26 +15,8 @@ const app = spawn(process.execPath, ['gold-unified-start.js'], {
 
 app.on('exit', code => console.error('gold unified child exited', code));
 
-const btcTelegramEnabled =
-  String(process.env.BTC_TELEGRAM_ENABLED || 'false').toLowerCase() === 'true' &&
-  Boolean(process.env.TELEGRAM_BOT_TOKEN) &&
-  Boolean(process.env.TELEGRAM_CHAT_ID);
-
-const btcTelegramBot = btcTelegramEnabled
-  ? spawn(process.execPath, ['btc-telegram-bot.js'], {
-      env: {
-        ...process.env,
-        BTC_TELEGRAM_SIGNAL_URL: `http://127.0.0.1:${PORT}/api/btc-signal`
-      },
-      stdio: ['ignore', 'inherit', 'inherit']
-    })
-  : null;
-
-btcTelegramBot?.on('exit', code => console.error('btc telegram child exited', code));
-
 function shutdown(signal) {
   if (!app.killed) app.kill(signal);
-  if (btcTelegramBot && !btcTelegramBot.killed) btcTelegramBot.kill(signal);
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(1), 5000).unref();
 }
@@ -209,31 +190,18 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'GET' && (url.pathname === '/api/btc-signal' || url.pathname === '/api/btc')) {
-    try {
-      const signal = await getBtcSignal(url.searchParams.get('force') === '1');
-      res.writeHead(200, {
-        'content-type': 'application/json; charset=utf-8',
-        'cache-control': 'no-store',
-        'access-control-allow-origin': '*',
-        'x-gold-alpha-build': BUILD_TAG
-      });
-      return res.end(JSON.stringify(signal));
-    } catch (error) {
-      res.writeHead(503, {
-        'content-type': 'application/json; charset=utf-8',
-        'cache-control': 'no-store',
-        'access-control-allow-origin': '*',
-        'x-gold-alpha-build': BUILD_TAG
-      });
-      return res.end(JSON.stringify({
-        ok: false,
-        status: 'WAIT',
-        action: 'WAIT',
-        executable: false,
-        symbol: 'BTCUSD',
-        reason: `LAURA BTC temporarily unavailable: ${String(error?.message || error)}`
-      }));
-    }
+    res.writeHead(410, {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+      'access-control-allow-origin': '*',
+      'x-gold-alpha-build': BUILD_TAG
+    });
+    return res.end(JSON.stringify({
+      ok: false,
+      status: 'DISABLED',
+      symbol: 'BTCUSD',
+      reason: 'BTC trading and signals are disabled. Gold-only mode is active.'
+    }));
   }
 
   if (req.method === 'GET' && url.pathname === '/api/auto-trade/signal') {
