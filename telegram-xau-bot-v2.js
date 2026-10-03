@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { clockParts, createReportRetryGate } from './runtime-memory-policy.js';
 import { telegramSendState, telegramSendingEnabled } from './telegram-send-control.js';
 
 const AUTO_URL=process.env.TELEGRAM_SIGNAL_URL||'http://127.0.0.1:3002/api/auto-trade/signal?observe=1';
@@ -145,10 +146,7 @@ function clearTradeLock(){
 }
 
 function zonedClock(now,timeZone){
-  const parts=new Intl.DateTimeFormat('en-GB',{
-    timeZone,year:'numeric',month:'2-digit',day:'2-digit',weekday:'short',
-    hour:'2-digit',minute:'2-digit',hour12:false
-  }).formatToParts(new Date(now));
+  const parts=clockParts(now,timeZone);
   const get=t=>parts.find(p=>p.type===t)?.value||'';
   return {
     date:`${get('year')}-${get('month')}-${get('day')}`,
@@ -456,6 +454,7 @@ ${lauraTrade.side||'—'} from ${n(lauraTrade.entry)} → Exit ${n(price)}
 function resetLauraTrade(){
   lauraTrade.active=false;lauraTrade.setupId=null;lauraTrade.side=null;lauraTrade.entry=null;lauraTrade.stopLoss=null;lauraTrade.target1=null;lauraTrade.target2=null;lauraTrade.openedAtMs=0;
 }
+const lauraWeeklyRetryDue=createReportRetryGate();
 async function maybeSendLauraAlerts(s,now=Date.now()){
   if(!LAURA_ALERTS_ENABLED)return;
   const a=lauraAgentOf(s);
@@ -465,7 +464,7 @@ async function maybeSendLauraAlerts(s,now=Date.now()){
     const clock=zonedClock(now,'Asia/Riyadh');
     if(clock.weekday==='Sat'&&clock.hour>=LAURA_WEEKLY_SEND_HOUR_RIYADH){
       const key=`LAURA_WEEKLY:${clock.date}`;
-      if(!lauraWeeklyKeys.has(key)){
+      if(!lauraWeeklyKeys.has(key)&&lauraWeeklyRetryDue(key,now)){
         if(!lauraWeeklyReady(a)){
           console.log(`[laura] weekly outlook deferred ${key}: HTF OHLC/levels not ready`);
         }else{
