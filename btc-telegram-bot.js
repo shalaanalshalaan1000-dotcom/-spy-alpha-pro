@@ -266,7 +266,8 @@ function message(signal) {
   const pspLine = conf.psp?.available ? `🔗 PSP BTC/ETH: ${conf.psp.type || 'NONE'}${conf.psp.aligned ? ' ✅' : ''}\n` : '';
   return `${icon} 🟣 BTCUSD — LAURA + PRECISION ${signal.action}\n` +
     `🧠 Strategy: ${strategy}\n` +
-    `📊 Setup strength: ${Math.round(Number(signal.confidence) || 0)}/100\n` +
+    `📊 Setup quality: ${Math.round(Number(signal.setupQuality?.score ?? signal.confidence) || 0)}/100${Number(signal.setupQuality?.score ?? signal.confidence)>=70?' • EXCELLENT':''}\n` +
+    `⏳ Entry readiness: ${Math.round(Number(signal.entryReadiness?.score) || 0)}/100${Number(signal.entryReadiness?.score)>=70?' • EXCELLENT':''}\n` +
     `🧭 MN1 ${reads.MN1?.side || '—'} • W1 ${reads.W1?.side || '—'} • D1 ${reads.D1?.side || '—'}\n` +
     `🏗️ H4 ${reads.H4?.side || '—'} • H1 ${reads.H1?.side || '—'} • M15 ${reads.M15?.side || '—'}\n` +
     `⚡ Trigger: ${triggers}\n` +
