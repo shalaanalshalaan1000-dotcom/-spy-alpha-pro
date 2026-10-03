@@ -3,7 +3,7 @@ import fs from 'node:fs';
 const sourceUrl = new URL('./telegram-xau-bot-v2.js', import.meta.url);
 const runtimeUrl = new URL('./.runtime-telegram-xau-bot-v3.mjs', import.meta.url);
 
-let source = fs.readFileSync(sourceUrl, 'utf8');
+let source = "import {validTrendContinuation} from './ict-trend-continuation.js';\n" + fs.readFileSync(sourceUrl, 'utf8');
 
 const replacements = [
   [
@@ -42,7 +42,7 @@ source=source.replace(commandLoop,"  console.log('[telegram-xau-commands] webhoo
 
 {
   const oldReturn="return t.every((v,i)=>valid(v)&&(side==='BUY'?v>(i?t[i-1]:entry):v<(i?t[i-1]:entry)));";
-  const newReturn="const externalSweep=s?.ict?.legSweep||s?.ict?.sweep||null,externalNames=new Set(['pdh','pdl','pwh','pwl','asiaHigh','asiaLow','londonHigh','londonLow','nyHigh','nyLow']);if(String(s?.tradeStyle||'')!=='ICT_ONLY_EXTERNAL_LIQUIDITY'||!externalSweep||externalSweep.liquidityClass!=='EXTERNAL'||!externalNames.has(String(externalSweep.name||'')))return false;const trading=s?.agentStack?.agents?.trading||null;if(trading&&trading.advisoryReady!==true)return false;const present=t.filter(valid);if(!present.length)return false;return present.every((v,i)=>side==='BUY'?v>(i?present[i-1]:entry):v<(i?present[i-1]:entry));";
+  const newReturn="const externalSweep=s?.ict?.legSweep||s?.ict?.sweep||null,externalNames=new Set(['pdh','pdl','pwh','pwl','asiaHigh','asiaLow','londonHigh','londonLow','nyHigh','nyLow']);const externalValid=String(s?.tradeStyle||'')==='ICT_ONLY_EXTERNAL_LIQUIDITY'&&externalSweep&&externalSweep.liquidityClass==='EXTERNAL'&&externalNames.has(String(externalSweep.name||''));const trendValid=String(s?.tradeStyle||'')==='ICT_ONLY_TREND_CONTINUATION'&&validTrendContinuation(s?.ict,side,now);if(!externalValid&&!trendValid)return false;const trading=s?.agentStack?.agents?.trading||null;if(trading&&trading.advisoryReady!==true)return false;const present=t.filter(valid);if(!present.length)return false;return present.every((v,i)=>side==='BUY'?v>(i?present[i-1]:entry):v<(i?present[i-1]:entry));";
   if(!source.includes(oldReturn))throw new Error('telegram v3 confluence target validation anchor missing');
   source=source.replace(oldReturn,newReturn);
 

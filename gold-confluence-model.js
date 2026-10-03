@@ -1,3 +1,4 @@
+import {validTrendContinuation} from './ict-trend-continuation.js';
 import { analyzeGoldSignal as analyzeClassicModel } from './gold-signal-model.js';
 import { analyzeGoldSignal as analyzeIctModel } from './gold-ict-swing-model.js';
 import { detectImportantCandles } from './important-candles.js';
@@ -130,17 +131,19 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const externalNames=new Set(['pdh','pdl','pwh','pwl','asiaHigh','asiaLow','londonHigh','londonLow','nyHigh','nyLow']);
   const externalSweepValid=Boolean(externalSweep&&externalNames.has(String(externalSweep.name||''))&&externalSweep.liquidityClass==='EXTERNAL');
   const ictSide=['BUY','SELL'].includes(ict?.candidateAction)?ict.candidateAction:null;
-  const ictCandidate=Boolean(ict?.status==='CANDIDATE'&&ictSide&&externalSweepValid);
+  const trendContinuationValid=validTrendContinuation(ict?.ict,ictSide,now);
+  const ictTradeStyle=trendContinuationValid?'ICT_ONLY_TREND_CONTINUATION':'ICT_ONLY_EXTERNAL_LIQUIDITY';
+  const ictCandidate=Boolean(ict?.status==='CANDIDATE'&&ictSide&&(externalSweepValid||trendContinuationValid));
   if(!ictCandidate){
     return{
       ...base,
       status:'WAIT',action:'WAIT',candidateAction:'WAIT',side:null,
-      strategy:'ICT_EXTERNAL_LIQUIDITY_ONLY',tradeStyle:'ICT_ONLY_EXTERNAL_LIQUIDITY',
+      strategy:'ICT_EXTERNAL_LIQUIDITY_ONLY',tradeStyle:ictTradeStyle,
       confidence:0,signalConfidence:0,contextBias:topDown.side,
       ict:ict?.ict||null,liquidityContext:ict?.ict||null,
       technicalRead:ict?.technicalRead||null,priceAction:ict?.priceAction||null,
       multiTimeframe:topDown,
-      confluence:{version:'ICT_ONLY_EXTERNAL_LIQUIDITY',selectedSide:null,scores:{BUY:0,SELL:0},lead:0,multiTimeframe:topDown,liquidity:{externalSweep:externalSweep||null},legacyModels:null},
+      confluence:{version:ictTradeStyle,selectedSide:null,scores:{BUY:0,SELL:0},lead:0,multiTimeframe:topDown,liquidity:{externalSweep:externalSweep||null},legacyModels:null},
       reason:ict?.reason||'ICT EXTERNAL WAIT — no valid PWH/PWL, PDH/PDL or session High/Low setup'
     };
   }
@@ -149,16 +152,16 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   if(weeklySide===opposite&&dailySide===opposite){
     return{
       ...base,status:'WAIT',action:'WAIT',candidateAction:'WAIT',side:null,
-      strategy:'ICT_EXTERNAL_LIQUIDITY_ONLY',tradeStyle:'ICT_ONLY_EXTERNAL_LIQUIDITY',
+      strategy:'ICT_EXTERNAL_LIQUIDITY_ONLY',tradeStyle:ictTradeStyle,
       confidence:0,signalConfidence:0,contextBias:topDown.side,
       ict:ict?.ict||null,liquidityContext:ict?.ict||null,multiTimeframe:topDown,
-      confluence:{version:'ICT_ONLY_EXTERNAL_LIQUIDITY',selectedSide:null,scores:{BUY:0,SELL:0},lead:0,multiTimeframe:topDown,liquidity:{externalSweep},legacyModels:null},
+      confluence:{version:ictTradeStyle,selectedSide:null,scores:{BUY:0,SELL:0},lead:0,multiTimeframe:topDown,liquidity:{externalSweep},legacyModels:null},
       reason:`ICT HTF WAIT — ${ictSide} external-liquidity setup conflicts with both W1 and D1 direction`
     };
   }
   const ictConfidence=clamp(Math.round(Number(ict?.confidence)||0),0,100);
   const ictConfluence={
-    version:'ICT_ONLY_EXTERNAL_LIQUIDITY',
+    version:ictTradeStyle,
     selectedSide:ictSide,
     scores:{BUY:ictSide==='BUY'?ictConfidence:0,SELL:ictSide==='SELL'?ictConfidence:0},
     lead:ictConfidence,
@@ -172,11 +175,11 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   return{
     ...ict,
     strategy:ict?.strategy||'ICT_EXTERNAL_LIQUIDITY',
-    tradeStyle:'ICT_ONLY_EXTERNAL_LIQUIDITY',
+    tradeStyle:ictTradeStyle,
     confluence:ictConfluence,
     multiTimeframe:topDown,
     contextBias:ictSide,
-    reason:`ICT ONLY — external ${String(externalSweep.name).toUpperCase()} liquidity event → MSS/displacement → FVG/OB; ${ict?.reason||'setup confirmed'}`
+    reason:trendContinuationValid?`ICT ONLY — H4/H1 trend → M5 displacement → FVG → closed M5 retest; ${ict?.reason||''}`:`ICT ONLY — external ${String(externalSweep?.name||'').toUpperCase()} liquidity event → MSS/displacement → FVG/OB; ${ict?.reason||'setup confirmed'}`
   };const importantM5=detectImportantCandles(m5,{timeframe:'5m',lookback:30}),importantM15=detectImportantCandles(m15,{timeframe:'15m',lookback:24}),importantM1=detectImportantCandles(m1,{timeframe:'1m',lookback:30});base.importantCandles={primary:importantM5.primary||importantM15.primary||importantM1.primary,m5:importantM5,m15:importantM15,m1:importantM1,closedOnly:true};const atr1=atr(m1,14)||.5,atr5=atr(m5,14)||1.5,dir1h=structureDir(h1),dir15=structureDir(m15),dir5=structureDir(m5),tech=ict?.technicalRead||{},ind=tech?.indicators||{},fib=fibonacciLocation(h1,price),candle=candleBias(m5),breakout=breakoutBias(m5,price,atr5),sweepBuy=recentSweep(m5,'BUY')||recentSweep(m1,'BUY'),sweepSell=recentSweep(m5,'SELL')||recentSweep(m1,'SELL'),heatmap=liquidityHeatmap(m1,price,atr1);
   const components={structure:componentBucket(),trend:componentBucket(),momentum:componentBucket(),priceAction:componentBucket(),liquidity:componentBucket(),location:componentBucket(),volatility:componentBucket()};
 

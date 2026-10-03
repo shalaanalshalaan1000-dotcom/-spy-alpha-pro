@@ -70,5 +70,5 @@ test('confluence wrapper and Telegram require the external ICT contract',()=>{
  assert.match(confluenceSource,/externalSweepValid/);
  assert.match(confluenceSource,/analyzeIctModel\(samples,rawPrice,now,higherTimeframes\)/);
  assert.match(telegramV3,/ICT_ONLY_EXTERNAL_LIQUIDITY/);
- assert.match(telegramV3,/liquidityClass!=='EXTERNAL'/);
+ assert.match(telegramV3,/validTrendContinuation/);
 });
