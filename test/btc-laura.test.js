@@ -21,7 +21,7 @@ function precisionM5(){
   ];
 }
 
-test('BTC Sunday trial uses Laura HTF bias with M5 precision entry model',()=>{
+test('BTC always-on Laura Precision uses HTF bias with M5 precision entry model',()=>{
   process.env.BTC_LAURA_MIN_CONFIDENCE='60';
   const MN1=trend(80,3),W1=trend(90,2.5),D1=trend(95,2),H4=trend(100,1.5),H1=trend(105,1.2);
   H1[2]={...H1[2],low:116,high:118,open:116.5,close:117.5};
