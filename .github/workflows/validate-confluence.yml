@@ -25,13 +25,18 @@ on:
       - 'gold-site-ui-start.js'
       - 'gold-unified-start.js'
       - 'gold-agent-orchestrator.js'
+      - 'gold-laura-agent.js'
       - 'test/gold-agent-orchestrator.test.js'
+      - 'test/laura-agents.test.js'
       - 'site-indicator-start.js'
+      - 'telegram-xau-bot-v2.js'
       - 'telegram-xau-bot-v3.js'
       - 'btc-ict-fast.js'
+      - 'btc-laura-engine.js'
       - 'btc-murphy-model.js'
       - 'btc-telegram-bot.js'
       - 'render-start.js'
+      - 'render.yaml'
 
 jobs:
   syntax:
