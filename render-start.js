@@ -165,6 +165,6 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => console.log(`[render-start] ${BUILD} listening on ${PORT}; gold-inner=${INNER_PORT}; BTCUSD Laura+Precision Sunday-trial signals-only=on; btc-telegram=${btcTelegramEnabled?'on':'off'}`));
+server.listen(PORT, '0.0.0.0', () => console.log(`[render-start] ${BUILD} listening on ${PORT}; gold-inner=${INNER_PORT}; BTCUSD Laura+Precision always-on signals-only=on; btc-telegram=${btcTelegramEnabled?'on':'off'}`));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
