@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 process.env.NODE_ENV='test';
 const {canSendSignal}=await import('../telegram-xau-bot-v3.js');
+const {buildMonth5Context}=await import('../gold-confluence-model.js');
 const now=Date.now();
 const good={signalId:'test',status:'ACTIVE',entered:true,triggered:true,side:'BUY',confidence:80,price:4300,triggerPrice:4300,entry:4300,stopLoss:4298,target1:4302,target2:4303,target3:4304,target4:4305,quoteAgeMs:100,liveFeedFresh:true,updatedAt:new Date(now).toISOString(),tradeStyle:'ICT_ONLY_EXTERNAL_LIQUIDITY',ict:{legSweep:{name:'pdl',level:4297,liquidityClass:'EXTERNAL'}},agentStack:{agents:{trading:{advisoryReady:true}}}};
 test('Telegram rejects invalid, stale, stopped and consumed entries',()=>{
@@ -84,4 +85,39 @@ test('ICT Month 4 context stays supportive and cannot replace the external sweep
  assert.match(ictSource,/BEARISH_REJECTION_BLOCK/);
  assert.match(ictSource,/month4Bias\.aligned&&month4Bias\.bias===side/);
  assert.doesNotMatch(ictSource,/month4Bias\.aligned&&month4Bias\.bias!==side/);
+});
+
+
+test('ICT Month 5 context stays advisory and exposes quarterly/open-float references',()=>{
+ const day=86400000,start=Date.UTC(2025,0,1);
+ const makeBars=(count,step,base)=>Array.from({length:count},(_,i)=>{const open=base+i*.8,close=open+.3;return{t:start+i*step,open,high:open+2,low:open-2,close,volume:100+i};});
+ const higherTimeframes={D1:makeBars(260,day,4080),W1:makeBars(60,7*day,4080),MN1:makeBars(24,30*day,4080)};
+ const ctx=buildMonth5Context({
+   price:4300,
+   side:'BUY',
+   ict:{legSweep:{name:'pdl',level:4297,liquidityClass:'EXTERNAL'},hasShift:true,entryMode:'ORIGIN_FVG_RETEST'},
+   higherTimeframes
+ });
+ assert.equal(ctx.advisoryOnly,true);
+ assert.equal(ctx.executionGate,false);
+ assert.equal(ctx.confidenceBonus,0);
+ assert.equal(ctx.quarterlyShift.ranges.d20.bars,20);
+ assert.equal(ctx.quarterlyShift.ranges.d40.bars,40);
+ assert.equal(ctx.quarterlyShift.ranges.d60.bars,60);
+ assert.ok(ctx.openFloat.buyStops.some(x=>x.label==='12M_HIGH'));
+ assert.equal(ctx.institutionalSwing.confirmed,true);
+ assert.equal(ctx.intermarket.used,false);
+});
+
+test('Month 5 additions cannot become a hidden execution gate',()=>{
+ const confluenceSource=fs.readFileSync(new URL('../gold-confluence-model.js',import.meta.url),'utf8');
+ const siteSource=fs.readFileSync(new URL('../site-indicator-start.js',import.meta.url),'utf8');
+ assert.match(confluenceSource,/ICT_MONTH5_CONTEXT_V1/);
+ assert.match(confluenceSource,/advisoryOnly:true/);
+ assert.match(confluenceSource,/executionGate:false/);
+ assert.match(confluenceSource,/confidenceBonus:0/);
+ assert.match(siteSource,/siteMonth5Swing/);
+ assert.match(siteSource,/siteMonth5Float/);
+ assert.match(siteSource,/siteMonth5Pd/);
+ assert.match(siteSource,/siteMonth5Quarterly/);
 });
