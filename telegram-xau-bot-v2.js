@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { clockParts, createReportRetryGate } from './runtime-memory-policy.js';
+import { clockParts } from './runtime-memory-policy.js';
 import { telegramSendState, telegramSendingEnabled } from './telegram-send-control.js';
 
 const AUTO_URL=process.env.TELEGRAM_SIGNAL_URL||'http://127.0.0.1:3002/api/auto-trade/signal?observe=1';
@@ -37,10 +37,7 @@ const SESSION_RETEST_TOLERANCE_USD=Math.max(0.10,Number(process.env.TELEGRAM_SES
 const SESSION_SL_BUFFER_USD=Math.max(0.10,Number(process.env.TELEGRAM_SESSION_SL_BUFFER_USD||0.25));
 const FRIDAY_PRIMARY_MAX_DISTANCE_USD=Math.max(1,Number(process.env.TELEGRAM_FRIDAY_PRIMARY_MAX_DISTANCE_USD||25));
 const LAURA_ALERTS_ENABLED=String(process.env.TELEGRAM_LAURA_ALERTS_ENABLED||'true').toLowerCase()!=='false';
-const LAURA_WEEKLY_OUTLOOK_ENABLED=String(process.env.TELEGRAM_LAURA_WEEKLY_OUTLOOK_ENABLED||'true').toLowerCase()!=='false';
-const LAURA_WEEKLY_SEND_HOUR_RIYADH=Math.max(0,Math.min(23,Number(process.env.TELEGRAM_LAURA_WEEKLY_SEND_HOUR_RIYADH||9)));
 const lauraSeenKeys=new Set();
-const lauraWeeklyKeys=new Set();
 const lauraTrade={active:false,setupId:null,side:null,entry:null,stopLoss:null,target1:null,target2:null,openedAtMs:0};
 const sessionLevelAlertKeys=new Set();
 const sessionStatusSeen=new Map();
@@ -398,35 +395,6 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
 }
 
 function lauraAgentOf(s){return s?.agentStack?.agents?.laura||null;}
-function lauraWeeklyReady(laura){
-  const o=laura?.outlook||{},w=o?.lastWeek,d=o?.lastDaily,h4=o?.lastH4,reads=o?.reads||{};
-  const barReady=b=>Boolean(b&&[b.open,b.high,b.low,b.close].every(valid));
-  const directionReady=['W1','D1','H4','H1'].every(tf=>['BUY','SELL','NEUTRAL'].includes(String(reads?.[tf]||'')));
-  const hasMappedLevel=Boolean(o?.nearestSupport||o?.nearestResistance||(Array.isArray(o?.levels)&&o.levels.some(x=>valid(x?.level))));
-  return barReady(w)&&barReady(d)&&barReady(h4)&&directionReady&&hasMappedLevel;
-}
-function lauraWeeklyMessage(laura){
-  const o=laura?.outlook||{},w=o?.lastWeek||{},d=o?.lastDaily||{},h=o?.lastH4||{},m=o?.lastMonth||{};
-  const bias=o.bias||'NEUTRAL',icon=bias==='BUY'?'🟢':bias==='SELL'?'🔴':'🟡';
-  const support=o?.nearestSupport,resistance=o?.nearestResistance,invalidation=o?.invalidation;
-  return `🟣 LAURA — WEEKLY OUTLOOK
-${icon} تصور الأسبوع القادم: ${bias} • القوة: ${o.strength||'LOW'} • ${Math.round(Number(o.confidence)||0)}/100
-🧭 MN1 ${o?.reads?.MN1||'—'} • W1 ${o?.reads?.W1||'—'} • D1 ${o?.reads?.D1||'—'}
-🏗️ H4 ${o?.reads?.H4||'—'} • H1 ${o?.reads?.H1||'—'}
-
-📆 ملخص الأسبوع الماضي
-Open: ${n(w.open)} • High: ${n(w.high)}
-Low: ${n(w.low)} • Close: ${n(w.close)}
-شكل الإغلاق: ${w.pattern||'—'}
-
-📍 أقرب مقاومة: ${resistance?resistance.label+' '+n(resistance.level):'—'}
-📍 أقرب دعم: ${support?support.label+' '+n(support.level):'—'}
-🎯 السيناريو: ${o.nextWeekPath||'WAIT'}
-❌ إبطال التصور: ${invalidation?invalidation.label+' '+n(invalidation.level):'لا يوجد مستوى واحد حاسم'}
-
-MN1 close: ${n(m.close)} • D1 close: ${n(d.close)} • H4 close: ${n(h.close)}
-🧠 هذا تقرير LAURA فقط — مستقل عن ICT/SMC.`;
-}
 function lauraEntryMessage(a){
   const sig=a?.signal||{},t1=sig?.target1,t2=sig?.target2;
   return `🟣 LAURA — ${sig.action} ENTRY
@@ -454,27 +422,10 @@ ${lauraTrade.side||'—'} from ${n(lauraTrade.entry)} → Exit ${n(price)}
 function resetLauraTrade(){
   lauraTrade.active=false;lauraTrade.setupId=null;lauraTrade.side=null;lauraTrade.entry=null;lauraTrade.stopLoss=null;lauraTrade.target1=null;lauraTrade.target2=null;lauraTrade.openedAtMs=0;
 }
-const lauraWeeklyRetryDue=createReportRetryGate();
 async function maybeSendLauraAlerts(s,now=Date.now()){
   if(!LAURA_ALERTS_ENABLED)return;
   const a=lauraAgentOf(s);
   if(!a)return;
-
-  if(LAURA_WEEKLY_OUTLOOK_ENABLED){
-    const clock=zonedClock(now,'Asia/Riyadh');
-    if(clock.weekday==='Sat'&&clock.hour>=LAURA_WEEKLY_SEND_HOUR_RIYADH){
-      const key=`LAURA_WEEKLY:${clock.date}`;
-      if(!lauraWeeklyKeys.has(key)&&lauraWeeklyRetryDue(key,now)){
-        if(!lauraWeeklyReady(a)){
-          console.log(`[laura] weekly outlook deferred ${key}: HTF OHLC/levels not ready`);
-        }else{
-          await send(lauraWeeklyMessage(a));
-          lauraWeeklyKeys.add(key);
-          console.log(`[laura] weekly outlook sent ${key} bias=${a?.outlook?.bias||'NEUTRAL'}`);
-        }
-      }
-    }
-  }
 
   const sig=a?.signal||{},live=num(s?.price);
   if(lauraTrade.active&&valid(live)){
@@ -838,4 +789,4 @@ if(process.env.NODE_ENV!=='test'){
   (async function commands(){await botCommandLoop();})();
 }
 
-export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,lauraWeeklyReady,lauraWeeklyMessage,lauraEntryMessage};
+export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,lauraEntryMessage};
