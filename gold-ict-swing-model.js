@@ -582,6 +582,34 @@ function targetPlan(side,entry,stop,levels,m1,m5,m15,h1,h4,atr1,atr5){
   };
 }
 
+export function month2RiskFramework(side,entry,stop,plan={}){
+  const e=n(entry),s=n(stop);
+  if(!['BUY','SELL'].includes(side)||e==null||s==null)return null;
+  const risk=Math.abs(e-s); if(!(risk>0))return null;
+  const direction=side==='BUY'?1:-1;
+  const threeRPrice=e+direction*risk*3;
+  const primaryPrice=n(plan?.primaryLiquidity?.price??plan?.mainLiquidity?.price);
+  const primaryDistance=primaryPrice==null?null:Math.abs(primaryPrice-e);
+  const primaryBeyond3R=primaryDistance==null?null:primaryDistance>=risk*3;
+  return{
+    source:'ICT_MONTH2_OCT_2016',
+    advisoryOnly:true,
+    entryGate:false,
+    idealMinimumRewardRisk:3,
+    actualLiquidityRewardRisk:round(plan?.rr,2),
+    riskDistance:round(risk),
+    threeRPrice:round(threeRPrice),
+    primaryLiquidityPrice:round(primaryPrice),
+    primaryLiquidityDistance:round(primaryDistance,2),
+    primaryBeyond3R,
+    management:primaryBeyond3R
+      ?{mode:'OPTIONAL_PARTIAL_AT_3R_THEN_RUNNER',partialFraction:.5,runnerTarget:'PRIMARY_EXTERNAL_LIQUIDITY'}
+      :{mode:'LIQUIDITY_FIRST_NO_FORCED_3R',partialFraction:null,runnerTarget:primaryPrice!=null?'PRIMARY_EXTERNAL_LIQUIDITY':null},
+    htfToLtf:'W1/D1/H4/H1 context -> M5 FVG/OB execution refinement',
+    note:'Advisory only: external-liquidity targets and existing entry logic remain unchanged.'
+  };
+}
+
 export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimeframes={}){
   const price=n(rawPrice),m1all=minuteBars(samples),m5all=aggregate(m1all,5),m15all=aggregate(m1all,15),h1all=aggregate(m1all,60),h4all=aggregate(m1all,240);
   const m1=closed(m1all,1,now),m5=closed(m5all,5,now),m15=closed(m15all,15,now),h1=closed(h1all,60,now),h4=closed(h4all,240,now);
@@ -742,6 +770,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const stopDistanceAdvisory=risk>maxStopDistanceUsd?'WIDE_STOP_INFORMATIONAL_ONLY':'WITHIN_REFERENCE_STOP_DISTANCE';
 
   const plan=targetPlan(side,entry,stop,levels,m1,m5,m15,h1,h4,atr1,atr5);
+  const month2Risk=plan?month2RiskFramework(side,entry,stop,plan):null;
   if(!plan)return{...base,status:'WAIT',candidateAction:side,contextBias:side,oneMinuteConfirmed,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),sweep,fvg,orderBlock,poi,rangeContext,offSession,contextAligned,biasAligned,setupAligned,setupVotes,setupReady},reason:'ICT TARGET WAIT: no meaningful external liquidity draw at least $5 from the origin entry'};
   const mainTarget=plan.targets[0]?.price??null;
   const referenceEntry=originPoi?.mid??entry,totalPath=mainTarget==null?null:Math.abs(mainTarget-referenceEntry),travelled=Math.abs(price-referenceEntry),pathConsumed=totalPath>0?travelled/totalPath:0;
@@ -796,5 +825,5 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const labels=plan.targets.map(x=>x.label);
   const targetRoles=plan.targets.map(x=>x.role||'EXTENSION');
   const drawOnLiquidity=plan.primaryLiquidity?.label||labels[0]||'OPPOSING_LIQUIDITY';
-  return{...base,status:'CANDIDATE',candidateAction:side,side,strategy:setupType,confidence,contextBias:side,oneMinuteConfirmed,setupId:[side,setupType,sweep?.t??fvg?.t??now,round(entry),round(stop),drawOnLiquidity].join('|'),entry:round(entry),entryLow:round(entryLow),entryHigh:round(entryHigh),stopLoss:round(stop),target1:targets[0]??null,target2:targets[1]??null,target3:targets[2]??null,target4:targets[3]??null,targetLabels:labels,targetRoles,riskReward:round(plan.rr,2),ict:{setupType,trendContinuation,retest:Boolean(trendContinuation),mode:'ICT_NARRATIVE_ENGINE',phase,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),dealingRangeHigh:round(rangeHigh),dealingRangeLow:round(rangeLow),rangeContext,month4Bias,liquidityFramework:{externalTriggerOnly:true,externalDefinition:'RANGE_HIGH_LOW_AND_NAMED_HTF_SESSION_POOLS',internalRole:'FVG_OB_ARE_ENTRY_POI_OR_REBALANCING_CONTEXT_ONLY',internalCannotStartSetup:true},rejectionBlock,contextAligned,biasAligned,setupAligned,setupReady,executionReady,setupVotes,contextSequence,hasSweep,hasShift,hasDisplacement,hasCisd,hasIfvg,hasIfvgRetest,ltfReaction,htfLiquiditySweep,cisd,cisd5,cisd1,inverseFvg:inverseFvg?{...inverseFvg,low:round(inverseFvg.low),high:round(inverseFvg.high),mid:round(inverseFvg.mid)}:null,inverseFvg5,inverseFvg1,hasBos,triggerConfirmed,legSweep,sequence1,sequence5,firstShift,firstMssEvent,firstDisplacementEvent,firstTriggerEvent,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),shift1,shift5,shift15,contShift1,contShift5,continuationDisplacementEvent,sweep:sweep??sweep15,sweep15,sweep5,sweep1,displacement:hasDisplacement,mss:hasShift,bos:hasBos,bos15,bos5,bos1,dm15,dm5,dm1,orderBlock,poi,originFvg:fvg?{...fvg,low:round(fvg.low),high:round(fvg.high),mid:round(fvg.mid)}:null,entryMode:useDirectContinuation?'CONFIRMED_CONTINUATION':'ORIGIN_FVG_RETEST',directContinuation,useDirectContinuation,entryZoneAgeMinutes:fvg?round(zoneAgeMs/60000,1):null,minimumTargetMove:plan.minimumTargetMove,mainLiquidity:plan.mainLiquidity,primaryLiquidity:plan.primaryLiquidity,secondaryLiquidity:plan.secondaryLiquidity,drawOnLiquidity,pathConsumed:round(pathConsumed,2),proposedStopDistance:round(risk),maxStopDistanceUsd:round(maxStopDistanceUsd),stopDistanceAdvisory,atr1:round(atr1),atr5:round(atr5),atr15:round(atr15),stopBuffer:round(buffer),offSession},reason:'ICT NARRATIVE | '+phase+' | '+contextSequence+' | '+side+' via '+(useDirectContinuation?'CONFIRMED CONTINUATION':'ORIGIN FVG RETEST')+' from '+poi.type+' in '+rangeContext.location+' | PA '+priceAction.primary.pattern+' '+priceAction.primary.stage+(priceAction.primary.breakoutSide?' '+priceAction.primary.breakoutSide:'')+' | TA '+String(technicalRead?.indicators?.bias||'NEUTRAL')+' / '+String(technicalRead?.candle?.pattern||'NONE')+' | secondary '+String(plan.secondaryLiquidity?.label||labels[0]||'N/A')+' '+round(plan.secondaryLiquidity?.price??targets[0])+' | primary '+String(plan.primaryLiquidity?.label||drawOnLiquidity)+' '+round(plan.primaryLiquidity?.price??targets[0])};
+  return{...base,status:'CANDIDATE',candidateAction:side,side,strategy:setupType,confidence,contextBias:side,oneMinuteConfirmed,setupId:[side,setupType,sweep?.t??fvg?.t??now,round(entry),round(stop),drawOnLiquidity].join('|'),entry:round(entry),entryLow:round(entryLow),entryHigh:round(entryHigh),stopLoss:round(stop),target1:targets[0]??null,target2:targets[1]??null,target3:targets[2]??null,target4:targets[3]??null,targetLabels:labels,targetRoles,riskReward:round(plan.rr,2),riskFramework:month2Risk,ict:{month2Risk,setupType,trendContinuation,retest:Boolean(trendContinuation),mode:'ICT_NARRATIVE_ENGINE',phase,dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),dealingRangeHigh:round(rangeHigh),dealingRangeLow:round(rangeLow),rangeContext,month4Bias,liquidityFramework:{externalTriggerOnly:true,externalDefinition:'RANGE_HIGH_LOW_AND_NAMED_HTF_SESSION_POOLS',internalRole:'FVG_OB_ARE_ENTRY_POI_OR_REBALANCING_CONTEXT_ONLY',internalCannotStartSetup:true},rejectionBlock,contextAligned,biasAligned,setupAligned,setupReady,executionReady,setupVotes,contextSequence,hasSweep,hasShift,hasDisplacement,hasCisd,hasIfvg,hasIfvgRetest,ltfReaction,htfLiquiditySweep,cisd,cisd5,cisd1,inverseFvg:inverseFvg?{...inverseFvg,low:round(inverseFvg.low),high:round(inverseFvg.high),mid:round(inverseFvg.mid)}:null,inverseFvg5,inverseFvg1,hasBos,triggerConfirmed,legSweep,sequence1,sequence5,firstShift,firstMssEvent,firstDisplacementEvent,firstTriggerEvent,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),shift1,shift5,shift15,contShift1,contShift5,continuationDisplacementEvent,sweep:sweep??sweep15,sweep15,sweep5,sweep1,displacement:hasDisplacement,mss:hasShift,bos:hasBos,bos15,bos5,bos1,dm15,dm5,dm1,orderBlock,poi,originFvg:fvg?{...fvg,low:round(fvg.low),high:round(fvg.high),mid:round(fvg.mid)}:null,entryMode:useDirectContinuation?'CONFIRMED_CONTINUATION':'ORIGIN_FVG_RETEST',directContinuation,useDirectContinuation,entryZoneAgeMinutes:fvg?round(zoneAgeMs/60000,1):null,minimumTargetMove:plan.minimumTargetMove,mainLiquidity:plan.mainLiquidity,primaryLiquidity:plan.primaryLiquidity,secondaryLiquidity:plan.secondaryLiquidity,drawOnLiquidity,pathConsumed:round(pathConsumed,2),proposedStopDistance:round(risk),maxStopDistanceUsd:round(maxStopDistanceUsd),stopDistanceAdvisory,atr1:round(atr1),atr5:round(atr5),atr15:round(atr15),stopBuffer:round(buffer),offSession},reason:'ICT NARRATIVE | '+phase+' | '+contextSequence+' | '+side+' via '+(useDirectContinuation?'CONFIRMED CONTINUATION':'ORIGIN FVG RETEST')+' from '+poi.type+' in '+rangeContext.location+' | PA '+priceAction.primary.pattern+' '+priceAction.primary.stage+(priceAction.primary.breakoutSide?' '+priceAction.primary.breakoutSide:'')+' | TA '+String(technicalRead?.indicators?.bias||'NEUTRAL')+' / '+String(technicalRead?.candle?.pattern||'NONE')+' | secondary '+String(plan.secondaryLiquidity?.label||labels[0]||'N/A')+' '+round(plan.secondaryLiquidity?.price??targets[0])+' | primary '+String(plan.primaryLiquidity?.label||drawOnLiquidity)+' '+round(plan.primaryLiquidity?.price??targets[0])};
 }
