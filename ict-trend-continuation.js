@@ -30,25 +30,34 @@ export function findTrendContinuation({bars=[],contextBars={},side,dir4,dir1,pri
     if(!(body>=avg*1.2&&body>=range*.65))continue;
     const prior=x.slice(Math.max(0,i-7),i-1);
     const structureLevel=sign===1?Math.max(...prior.map(z=>z.high)):Math.min(...prior.map(z=>z.low));
-    if(!(sign===1?b.close>structureLevel:b.close<structureLevel))continue;
-    const htfFvg=contextGap(contextBars,side,b,now);
-    if(!htfFvg)continue;
+    const mssConfirmed=sign===1?b.close>structureLevel:b.close<structureLevel;
+    let htfFvg=contextGap(contextBars,side,b,now);
     const low=sign===1?a.high:c.high,high=sign===1?c.low:a.low;
     if(!(high>low))continue;
     const later=x.slice(i+1);
-    if(x.slice(i-1).some(z=>sign===1?z.close<htfFvg.low:z.close>htfFvg.high))continue;
+    // Image context can add evidence, but its absence/invalidation cannot veto this setup.
+    if(htfFvg&&x.slice(i-1).some(z=>sign===1?z.close<htfFvg.low:z.close>htfFvg.high))htfFvg=null;
     if(later.some(z=>sign===1?z.close<low:z.close>high))continue;
     const retest=later.find(z=>z.low<=high&&z.high>=low&&(sign===1?z.close>=high&&z.close>z.open:z.close<=low&&z.close<z.open));
     if(!retest||now-(retest.t+M5)>2*M5)continue;
     const pad=Math.max(.05,Math.min(.25,avg*.15));
     if(price<low-pad||price>high+pad)continue;
-    return{side,dir4,dir1,timeframe:'M5',model:'ICT_HTF_FVG_M5_MSS_RETEST',htfFvg,mss:{confirmed:true,level:structureLevel,close:b.close,t:b.t+M5},displacementT:b.t+M5,fvg:{low,high,mid:(low+high)/2,t:c.t,type:sign===1?'BULL_FVG':'BEAR_FVG'},fvgCloseT:c.t+M5,retestT:retest.t+M5,retested:true,stopAnchor:sign===1?Math.min(b.low,c.low,retest.low):Math.max(b.high,c.high,retest.high)};
+    return{side,dir4,dir1,timeframe:'M5',model:'ICT_TREND_FVG_RETEST',htfFvg,mss:{confirmed:mssConfirmed,level:structureLevel,close:b.close,t:b.t+M5},displacementT:b.t+M5,fvg:{low,high,mid:(low+high)/2,t:c.t,type:sign===1?'BULL_FVG':'BEAR_FVG'},fvgCloseT:c.t+M5,retestT:retest.t+M5,retested:true,stopAnchor:sign===1?Math.min(b.low,c.low,retest.low):Math.max(b.high,c.high,retest.high)};
   }
   return null;
 }
 export function validTrendContinuation(ict,side,now=Date.now()){
   const c=ict?.trendContinuation,sign=side==='BUY'?1:side==='SELL'?-1:0;
-  const h=c?.htfFvg,m=c?.mss;
-  if(c?.model!=='ICT_HTF_FVG_M5_MSS_RETEST'||!h?.valid||h.side!==side||!['H4','H1'].includes(h.timeframe)||!Number.isFinite(h.low)||!(h.high>h.low)||!Number.isFinite(h.formedAt)||!Number.isFinite(h.touchT)||h.formedAt>h.touchT||h.touchT>=c.displacementT||!m?.confirmed||m.t!==c.displacementT||!Number.isFinite(m.close)||!Number.isFinite(m.level)||!(sign===1?m.close>m.level:m.close<m.level))return false;
   return Boolean(sign&&ict?.setupType==='ICT_HTF_TREND_FVG_RETEST'&&c?.side===side&&c.dir4===sign&&c.dir1===sign&&c.timeframe==='M5'&&c.retested===true&&Number.isFinite(c.fvg?.low)&&c.fvg.high>c.fvg.low&&Number.isFinite(c.displacementT)&&c.displacementT<c.fvgCloseT&&c.fvgCloseT<c.retestT&&c.retestT<=now&&now-c.retestT<=2*M5&&now-c.fvgCloseT<=75*60_000);
+}
+
+export function continuationImageSupport(ict,side,confidence,now=Date.now()){
+  const baseConfidence=Number.isFinite(confidence)?confidence:0;
+  const c=ict?.trendContinuation,h=c?.htfFvg,m=c?.mss,sign=side==='BUY'?1:-1;
+  const valid=validTrendContinuation(ict,side,now);
+  const htfFvg=Boolean(valid&&h?.valid&&h.side===side&&['H4','H1'].includes(h.timeframe)&&Number.isFinite(h.low)&&h.high>h.low&&Number.isFinite(h.formedAt)&&Number.isFinite(h.touchT)&&h.formedAt<=h.touchT&&h.touchT<c.displacementT);
+  const mss=Boolean(valid&&m?.confirmed&&m.t===c.displacementT&&Number.isFinite(m.close)&&Number.isFinite(m.level)&&(sign===1?m.close>m.level:m.close<m.level));
+  // A supporting image never promotes a sub-threshold setup into eligibility.
+  const bonus=baseConfidence>=75?(htfFvg?4:0)+(mss?2:0):0;
+  return{advisoryOnly:true,baseConfidence,bonus,confidence:Math.min(100,baseConfidence+bonus),htfFvg,mss};
 }

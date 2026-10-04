@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {findTrendContinuation,validTrendContinuation} from '../ict-trend-continuation.js';
+import {findTrendContinuation,validTrendContinuation,continuationImageSupport} from '../ict-trend-continuation.js';
 process.env.NODE_ENV='test';
 const {canSendSignal}=await import('../telegram-xau-bot-v3.js');
 const step=300000,start=Date.UTC(2026,9,2,10);
@@ -31,12 +31,29 @@ test('Telegram continuation requires full evidence and retains confidence and fr
  for(const patch of [{confidence:74},{degraded:true},{ict:{setupType:s.ict.setupType}},{ict:{...s.ict,trendContinuation:{...trendContinuation,retested:false}}},{ict:{...s.ict,trendContinuation:{...trendContinuation,retestT:now+step}}}])assert.equal(canSendSignal({...s,...patch},now),false);
 });
 
-test('reject missing, unfinished, invalidated and noncontiguous HTF gaps',()=>{
- for(const context of [{},{H1:contextBars.H1.map(b=>({...b,t:b.t+2*h1}))},{H1:contextBars.H1.map(b=>({...b,t:b.t-h1})).concat({t:start-h1,open:98,high:99,low:96,close:97})},{H1:contextBars.H1.map((b,i)=>({...b,t:b.t+(i===1?60000:0)}))}])assert.equal(scan({contextBars:context}),null);
+test('missing, unfinished, invalidated or noncontiguous image gaps do not block the original setup',()=>{
+ const original=scan();
+ for(const context of [{},{H1:contextBars.H1.map(b=>({...b,t:b.t+2*h1}))},{H1:contextBars.H1.map(b=>({...b,t:b.t-h1})).concat({t:start-h1,open:98,high:99,low:96,close:97})},{H1:contextBars.H1.map((b,i)=>({...b,t:b.t+(i===1?60000:0)}))}]){
+  const c=scan({contextBars:context});assert.ok(c);assert.equal(c.htfFvg,null);
+  for(const key of ['fvg','stopAnchor','retestT','displacementT'])assert.deepEqual(c[key],original[key]);
+  assert.equal(validTrendContinuation({setupType:'ICT_HTF_TREND_FVG_RETEST',trendContinuation:c},'BUY',now),true);
+ }
 });
-test('displacement must break prior M5 structure and evidence cannot be omitted',()=>{
+test('optional MSS or HTF evidence cannot veto continuation or Telegram',()=>{
  const bars=candles.map((b,i)=>i===0?{...b,high:104}:b);
- assert.equal(scan({bars}),null);
- const c=scan(),ict={setupType:'ICT_HTF_TREND_FVG_RETEST',trendContinuation:c};
- for(const patch of [{htfFvg:null},{mss:null},{mss:{...c.mss,confirmed:false}},{htfFvg:{...c.htfFvg,formedAt:now+1}}])assert.equal(validTrendContinuation({...ict,trendContinuation:{...c,...patch}},'BUY',now),false);
+ const c=scan({bars});assert.ok(c);assert.equal(c.mss.confirmed,false);
+ const ict={setupType:'ICT_HTF_TREND_FVG_RETEST',trendContinuation:c};
+ for(const patch of [{htfFvg:null},{mss:null},{mss:{...c.mss,confirmed:false}}])assert.equal(validTrendContinuation({...ict,trendContinuation:{...c,...patch}},'BUY',now),true);
+ const s={signalId:'no-images',status:'ACTIVE',entered:true,triggered:true,side:'BUY',confidence:80,price:103.1,triggerPrice:103.1,entry:103.1,stopLoss:100,target1:106,quoteAgeMs:100,liveFeedFresh:true,updatedAt:new Date(now).toISOString(),tradeStyle:'ICT_ONLY_TREND_CONTINUATION',ict:{...ict,trendContinuation:{...c,htfFvg:null,mss:null}},agentStack:{agents:{trading:{advisoryReady:true}}}};
+ assert.equal(canSendSignal(s,now),true);
+});
+test('image support only adds a bounded score to a qualified existing setup',()=>{
+ const ict={setupType:'ICT_HTF_TREND_FVG_RETEST',trendContinuation:scan()};
+ const score=continuationImageSupport(ict,'BUY',80,now);
+ assert.equal(score.advisoryOnly,true);assert.equal(score.bonus,6);assert.equal(score.confidence,86);
+ assert.equal(continuationImageSupport(ict,'BUY',99,now).confidence,100);
+ assert.equal(continuationImageSupport(ict,'BUY',74,now).confidence,74);
+ assert.equal(continuationImageSupport(ict,'BUY',80,now+3*step).bonus,0);
+ assert.equal(continuationImageSupport({...ict,trendContinuation:{...ict.trendContinuation,htfFvg:null,mss:null}},'BUY',80,now).confidence,80);
+ assert.equal(continuationImageSupport({...ict,trendContinuation:{...ict.trendContinuation,htfFvg:{...ict.trendContinuation.htfFvg,formedAt:now+1}}},'BUY',80,now).htfFvg,false);
 });
