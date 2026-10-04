@@ -48,6 +48,44 @@ function buildMonth6Support(topDown={},ict={},side=null){
   };
 }
 
+function rangeStats(bars=[],count=20){const x=cleanBars(bars).slice(-count);if(!x.length)return{bars:0,high:null,low:null,mid:null};const high=Math.max(...x.map(b=>b.high)),low=Math.min(...x.map(b=>b.low));return{bars:x.length,high:round(high),low:round(low),mid:round((high+low)/2)};}
+function pdReference(bar,price,label){const high=n(bar?.high),low=n(bar?.low);if(high==null||low==null||!(high>low)||!Number.isFinite(price))return{label,ready:false,high:null,low:null,equilibrium:null,location:'UNKNOWN',proxy:true};const equilibrium=(high+low)/2;return{label,ready:true,high:round(high),low:round(low),equilibrium:round(equilibrium),location:price>equilibrium?'PREMIUM':price<equilibrium?'DISCOUNT':'EQUILIBRIUM',proxy:true};}
+function uniqueLevels(rows=[]){const out=[];for(const row of rows.filter(x=>Number.isFinite(n(x?.price))).sort((a,b)=>a.price-b.price)){if(!out.some(x=>Math.abs(x.price-row.price)<.05))out.push({...row,price:round(row.price)});}return out;}
+export function buildMonth5Context({price,side,ict,higherTimeframes={}}={}){
+  const px=n(price),validSide=['BUY','SELL'].includes(side)?side:null;
+  const d1=cleanBars(higherTimeframes?.D1||[]),w1=cleanBars(higherTimeframes?.W1||[]),mn1=cleanBars(higherTimeframes?.MN1||[]);
+  const closedD1=d1.length>1?d1.slice(0,-1):d1,closedW1=w1.length>1?w1.slice(0,-1):w1,closedMN1=mn1.length>1?mn1.slice(0,-1):mn1;
+  const d20=rangeStats(closedD1,20),d40=rangeStats(closedD1,40),d60=rangeStats(closedD1,60),d63=rangeStats(closedD1,63),d126=rangeStats(closedD1,126),d252=rangeStats(closedD1,252);
+  const prevDay=closedD1.at(-1)||null,prevWeek=closedW1.at(-1)||null,prevMonth=closedMN1.at(-1)||null;
+  const buyStops=uniqueLevels([
+    {label:'RECENT_WEEK_HIGH',price:n(prevWeek?.high),basis:'SHORT_TERM_REFERENCE'},
+    {label:'PREVIOUS_MONTH_HIGH',price:n(prevMonth?.high),basis:'INSTITUTIONAL_REFERENCE'},
+    {label:'3M_HIGH',price:d63.high,basis:'OPEN_FLOAT'},
+    {label:'6M_HIGH',price:d126.high,basis:'OPEN_FLOAT'},
+    {label:'12M_HIGH',price:d252.high,basis:'OPEN_FLOAT'}
+  ]);
+  const sellStops=uniqueLevels([
+    {label:'RECENT_WEEK_LOW',price:n(prevWeek?.low),basis:'SHORT_TERM_REFERENCE'},
+    {label:'PREVIOUS_MONTH_LOW',price:n(prevMonth?.low),basis:'INSTITUTIONAL_REFERENCE'},
+    {label:'3M_LOW',price:d63.low,basis:'OPEN_FLOAT'},
+    {label:'6M_LOW',price:d126.low,basis:'OPEN_FLOAT'},
+    {label:'12M_LOW',price:d252.low,basis:'OPEN_FLOAT'}
+  ]);
+  const drawCandidates=validSide==='BUY'?buyStops.filter(x=>px!=null&&x.price>px).sort((a,b)=>a.price-b.price):validSide==='SELL'?sellStops.filter(x=>px!=null&&x.price<px).sort((a,b)=>b.price-a.price):[];
+  const sweep=ict?.legSweep||ict?.sweep||null,sweepLevel=n(sweep?.level),external=Boolean(sweep&&sweep?.liquidityClass==='EXTERNAL');
+  const rejected=Boolean(external&&sweepLevel!=null&&px!=null&&(validSide==='BUY'?px>sweepLevel:validSide==='SELL'?px<sweepLevel:false));
+  const structureShift=Boolean(ict?.hasShift||ict?.hasDisplacement||ict?.mss||ict?.displacement);
+  const retested=Boolean(ict?.retest||ict?.trendContinuation?.retested||ict?.entryMode==='ORIGIN_FVG_RETEST'||ict?.hasIfvgRetest);
+  return{
+    version:'ICT_MONTH5_CONTEXT_V1',advisoryOnly:true,executionGate:false,confidenceBonus:0,source:'ICT Monthly Mentorship Month 5',
+    quarterlyShift:{lookBackTradingDays:[20,40,60],ranges:{d20,d40,d60},castForwardTradingDays:[20,40,60],projectedLimitTradingDays:60,anchorResetRule:'NEW_HIGH_OR_NEW_LOW',anticipationOnly:true},
+    institutionalSwing:{available:external,sweepName:sweep?.name||null,level:round(sweepLevel),rejected,structureShift,retested,confirmed:Boolean(external&&rejected&&structureShift&&retested)},
+    openFloat:{buyStops,sellStops,draw:drawCandidates[0]?{...drawCandidates[0],side:validSide==='BUY'?'BSL':'SSL',derived:true}:null},
+    pdArrays:{monthly:pdReference(prevMonth,px,'MONTHLY'),weekly:pdReference(prevWeek,px,'WEEKLY'),daily:pdReference(prevDay,px,'DAILY'),proxyNote:'Previous closed period range is used as a lightweight premium/discount reference; it is advisory only.'},
+    intermarket:{used:false,reason:'No DXY/bonds feed is added here; Month 5 intermarket relationships are not fabricated or used as an entry gate.'}
+  };
+}
+
 function mean(x=[]){const v=x.filter(Number.isFinite);return v.length?v.reduce((a,b)=>a+b,0)/v.length:null;}
 function atr(bars,count=14){const x=bars.slice(-Math.max(2,count+1));if(x.length<2)return null;const tr=[];for(let i=1;i<x.length;i++){const b=x[i],pc=x[i-1].close;tr.push(Math.max(b.high-b.low,Math.abs(b.high-pc),Math.abs(b.low-pc)));}return mean(tr);}
 function ema(values=[],period=20){if(values.length<period)return null;const k=2/(period+1);let e=mean(values.slice(0,period));for(let i=period;i<values.length;i++)e=values[i]*k+e*(1-k);return e;}
@@ -142,7 +180,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
     },
     updatedAt:new Date(now).toISOString()
   };
-  const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'MULTI_MODEL_CONFLUENCE',tradeStyle:'MULTI_MODEL_CONFLUENCE',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',sampleCount:samples.length,modelTimeframes:{macro:'MN1/W1/D2/D1',context:'H4/H1/M15',setup:'M5 multi-model confluence',timing:'M1'},confluence:null,importantCandles:null,technicalRead:ict?.technicalRead||null,priceAction:ict?.priceAction||null,liquidityContext:ict?.ict||null,ict:ict?.ict||null,lauraContext,updatedAt:new Date(now).toISOString(),reason:'Building multi-model context'};
+  const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'MULTI_MODEL_CONFLUENCE',tradeStyle:'MULTI_MODEL_CONFLUENCE',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',sampleCount:samples.length,modelTimeframes:{macro:'MN1/W1/D2/D1',context:'H4/H1/M15',setup:'M5 multi-model confluence',timing:'M1'},confluence:null,importantCandles:null,technicalRead:ict?.technicalRead||null,priceAction:ict?.priceAction||null,liquidityContext:ict?.ict||null,ict:ict?.ict||null,lauraContext,month5Context:null,updatedAt:new Date(now).toISOString(),reason:'Building multi-model context'};
   if(price==null||m1.length<45||m5.length<24||m15.length<16||h1.length<6)return base;
 
   const bars={m1,m5,m15,h1,h4};const topDown=buildTopDownContext(bars,higherTimeframes);base.multiTimeframe=topDown;if(!topDown.ready)return{...base,status:'COLLECTING',reason:'TOP_DOWN COLLECTING — waiting for daily/2D/weekly/monthly context before any gold signal'};
@@ -152,6 +190,8 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const ictSide=['BUY','SELL'].includes(ict?.candidateAction)?ict.candidateAction:null;
   const month6Support=buildMonth6Support(topDown,ict?.ict,ictSide);
   topDown.month6Support=month6Support;
+  const month5Context=buildMonth5Context({price,side:ictSide,ict:ict?.ict,higherTimeframes});
+  base.month5Context=month5Context;
   const trendContinuationValid=validTrendContinuation(ict?.ict,ictSide,now);
   const ictTradeStyle=trendContinuationValid?'ICT_ONLY_TREND_CONTINUATION':'ICT_ONLY_EXTERNAL_LIQUIDITY';
   const ictCandidate=Boolean(ict?.status==='CANDIDATE'&&ictSide&&(externalSweepValid||trendContinuationValid));
@@ -182,6 +222,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
     lead:ictConfidence,
     multiTimeframe:topDown,
     month6Support,
+    month5Context,
     liquidity:{externalSweep},
     sequence:ict?.ict?.contextSequence||null,
     originFvg:ict?.ict?.originFvg||ict?.ict?.poi?.fvg||null,
@@ -195,6 +236,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
     confidence:ictConfidence,signalConfidence:ictConfidence,
     confluence:ictConfluence,
     multiTimeframe:topDown,
+    month5Context,
     contextBias:ictSide,
     reason:(trendContinuationValid?`ICT ONLY — H4/H1 trend → M5 displacement → FVG → closed M5 retest; optional image support +${imageSupport.bonus}/100; ${ict?.reason||''}`:`ICT ONLY — external ${String(externalSweep?.name||'').toUpperCase()} liquidity event → MSS/displacement → FVG/OB; ${ict?.reason||'setup confirmed'}`)+` | M6 SUPPORT ONLY: ${month6Support.aligned}/4 HTF aligned • PD ${month6Support.pdLocation}${month6Support.pdPreferred?' preferred':''}${month6Support.htfConflict?' • W1/D1 conflict noted, not vetoed':''}`
   };const importantM5=detectImportantCandles(m5,{timeframe:'5m',lookback:30}),importantM15=detectImportantCandles(m15,{timeframe:'15m',lookback:24}),importantM1=detectImportantCandles(m1,{timeframe:'1m',lookback:30});base.importantCandles={primary:importantM5.primary||importantM15.primary||importantM1.primary,m5:importantM5,m15:importantM15,m1:importantM1,closedOnly:true};const atr1=atr(m1,14)||.5,atr5=atr(m5,14)||1.5,dir1h=structureDir(h1),dir15=structureDir(m15),dir5=structureDir(m5),tech=ict?.technicalRead||{},ind=tech?.indicators||{},fib=fibonacciLocation(h1,price),candle=candleBias(m5),breakout=breakoutBias(m5,price,atr5),sweepBuy=recentSweep(m5,'BUY')||recentSweep(m1,'BUY'),sweepSell=recentSweep(m5,'SELL')||recentSweep(m1,'SELL'),heatmap=liquidityHeatmap(m1,price,atr1);
