@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { clockParts, createReportRetryGate } from '../runtime-memory-policy.js';
+import { clockParts } from '../runtime-memory-policy.js';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { spawnSync } from 'node:child_process';
@@ -12,15 +12,6 @@ test('cached clocks preserve timezone and DST output', () => {
       assert.deepEqual(clockParts(Date.parse(date),timeZone),expected.formatToParts(new Date(date)));
     }
   }
-});
-
-test('report retries at most once per ten minutes, and next report is not suppressed', () => {
-  const due=createReportRetryGate();
-  assert.equal(due('week1',0),true);
-  for(let now=1500;now<600000;now+=1500) assert.equal(due('week1',now),false);
-  assert.equal(due('week1',600000),true);
-  assert.equal(due('week2',601500),true);
-  assert.equal(due('week2',603000),false);
 });
 
 test('production engine generator applies cached clock and emits valid module without starting services', () => {

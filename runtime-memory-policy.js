@@ -13,14 +13,3 @@ export function clockParts(now, timeZone) {
   }
   return formatter.formatToParts(new Date(now));
 }
-
-// Only retain the current report key. This gate never throttles entry/exit checks.
-export function createReportRetryGate(intervalMs = 10 * 60_000) {
-  let lastKey = null, nextAt = 0;
-  return (key, now) => {
-    if (key === lastKey && now < nextAt) return false;
-    lastKey = key;
-    nextAt = now + intervalMs;
-    return true;
-  };
-}
