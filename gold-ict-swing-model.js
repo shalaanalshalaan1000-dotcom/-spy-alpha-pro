@@ -1,3 +1,5 @@
+// Reuse ICU state across polling calls; formatting options remain identical.
+const NY_CONTEXT_FORMATTER=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
 import {findTrendContinuation} from './ict-trend-continuation.js';
 const round=(v,d=3)=>Number.isFinite(Number(v))?Number(Number(v).toFixed(d)):null;
 const n=v=>v!=null&&v!==''&&typeof v!=='boolean'&&Number.isFinite(Number(v))?Number(v):null;
@@ -214,7 +216,7 @@ function structureDirection(bars){
   return 0;
 }
 function nyParts(ts){
-  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(ts)).filter(x=>x.type!=='literal').map(x=>[x.type,x.value]));
+  const parts=Object.fromEntries(NY_CONTEXT_FORMATTER.formatToParts(new Date(ts)).filter(x=>x.type!=='literal').map(x=>[x.type,x.value]));
   return{day:parts.year+'-'+parts.month+'-'+parts.day,hour:Number(parts.hour),minute:Number(parts.minute)};
 }
 function hi(rows){return rows.length?Math.max(...rows.map(x=>x.high)):null;}
@@ -531,7 +533,7 @@ function targetPlan(side,entry,stop,levels,m1,m5,m15,h1,h4,atr1,atr5){
 export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimeframes={}){
   const price=n(rawPrice),m1all=minuteBars(samples),m5all=aggregate(m1all,5),m15all=aggregate(m1all,15),h1all=aggregate(m1all,60),h4all=aggregate(m1all,240);
   const m1=closed(m1all,1,now),m5=closed(m5all,5,now),m15=closed(m15all,15,now),h1=closed(h1all,60,now),h4=closed(h4all,240,now);
-  const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'ICT_TOP_DOWN',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',ict:null,sampleCount:samples.length,modelTimeframes:{liquidityMap:'H4 -> H1 -> M15',externalReferences:'PWH/PWL + PDH/PDL + Asia/London/New York High/Low',context:'W1/D1 + H4/H1',bias:'M15 liquidity/context',setup:'External sweep -> M5 shift -> FVG/OB retest OR H4/H1 trend -> M5 displacement -> FVG retest',execution:'M5 confirmation only',timing:'M5'},priceAction:null,technicalRead:null,updatedAt:new Date(now).toISOString(),reason:'ICT engine is collecting enough HTF history'};
+  const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'ICT_TOP_DOWN',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',ict:null,sampleCount:samples.length,modelTimeframes:{liquidityMap:'H4 -> H1 -> M15',externalReferences:'PWH/PWL + PDH/PDL + Asia/London/New York High/Low',context:'W1/D1 + H4/H1',bias:'M15 liquidity/context',setup:'External sweep -> M5 shift -> FVG/OB retest OR H4/H1 FVG -> M5 MSS/displacement -> closed FVG retest',execution:'M5 confirmation only',timing:'M5'},priceAction:null,technicalRead:null,updatedAt:new Date(now).toISOString(),reason:'ICT engine is collecting enough HTF history'};
   if(price==null||m1.length<120||m5.length<30||m15.length<20||h1.length<12||h4.length<3)return base;
 
   const levels=sessionLevels(m15,now,higherTimeframes),session=activeSession(now),dir4=structureDirection(h4),dir1=structureDirection(h1),dir15=structureDirection(m15);
@@ -583,7 +585,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   };
   const buy5Preview=build5Preview('BUY'),sell5Preview=build5Preview('SELL');
   const reversalWinner=[buy5Preview,sell5Preview].filter(x=>x.freshReversal).sort((a,b)=>(b.sequenceAt||0)-(a.sequenceAt||0)||(b.sweep?.t||0)-(a.sweep?.t||0))[0]??null;
-  const trendWinner=['BUY','SELL'].map(side=>findTrendContinuation({bars:m5,side,dir4,dir1,price,now})).find(Boolean)??null;
+  const trendWinner=['BUY','SELL'].map(side=>findTrendContinuation({bars:m5,contextBars:{H4:h4,H1:h1},side,dir4,dir1,price,now})).find(Boolean)??null;
   const lowerTfWinner=reversalWinner??(trendWinner?{side:trendWinner.side,score:70}:null)??(buy5Preview.score>sell5Preview.score?buy5Preview:sell5Preview.score>buy5Preview.score?sell5Preview:null);
   let setup15=lowerTfWinner&&lowerTfWinner.score>=28
     ?(lowerTfWinner.side==='BUY'?buy15:sell15)
@@ -652,13 +654,13 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const trendContinuation=!reversal&&!continuation&&!directContinuation&&trendWinner?.side===side?trendWinner:null;
   const executionReady=Boolean(reversal||continuation||directContinuation||trendContinuation);
   const selectedFvg=trendContinuation?trendContinuation.fvg:reversal?reversalPoiFvg:(continuation?continuationFvg:(reversalPoiFvg??continuationFvg??fvg1??fvg5??null));
-  const contextSequence=trendContinuation?'HTF_TREND -> M5_DISPLACEMENT -> FVG -> CLOSED_M5_RETEST':htfLiquiditySweep&&hasIfvgRetest
+  const contextSequence=trendContinuation?'HTF_FVG_TOUCH -> M5_MSS_DISPLACEMENT -> FVG -> CLOSED_M5_RETEST':htfLiquiditySweep&&hasIfvgRetest
     ?'HTF_EXTERNAL_LIQUIDITY_SWEEP -> LTF_REACTION_CISD_MSS -> iFVG_FLIP -> RETEST_REACTION'
     :reversal?'EXTERNAL_LIQUIDITY_SWEEP -> CISD_MSS_OR_DISPLACEMENT -> ORIGIN_FVG_OB'
     :continuation?'EXTERNAL_LIQUIDITY_EVENT -> BOS -> CISD_MSS_OR_DISPLACEMENT -> FVG_OB'
     :'EXTERNAL_LIQUIDITY_SWEEP -> CISD_MSS_OR_DISPLACEMENT -> CONFIRMED_CONTINUATION';
 
-  if(!executionReady)return{...base,status:'WAIT',candidateAction:side,confidence:0,contextBias:side,oneMinuteConfirmed,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,contextAligned,biasAligned,setupAligned,setupVotes,setupReady,fvg15,sweep15,dm15,fvg5,sweep5,dm5,bos5,fvg1,sweep1,dm1,bos1,bos15,legSweep,sequence1,sequence5,shift1,shift5,shift15,firstMssEvent,firstDisplacementEvent,firstTriggerEvent,triggerConfirmed,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),hasSweep,hasShift,hasDisplacement,hasBos,contextSequence},reason:'ICT WAIT: waiting for external sweep + shift + FVG, or aligned H4/H1 trend + M5 displacement + FVG retest'};
+  if(!executionReady)return{...base,status:'WAIT',candidateAction:side,confidence:0,contextBias:side,oneMinuteConfirmed,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,contextAligned,biasAligned,setupAligned,setupVotes,setupReady,fvg15,sweep15,dm15,fvg5,sweep5,dm5,bos5,fvg1,sweep1,dm1,bos1,bos15,legSweep,sequence1,sequence5,shift1,shift5,shift15,firstMssEvent,firstDisplacementEvent,firstTriggerEvent,triggerConfirmed,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),hasSweep,hasShift,hasDisplacement,hasBos,contextSequence},reason:'ICT WAIT: waiting for external sweep + shift + FVG, or aligned H4/H1 FVG + M5 MSS/displacement + closed FVG retest'};
 
   const setupType=trendContinuation?'ICT_HTF_TREND_FVG_RETEST':htfLiquiditySweep&&hasIfvgRetest?'ICT_HTF_SWEEP_IFVG_RETEST':reversal?'ICT_ORIGIN_REVERSAL':continuation?'ICT_ORIGIN_CONTINUATION':'ICT_CONFIRMED_CONTINUATION';
   const fvg=selectedFvg,shiftT=trendContinuation?trendContinuation.displacementT:reversal?firstShift?.t:continuationAnchor;

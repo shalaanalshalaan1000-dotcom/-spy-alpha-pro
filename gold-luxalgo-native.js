@@ -1,3 +1,5 @@
+// Reuse ICU state across polling calls; formatting options remain identical.
+const NY_SESSION_FORMATTER=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
 const n = v => v != null && v !== '' && typeof v !== 'boolean' && Number.isFinite(Number(v)) ? Number(v) : null;
 const round = (v,d=3) => Number.isFinite(Number(v)) ? Number(Number(v).toFixed(d)) : null;
 const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
@@ -210,7 +212,7 @@ function frameSnapshot(bars,timeframe,settings){
 }
 
 function nySession(now){
-  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(now)).filter(x=>x.type!=='literal').map(x=>[x.type,x.value]));
+  const parts=Object.fromEntries(NY_SESSION_FORMATTER.formatToParts(new Date(now)).filter(x=>x.type!=='literal').map(x=>[x.type,x.value]));
   const m=Number(parts.hour)*60+Number(parts.minute);
   if(m>=420&&m<540)return'NEW_YORK';
   if(m>=120&&m<300)return'LONDON_OPEN';

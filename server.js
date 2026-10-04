@@ -1,3 +1,5 @@
+// Reuse ICU state across polling calls; formatting options remain identical.
+const EASTERN_CLOCK_FORMATTER=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'short',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
 import http from 'node:http';
 import {createHmac,createPublicKey,randomBytes,timingSafeEqual,verify as verifySignature} from 'node:crypto';
 
@@ -683,7 +685,7 @@ function telegramConfig(){
   };
 }
 function easternClock(date=new Date()){
-  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'short',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date).filter(x=>x.type!=='literal').map(x=>[x.type,x.value]));
+  const parts=Object.fromEntries(EASTERN_CLOCK_FORMATTER.formatToParts(date).filter(x=>x.type!=='literal').map(x=>[x.type,x.value]));
   return{dayKey:parts.year+'-'+parts.month+'-'+parts.day,weekday:parts.weekday,minutes:Number(parts.hour)*60+Number(parts.minute),time:parts.hour+':'+parts.minute+' ET'};
 }
 function resetTelegramDay(){
