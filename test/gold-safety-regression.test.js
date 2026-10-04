@@ -72,3 +72,16 @@ test('confluence wrapper and Telegram require the external ICT contract',()=>{
  assert.match(telegramV3,/ICT_ONLY_EXTERNAL_LIQUIDITY/);
  assert.match(telegramV3,/validTrendContinuation/);
 });
+
+
+test('ICT Month 4 context stays supportive and cannot replace the external sweep gate',()=>{
+ const ictSource=fs.readFileSync(new URL('../gold-ict-swing-model.js',import.meta.url),'utf8');
+ assert.match(ictSource,/ICT_MONTH4_LIQUIDITY_BASED_BIAS/);
+ assert.match(ictSource,/externalTriggerOnly:true/);
+ assert.match(ictSource,/internalCannotStartSetup:true/);
+ assert.match(ictSource,/validated:Boolean\(validation\)/);
+ assert.match(ictSource,/BULLISH_REJECTION_BLOCK/);
+ assert.match(ictSource,/BEARISH_REJECTION_BLOCK/);
+ assert.match(ictSource,/month4Bias\.aligned&&month4Bias\.bias===side/);
+ assert.doesNotMatch(ictSource,/month4Bias\.aligned&&month4Bias\.bias!==side/);
+});
