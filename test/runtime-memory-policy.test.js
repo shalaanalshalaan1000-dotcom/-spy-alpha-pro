@@ -26,3 +26,20 @@ test('production engine generator applies cached clock and emits valid module wi
   const check=spawnSync(process.execPath,['--input-type=module','--check'],{input:generated,encoding:'utf8'});
   assert.equal(check.status,0,check.stderr);
 });
+
+// Execute the exact module-level formatter declaration; no workers or HTTP servers start.
+test('hot path formatters preserve original locale, timezone, midnight and DST output',()=>{
+ const modules=[['gold-agent-orchestrator.js','RIYADH_WEEKDAY_FORMATTER'],['gold-ict-swing-model.js','NY_CONTEXT_FORMATTER'],['gold-luxalgo-native.js','NY_SESSION_FORMATTER'],['server.js','EASTERN_CLOCK_FORMATTER']];
+ for(const [file,name] of modules){
+  const source=fs.readFileSync(new URL('../'+file,import.meta.url),'utf8');
+  const declaration=source.split('\n').find(line=>line.startsWith('const '+name+'='));
+  assert.ok(declaration);
+  const expression=declaration.slice(declaration.indexOf('=')+1,-1);
+  const cached=vm.runInNewContext(expression,{Intl});
+  for(const stamp of ['2026-03-08T06:59:00Z','2026-03-08T07:01:00Z','2026-11-01T05:59:00Z','2026-11-01T06:01:00Z','2026-10-04T04:00:00Z']){
+   const fresh=vm.runInNewContext(expression,{Intl});
+   assert.deepEqual(cached.formatToParts(new Date(stamp)),fresh.formatToParts(new Date(stamp)),file);
+  }
+  assert.equal(source.split(expression).length-1,1,file+' creates exactly one formatter');
+ }
+});

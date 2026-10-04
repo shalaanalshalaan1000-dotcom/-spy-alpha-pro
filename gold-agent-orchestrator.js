@@ -1,3 +1,5 @@
+// Reuse ICU state across polling calls; formatting options remain identical.
+const RIYADH_WEEKDAY_FORMATTER=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Riyadh',weekday:'short'});
 import { analyzeLaura } from './gold-laura-agent.js';
 
 const toNum = value => Number.isFinite(Number(value)) ? Number(value) : null;
@@ -471,7 +473,7 @@ function drawOnLiquidityAgent(source = {}, setup = {}, session = {}, liquidityDe
   const byStrategic=[...candidates].sort((a,b)=>a.priority-b.priority||b.distance-a.distance);
   const primary=liquidityDecision?.primaryLiquidity||byStrategic.find(x=>!secondary||Math.abs(x.level-secondary.level)>0.10)||secondary||null;
   const secondaryDistinct=secondary&&primary&&Math.abs(secondary.level-primary.level)<=0.10?null:secondary;
-  const friday=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Riyadh',weekday:'short'}).format(new Date(now))==='Fri';
+  const friday=RIYADH_WEEKDAY_FORMATTER.format(new Date(now))==='Fri';
   const fridayPrimaryMaxDistance=Math.max(1,toNum(process.env.TELEGRAM_FRIDAY_PRIMARY_MAX_DISTANCE_USD)??25);
   const primaryPractical=Boolean(primary && (!friday || primary.distance<=fridayPrimaryMaxDistance));
 
