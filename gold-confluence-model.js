@@ -81,7 +81,7 @@ export function buildMonth5Context({price,side,ict,higherTimeframes={}}={}){
     version:'ICT_MONTH5_CONTEXT_V1',advisoryOnly:true,executionGate:false,confidenceBonus:0,source:'ICT Monthly Mentorship Month 5',
     quarterlyShift:{lookBackTradingDays:[20,40,60],ranges:{d20,d40,d60},castForwardTradingDays:[20,40,60],projectedLimitTradingDays:60,anchorResetRule:'NEW_HIGH_OR_NEW_LOW',anticipationOnly:true},
     institutionalSwing:{available:external,sweepName:sweep?.name||null,level:round(sweepLevel),rejected,structureShift,retested,confirmed:Boolean(external&&rejected&&structureShift&&retested)},
-    openFloat:{buyStops,sellStops,draw:drawCandidates[0]?{...drawCandidates[0],side:validSide==='BUY'?'BSL':'SSL',derived:true}:null},
+    openFloat:{ranges:{m3:d63,m6:d126,m12:d252},buyStops,sellStops,draw:drawCandidates[0]?{...drawCandidates[0],side:validSide==='BUY'?'BSL':'SSL',derived:true}:null},
     pdArrays:{monthly:pdReference(prevMonth,px,'MONTHLY'),weekly:pdReference(prevWeek,px,'WEEKLY'),daily:pdReference(prevDay,px,'DAILY'),proxyNote:'Previous closed period range is used as a lightweight premium/discount reference; it is advisory only.'},
     intermarket:{used:false,reason:'No DXY/bonds feed is added here; Month 5 intermarket relationships are not fabricated or used as an entry gate.'}
   };
