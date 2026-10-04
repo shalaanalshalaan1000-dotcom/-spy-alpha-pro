@@ -31,6 +31,12 @@ const base = {
     side:'BUY',
     macroAligned:4,
     intradayAligned:3,
+    month6Support:{
+      source:'ICT_MONTH_6_SWING_TRADING',mode:'SUPPORT_ONLY',advisoryOnly:true,blocksExecution:false,
+      sequence:'MN1 > W1 > D1 > H4',side:'BUY',aligned:3,opposed:1,
+      reads:{MN1:'BUY',W1:'SELL',D1:'BUY',H4:'BUY'},pdLocation:'DISCOUNT',pdPreferred:true,
+      poiType:'FVG_OB_CONFLUENCE',drawOnLiquidity:{label:'PWH',price:4350},htfConflict:false
+    },
     reads:{
       D1:{side:'BUY'},
       H4:{side:'BUY'},
@@ -118,6 +124,9 @@ test('all specialist agents feed the trading agent and Telegram brief', () => {
   assert.equal(trading.feed.drawOnLiquidity,'MAPPED');
   assert.equal(trading.feed.research,'CLEAR');
   assert.equal(trading.feed.finalCheck,'PASS');
+  assert.equal(stack.agents.market.context.month6Support?.mode,'SUPPORT_ONLY');
+  assert.equal(stack.agents.market.context.month6Support?.blocksExecution,false);
+  assert.equal(stack.agents.market.context.month6Support?.pdLocation,'DISCOUNT');
   assert.equal(stack.telegramBrief.title,'XAUUSD AGENT DESK');
   assert.equal(stack.telegramBrief.advisoryReady,true);
 });

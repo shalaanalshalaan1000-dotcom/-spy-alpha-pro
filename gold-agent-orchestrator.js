@@ -84,6 +84,7 @@ function marketAgent(source = {}, now = Date.now()) {
       macroAligned: toNum(mtf.macroAligned) ?? 0,
       intradayAligned: toNum(mtf.intradayAligned) ?? 0,
       timeframes: Object.fromEntries(Object.entries(reads).map(([k, v]) => [k, v?.side || 'NEUTRAL'])),
+      month6Support: mtf.month6Support || null,
       liquidity,
       mss,
       displacement,
