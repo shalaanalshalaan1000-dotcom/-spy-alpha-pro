@@ -507,6 +507,27 @@ function drawOnLiquidityAgent(source = {}, setup = {}, session = {}, liquidityDe
   };
 }
 
+function month3SponsorshipAgent(source = {}) {
+  const ctx=source?.ictMonth3||source?.confluence?.month3Sponsorship||null;
+  return {
+    name:'ICT_MONTH3_SPONSORSHIP_AGENT',
+    mode:'ADVISORY_ONLY',
+    available:Boolean(ctx),
+    side:ctx?.side||'WAIT',
+    confirmations:toNum(ctx?.confirmations)??0,
+    totalChecks:toNum(ctx?.totalChecks)??4,
+    supported:ctx?.supported===true,
+    higherTimeFramePriceDisplacement:ctx?.higherTimeFramePriceDisplacement||null,
+    intermediateTermImbalance:ctx?.intermediateTermImbalance||null,
+    shortTermExitLiquidity:ctx?.shortTermExitLiquidity||null,
+    timeOfDayInfluence:ctx?.timeOfDayInfluence||null,
+    canCreateSignal:false,
+    canBlockSignal:false,
+    canOverrideIctGate:false,
+    rule:'ICT Month 3 institutional-sponsorship context is advisory only. It feeds the trading desk but never creates, blocks, or overrides the core ICT setup.'
+  };
+}
+
 function stateEngineAgent(source = {}, market = {}) {
   const bid = toNum(source.bid);
   const ask = toNum(source.ask);
@@ -724,6 +745,7 @@ function tradingAgent({
   drawOnLiquidity,
   liquidityDecision,
   dailyOpportunity,
+  month3Sponsorship,
   research,
   journal,
   selfImprovement,
@@ -768,6 +790,7 @@ function tradingAgent({
     liquidityDecision: liquidityDecision?.recommendation || 'WAIT_FOR_DIRECTION',
     m5LiquidityConfirmation: liquidityDecision?.m5Confirmation?.confirmed ? 'CONFIRMED' : 'WAIT',
     dailyOpportunity: dailyOpportunity?.state || 'SEARCHING_FOR_MINIMUM',
+    month3Sponsorship: month3Sponsorship?.available ? `${month3Sponsorship.confirmations}/${month3Sponsorship.totalChecks}` : 'N/A',
     research: research?.blockEntries ? 'VETO' : 'CLEAR',
     tradeManager: tradeManager?.action || 'OBSERVE',
     finalCheck: finalCheck?.pass ? 'PASS' : 'HOLD',
@@ -793,7 +816,8 @@ function tradingAgent({
       hierarchy: liquidityDecision?.hierarchy || ['H4','H1','M15'],
       executionTimeframe: liquidityDecision?.executionTimeframe || 'M5'
     },
-    dailyOpportunity: dailyOpportunity || null
+    dailyOpportunity: dailyOpportunity || null,
+    month3Sponsorship: month3Sponsorship || null
   };
 
   return {
@@ -835,6 +859,7 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
   const liquidityDecision = liquidityDecisionAgent(source, setup, now);
   const drawOnLiquidity = drawOnLiquidityAgent(source, setup, session, liquidityDecision, now);
   const dailyOpportunity = dailyOpportunityAgent(source, now);
+  const month3Sponsorship = month3SponsorshipAgent(source);
   const laura = analyzeLaura(source, now);
   const stateEngine = stateEngineAgent(source, market);
   const brain = brainAgent(source, setup, stateEngine, research);
@@ -846,13 +871,13 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
   const selfImprovement = selfImprovementAgent();
   const trading = tradingAgent({
     brain, reflex, stateEngine, market, setup, risk, tradeManager,
-    session, amd, drawOnLiquidity, liquidityDecision, dailyOpportunity, research, journal, selfImprovement, finalCheck
+    session, amd, drawOnLiquidity, liquidityDecision, dailyOpportunity, month3Sponsorship, research, journal, selfImprovement, finalCheck
   });
 
   return {
     architecture: 'GOLD_AGENT_STACK_V3_TRADING_HUB',
     layers: {
-      SPECIALISTS: 'Market + setup + state + session + H4/H1/M15 liquidity decision + AMD context + draw-on-liquidity + daily opportunity + research + risk + journal + review',
+      SPECIALISTS: 'Market + setup + state + session + H4/H1/M15 liquidity decision + AMD context + draw-on-liquidity + ICT Month 3 sponsorship advisory + daily opportunity + research + risk + journal + review',
       LAURA_AGENT: 'Independent classical price-action desk: W1/D1/H4 outlook + M15 break + M5 retest; does not feed or override ICT execution',
       TRADING_AGENT: 'Single consolidated consumer and decision publisher for the ICT stack',
       EXECUTION: 'Deterministic permission gate; manual MT5 remains possible when execution permission is off'
@@ -870,7 +895,7 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
     },
     decisionSchema: schema,
     telegramBrief: trading.telegramBrief,
-    agents: {brain, reflex, stateEngine, market, setup, risk, tradeManager, session, amd, liquidityDecision, drawOnLiquidity, dailyOpportunity, research, journal, selfImprovement, finalCheck, trading, laura},
+    agents: {brain, reflex, stateEngine, market, setup, risk, tradeManager, session, amd, liquidityDecision, drawOnLiquidity, month3Sponsorship, dailyOpportunity, research, journal, selfImprovement, finalCheck, trading, laura},
     updatedAt: new Date(now).toISOString()
   };
 }
