@@ -1,4 +1,5 @@
 import {validTrendContinuation,continuationImageSupport} from './ict-trend-continuation.js';
+import {buildMonth3Sponsorship} from './ict-month3-sponsorship.js';
 import { analyzeGoldSignal as analyzeClassicModel } from './gold-signal-model.js';
 import { analyzeGoldSignal as analyzeIctModel } from './gold-ict-swing-model.js';
 import { detectImportantCandles } from './important-candles.js';
@@ -150,6 +151,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const externalNames=new Set(['pdh','pdl','pwh','pwl','asiaHigh','asiaLow','londonHigh','londonLow','nyHigh','nyLow']);
   const externalSweepValid=Boolean(externalSweep&&externalNames.has(String(externalSweep.name||''))&&externalSweep.liquidityClass==='EXTERNAL');
   const ictSide=['BUY','SELL'].includes(ict?.candidateAction)?ict.candidateAction:null;
+  const month3Sponsorship=buildMonth3Sponsorship({side:ictSide,candidate:ict,topDown,price,now});
   const month6Support=buildMonth6Support(topDown,ict?.ict,ictSide);
   topDown.month6Support=month6Support;
   const trendContinuationValid=validTrendContinuation(ict?.ict,ictSide,now);
@@ -161,7 +163,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
       status:'WAIT',action:'WAIT',candidateAction:'WAIT',side:null,
       strategy:'ICT_EXTERNAL_LIQUIDITY_ONLY',tradeStyle:ictTradeStyle,
       confidence:0,signalConfidence:0,contextBias:topDown.side,
-      ict:ict?.ict||null,liquidityContext:ict?.ict||null,
+      ict:ict?.ict||null,liquidityContext:ict?.ict||null,ictMonth3:month3Sponsorship,
       technicalRead:ict?.technicalRead||null,priceAction:ict?.priceAction||null,
       multiTimeframe:topDown,
       confluence:{version:ictTradeStyle,selectedSide:null,scores:{BUY:0,SELL:0},lead:0,multiTimeframe:topDown,liquidity:{externalSweep:externalSweep||null},legacyModels:null},
@@ -177,6 +179,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const ictConfluence={
     version:ictTradeStyle,
     imageSupport,
+    month3Sponsorship,
     selectedSide:ictSide,
     scores:{BUY:ictSide==='BUY'?ictConfidence:0,SELL:ictSide==='SELL'?ictConfidence:0},
     lead:ictConfidence,
@@ -194,9 +197,10 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
     tradeStyle:ictTradeStyle,
     confidence:ictConfidence,signalConfidence:ictConfidence,
     confluence:ictConfluence,
+    ictMonth3:month3Sponsorship,
     multiTimeframe:topDown,
     contextBias:ictSide,
-    reason:(trendContinuationValid?`ICT ONLY — H4/H1 trend → M5 displacement → FVG → closed M5 retest; optional image support +${imageSupport.bonus}/100; ${ict?.reason||''}`:`ICT ONLY — external ${String(externalSweep?.name||'').toUpperCase()} liquidity event → MSS/displacement → FVG/OB; ${ict?.reason||'setup confirmed'}`)+` | M6 SUPPORT ONLY: ${month6Support.aligned}/4 HTF aligned • PD ${month6Support.pdLocation}${month6Support.pdPreferred?' preferred':''}${month6Support.htfConflict?' • W1/D1 conflict noted, not vetoed':''}`
+    reason:(trendContinuationValid?`ICT ONLY — H4/H1 trend → M5 displacement → FVG → closed M5 retest; optional image support +${imageSupport.bonus}/100; ${ict?.reason||''}`:`ICT ONLY — external ${String(externalSweep?.name||'').toUpperCase()} liquidity event → MSS/displacement → FVG/OB; ${ict?.reason||'setup confirmed'}`)+` | M3 SUPPORT ONLY: ${month3Sponsorship.confirmations}/4 sponsorship evidence | M6 SUPPORT ONLY: ${month6Support.aligned}/4 HTF aligned • PD ${month6Support.pdLocation}${month6Support.pdPreferred?' preferred':''}${month6Support.htfConflict?' • W1/D1 conflict noted, not vetoed':''}`
   };const importantM5=detectImportantCandles(m5,{timeframe:'5m',lookback:30}),importantM15=detectImportantCandles(m15,{timeframe:'15m',lookback:24}),importantM1=detectImportantCandles(m1,{timeframe:'1m',lookback:30});base.importantCandles={primary:importantM5.primary||importantM15.primary||importantM1.primary,m5:importantM5,m15:importantM15,m1:importantM1,closedOnly:true};const atr1=atr(m1,14)||.5,atr5=atr(m5,14)||1.5,dir1h=structureDir(h1),dir15=structureDir(m15),dir5=structureDir(m5),tech=ict?.technicalRead||{},ind=tech?.indicators||{},fib=fibonacciLocation(h1,price),candle=candleBias(m5),breakout=breakoutBias(m5,price,atr5),sweepBuy=recentSweep(m5,'BUY')||recentSweep(m1,'BUY'),sweepSell=recentSweep(m5,'SELL')||recentSweep(m1,'SELL'),heatmap=liquidityHeatmap(m1,price,atr1);
   const components={structure:componentBucket(),trend:componentBucket(),momentum:componentBucket(),priceAction:componentBucket(),liquidity:componentBucket(),location:componentBucket(),volatility:componentBucket()};
 
