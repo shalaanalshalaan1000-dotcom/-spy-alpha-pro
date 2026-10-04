@@ -104,7 +104,8 @@ test('ICT Month 5 context stays advisory and exposes quarterly/open-float refere
  assert.equal(ctx.quarterlyShift.ranges.d20.bars,20);
  assert.equal(ctx.quarterlyShift.ranges.d40.bars,40);
  assert.equal(ctx.quarterlyShift.ranges.d60.bars,60);
- assert.ok(ctx.openFloat.buyStops.some(x=>x.label==='12M_HIGH'));
+ assert.equal(ctx.openFloat.ranges.m12.bars,252);
+ assert.ok(ctx.openFloat.buyStops.some(x=>x.basis==='OPEN_FLOAT'));
  assert.equal(ctx.institutionalSwing.confirmed,true);
  assert.equal(ctx.intermarket.used,false);
 });
