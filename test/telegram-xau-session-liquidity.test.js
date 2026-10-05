@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 process.env.NODE_ENV='test';
 process.env.TELEGRAM_FRIDAY_PRIMARY_MAX_DISTANCE_USD='25';
 
-const {sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate}=await import('../telegram-xau-bot-v2.js');
+const {sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate,sessionIctContinuationGate}=await import('../telegram-xau-bot-v2.js');
 
 const friday=Date.parse('2026-10-02T18:00:00Z');
 const thursday=Date.parse('2026-10-01T18:00:00Z');
@@ -28,10 +28,12 @@ test('nearest closed-session external liquidity becomes Secondary and next becom
     rows,
     friday
   );
-  assert.match(msg,/Secondary BSL: 4152\.000/);
-  assert.match(msg,/Primary BSL: 4166\.000/);
-  assert.doesNotMatch(msg,/Primary BSL: 4192\.280/);
+  assert.match(msg,/TP1 — Secondary BSL: 4152\\.000/);
+  assert.match(msg,/TP2 — Primary BSL: 4166\\.000/);
+  assert.match(msg,/Runner — External BSL: 4192\\.280/);
   assert.match(msg,/BUY يستهدف BSL وSELL يستهدف SSL/);
+  assert.match(msg,/Execution gate ثابت: External Liquidity Sweep → M5 MSS → Retest\/Hold → Entry/);
+  assert.match(msg,/confluence only/);
 });
 
 test('Friday does not present a far-only external level as Primary',()=>{
@@ -70,9 +72,10 @@ test('continuation retest uses classical next S/R targets without replacing ICT 
     thursday
   );
   assert.match(msg,/BUY continuation: decisive M15 close/);
-  assert.match(msg,/Secondary BSL: 4180\.000/);
-  assert.match(msg,/Primary BSL: 4192\.280/);
-  assert.match(msg,/Classical S\/R/);
+  assert.match(msg,/TP1 — Secondary BSL: 4180\\.000/);
+  assert.match(msg,/TP2 — Primary BSL: 4192\\.280/);
+  assert.match(msg,/Execution gate: external level event \+ M5 retest\/hold/);
+  assert.match(msg,/confluence only/);
 });
 
 test('sell continuation resolves nearest and next support levels as SSL targets',()=>{
@@ -92,6 +95,12 @@ test('ICT external-liquidity reversal is not vetoed by advisory model side or co
   assert.equal(sessionIctReversalGate({phase:'RETEST',retestTouch:true,held:true,modelSide:'SELL',confidence:10}),true);
   assert.equal(sessionIctReversalGate({phase:'MSS',structureShift:false,modelSide:'BUY',confidence:99}),false);
   assert.equal(sessionIctReversalGate({phase:'RETEST',retestTouch:true,held:false,modelSide:'BUY',confidence:99}),false);
+});
+
+test('ICT continuation retest is not vetoed by advisory model side or confidence',()=>{
+  assert.equal(sessionIctContinuationGate({retestTouch:true,held:true,modelSide:'SELL',confidence:10}),true);
+  assert.equal(sessionIctContinuationGate({retestTouch:false,held:true,modelSide:'BUY',confidence:99}),false);
+  assert.equal(sessionIctContinuationGate({retestTouch:true,held:false,modelSide:'BUY',confidence:99}),false);
 });
 
 test('gold session lookback preserves Friday levels through a normal weekend',async()=>{
