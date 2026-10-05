@@ -310,29 +310,21 @@ for (const [from, to] of replacements) {
 
 
 {
-  // Completed ICT candidates are structurally eligible; confidence and higher-timeframe agreement are advisory.
-  // For an already confirmed direct continuation, allow two closed M5 candles to prove momentum acceptance
-  // when price never comes back to the frozen entry zone: decisive close, then a no-reclaim directional hold.
-  const lockedPlanConfidenceGate="function validCandidatePlan(m){return Boolean(m&&m.status==='CANDIDATE'&&['BUY','SELL'].includes(m.candidateAction)&&Number(m.confidence)>=MIN_CONFIDENCE&&validLevels(m));}";
-  if(!source.includes(lockedPlanConfidenceGate))throw new Error('momentum-acceptance patch: candidate confidence gate missing');
-  source=source.replace(lockedPlanConfidenceGate,"function validCandidatePlan(m){return Boolean(m&&m.status==='CANDIDATE'&&['BUY','SELL'].includes(m.candidateAction)&&validLevels(m));}");
-
-  const entryConfidenceGate="if(state.signal||!freshQuote(q,now)||m.status!=='CANDIDATE'||Number(m.confidence)<MIN_CONFIDENCE||!validLevels(m))return;";
-  if(!source.includes(entryConfidenceGate))throw new Error('momentum-acceptance patch: entry confidence gate missing');
-  source=source.replace(entryConfidenceGate,"if(state.signal||!freshQuote(q,now)||m.status!=='CANDIDATE'||!validLevels(m))return;");
-
+  // Preserve the existing ICT candidate/confidence contract. Only relax the literal entry-zone
+  // touch when closed M5 candles prove acceptance beyond a CLOSED external session level:
+  // decisive break close -> next M5 no-reclaim directional hold.
   const maybeCreateAnchor="function maybeCreate(m,q,now){\n refreshDailyQuota(now);";
   if(!source.includes(maybeCreateAnchor))throw new Error('momentum-acceptance patch: maybeCreate anchor missing');
-  const helper="function directContinuationMomentumAccepted(m,side,now=Date.now()){if(!m||!['BUY','SELL'].includes(side))return false;const ict=m.ict||{};if(!(ict.entryMode==='CONFIRMED_CONTINUATION'||ict.useDirectContinuation===true||ict.directContinuation===true))return false;const lo=n(m.entryLow),hi=n(m.entryHigh);if(lo==null||hi==null)return false;const bars=completedTimeframeBars(300000,now).slice(-2);if(bars.length<2)return false;const first=bars[0],second=bars[1],level=side==='BUY'?hi:lo,decisive=side==='BUY'?first.close>level+.25:first.close<level-.25,firstDirectional=side==='BUY'?first.close>=first.open:first.close<=first.open,noReclaim=side==='BUY'?second.low>level:second.high<level,held=side==='BUY'?second.close>level:second.close<level,secondDirectional=side==='BUY'?second.close>=second.open:second.close<=second.open;return Boolean(decisive&&firstDirectional&&noReclaim&&held&&secondDirectional);}\n";
+  const helper="function sessionContinuationMomentumAccepted(side,now=Date.now()){if(!['BUY','SELL'].includes(side))return false;const rows=Object.values(goldSessionLevels(now)?.sessions||{}).filter(x=>String(x?.status||'').toUpperCase()==='CLOSED');const bars=completedTimeframeBars(300000,now).slice(-6);if(!rows.length||bars.length<3)return false;for(const row of rows){const level=n(side==='BUY'?row?.high:row?.low);if(level==null)continue;for(let i=Math.max(1,bars.length-3);i<bars.length-1;i++){const prev=bars[i-1],first=bars[i],second=bars[i+1];if(!prev||!first||!second||second.t!==bars.at(-1).t)continue;const crossed=side==='BUY'?prev.close<=level+.10&&first.close>level+.25:prev.close>=level-.10&&first.close<level-.25;const firstDirectional=side==='BUY'?first.close>=first.open:first.close<=first.open;const noReclaim=side==='BUY'?second.low>level:second.high<level;const held=side==='BUY'?second.close>level:second.close<level;const secondDirectional=side==='BUY'?second.close>=second.open:second.close<=second.open;if(crossed&&firstDirectional&&noReclaim&&held&&secondDirectional)return{id:row.id,date:row.date,level,firstT:first.t,holdT:second.t};}}return false;}\n";
   source=source.replace(maybeCreateAnchor,helper+maybeCreateAnchor);
 
   const rangeGate="if(!inRange(p,lo,hi)){state.lastEntryGuard={atMs:now,reason:'WAITING_ENTRY_RANGE',side,price:round(p,3),entryLow:round(lo,3),entryHigh:round(hi,3),candidateLocked:Boolean(m.candidateLocked),entryMode:m?.ict?.entryMode||null};return;}";
   if(!source.includes(rangeGate))throw new Error('momentum-acceptance patch: entry-range guard missing');
-  source=source.replace(rangeGate,"const momentumAccepted=directContinuationMomentumAccepted(m,side,now);if(!inRange(p,lo,hi)&&!momentumAccepted){state.lastEntryGuard={atMs:now,reason:'WAITING_ENTRY_RANGE',side,price:round(p,3),entryLow:round(lo,3),entryHigh:round(hi,3),candidateLocked:Boolean(m.candidateLocked),entryMode:m?.ict?.entryMode||null,momentumAcceptance:'WAITING'};return;}");
+  source=source.replace(rangeGate,"const momentumAcceptance=sessionContinuationMomentumAccepted(side,now);const momentumAccepted=Boolean(momentumAcceptance);if(!inRange(p,lo,hi)&&!momentumAccepted){state.lastEntryGuard={atMs:now,reason:'WAITING_ENTRY_RANGE',side,price:round(p,3),entryLow:round(lo,3),entryHigh:round(hi,3),candidateLocked:Boolean(m.candidateLocked),entryMode:m?.ict?.entryMode||null,momentumAcceptance:'WAITING'};return;}");
 
   const payloadAnchor="confidence:Number(m.confidence)||0,signalConfidence:Number(m.confidence)||0,entry:p,entryLow:lo,entryHigh:hi,";
   if(!source.includes(payloadAnchor))throw new Error('momentum-acceptance patch: signal payload anchor missing');
-  source=source.replace(payloadAnchor,"confidence:Number(m.confidence)||0,signalConfidence:Number(m.confidence)||0,entryConfirmation:momentumAccepted?'M5_MOMENTUM_ACCEPTANCE':'ENTRY_RANGE_TOUCH',entry:p,entryLow:lo,entryHigh:hi,");
+  source=source.replace(payloadAnchor,"confidence:Number(m.confidence)||0,signalConfidence:Number(m.confidence)||0,entryConfirmation:momentumAccepted?'M5_MOMENTUM_ACCEPTANCE':'ENTRY_RANGE_TOUCH',momentumAcceptance:momentumAcceptance||null,entry:p,entryLow:lo,entryHigh:hi,");
 
   source=source.replace("const BUILD='site-signal-noai-v67-laura-context';","const BUILD='site-signal-noai-v68-m5-momentum-acceptance';");
 }
