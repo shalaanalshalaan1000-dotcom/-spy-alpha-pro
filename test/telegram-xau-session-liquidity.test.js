@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 process.env.NODE_ENV='test';
 process.env.TELEGRAM_FRIDAY_PRIMARY_MAX_DISTANCE_USD='25';
 
-const {sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate,sessionIctContinuationGate}=await import('../telegram-xau-bot-v2.js');
+const {sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate,sessionIctContinuationGate,sessionMomentumArm,sessionMomentumAcceptance}=await import('../telegram-xau-bot-v2.js');
 
 const friday=Date.parse('2026-10-02T18:00:00Z');
 const thursday=Date.parse('2026-10-01T18:00:00Z');
@@ -98,10 +98,36 @@ test('ICT external-liquidity reversal is not vetoed by advisory model side or co
   assert.equal(sessionIctReversalGate({phase:'RETEST',retestTouch:true,held:false,modelSide:'BUY',confidence:99}),false);
 });
 
-test('ICT continuation retest is not vetoed by advisory model side or confidence',()=>{
+test('ICT continuation retest or momentum acceptance is not vetoed by advisory model side or confidence',()=>{
   assert.equal(sessionIctContinuationGate({retestTouch:true,held:true,modelSide:'SELL',confidence:10}),true);
-  assert.equal(sessionIctContinuationGate({retestTouch:false,held:true,modelSide:'BUY',confidence:99}),false);
-  assert.equal(sessionIctContinuationGate({retestTouch:true,held:false,modelSide:'BUY',confidence:99}),false);
+  assert.equal(sessionIctContinuationGate({retestTouch:false,held:true,momentumAccepted:true,modelSide:'SELL',confidence:10}),true);
+  assert.equal(sessionIctContinuationGate({retestTouch:false,held:true,momentumAccepted:false,modelSide:'BUY',confidence:99}),false);
+  assert.equal(sessionIctContinuationGate({retestTouch:true,held:false,momentumAccepted:false,modelSide:'BUY',confidence:99}),false);
+});
+
+test('M5 momentum acceptance requires a decisive close then a later no-reclaim directional hold',()=>{
+  const level=4140;
+  const first={t:1000,open:4139.9,high:4139.95,low:4136.8,close:4137.2};
+  const second={t:2000,open:4137.2,high:4139.7,low:4134.8,close:4135.4};
+  assert.equal(sessionMomentumArm({side:'SELL',level,bar:first}),true);
+  assert.equal(sessionMomentumAcceptance({side:'SELL',level,bar:second,armedAt:first.t}),true);
+  assert.equal(sessionMomentumAcceptance({side:'SELL',level,bar:{...second,high:4140.1},armedAt:first.t}),false);
+  assert.equal(sessionMomentumAcceptance({side:'SELL',level,bar:{...second,t:first.t},armedAt:first.t}),false);
+
+  const msg=sessionRetestMessage(
+    {id:'LONDON',label:'LONDON',status:'CLOSED',high:4170,low:4140},
+    'LOW',
+    second,
+    {level,continuationMode:'MOMENTUM_ACCEPTANCE',continuationModelSide:'BUY',continuationConfidence:20,continuationModelAligned:false},
+    [
+      {id:'TOKYO',label:'TOKYO',status:'CLOSED',high:4170,low:4125},
+      {id:'LONDON',label:'LONDON',status:'CLOSED',high:4165,low:4140}
+    ],
+    thursday
+  );
+  assert.match(msg,/MOMENTUM ACCEPTANCE CONFIRMED/);
+  assert.match(msg,/decisive M5 close → next M5 no-reclaim hold/);
+  assert.match(msg,/not gating/);
 });
 
 test('gold session lookback preserves Friday levels through a normal weekend',async()=>{
