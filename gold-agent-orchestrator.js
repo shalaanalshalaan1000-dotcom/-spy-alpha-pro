@@ -2,7 +2,7 @@
 const RIYADH_WEEKDAY_FORMATTER=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Riyadh',weekday:'short'});
 import { analyzeLaura } from './gold-laura-agent.js';
 
-const toNum = value => Number.isFinite(Number(value)) ? Number(value) : null;
+const toNum = value => value != null && value !== '' && typeof value !== 'boolean' && Number.isFinite(Number(value)) ? Number(value) : null;
 const round = (value, digits = 2) => {
   const n = toNum(value);
   return n == null ? null : Number(n.toFixed(digits));
@@ -167,7 +167,8 @@ function riskAgent(source = {}, setup) {
   const lot = rawLot == null ? null : Math.max(lotStep, roundDownToStep(rawLot, lotStep));
   const estimatedRiskUsd = lot != null && stopDistance != null ? lot * stopDistance * contractSize : null;
   const riskPct = balance > 0 && estimatedRiskUsd != null ? estimatedRiskUsd / balance * 100 : null;
-  const structurallyValid = setup.side === 'WAIT' || (entry != null && stopLoss != null && (setup.side === 'BUY' ? stopLoss < entry : stopLoss > entry));
+  const planComplete = ['BUY','SELL'].includes(setup.side) && entry != null && stopLoss != null;
+  const structurallyValid = !planComplete || (setup.side === 'BUY' ? stopLoss < entry : stopLoss > entry);
 
   return {
     name: 'RISK_AGENT',
@@ -181,8 +182,9 @@ function riskAgent(source = {}, setup) {
     recommendedLot: lot == null ? null : round(lot, 2),
     estimatedRiskUsd: round(estimatedRiskUsd),
     estimatedRiskPct: round(riskPct, 1),
+    planComplete,
     structurallyValid,
-    allowed: structurallyValid && stopDistance != null && estimatedRiskUsd != null,
+    allowed: planComplete && structurallyValid && stopDistance != null && estimatedRiskUsd != null,
     stopDistanceBlocking: false,
     riskAmountBlocking: false,
     note: stopDistance != null && stopDistance > maxStopDistanceUsd ? 'Wide structural stop is informational only; the setup is not blocked by stop distance.' : estimatedRiskUsd != null && estimatedRiskUsd > maxRiskUsd ? 'Estimated risk exceeds the reference ceiling, but stop/risk size is advisory only for setup authorization.' : riskPct != null && riskPct > 5 ? 'Risk exceeds 5% of reference balance; advisory only.' : 'Stop and risk are informational for setup authorization.'
@@ -620,8 +622,8 @@ function hardRiskLayer(source = {}, stateEngine = {}, setup = {}, baseRisk = {})
   const onePositionOk = !positionOpen || setup.stage === 'MANAGING';
   const rrOk = rr == null || rr >= minRr;
   const vetoes = [];
-  if (!baseRisk.structurallyValid) vetoes.push('INVALID_STOP_STRUCTURE');
-  if (baseRisk.estimatedRiskUsd == null) vetoes.push('UNKNOWN_RISK');
+  if (baseRisk.planComplete && !baseRisk.structurallyValid) vetoes.push('INVALID_STOP_STRUCTURE');
+  if (baseRisk.planComplete && baseRisk.estimatedRiskUsd == null) vetoes.push('UNKNOWN_RISK');
   // Stop distance and estimated amount are advisory only; they do not veto an otherwise valid ICT setup.
   if (!spreadOk) vetoes.push('SPREAD_TOO_WIDE');
   if (!dailyLossOk) vetoes.push('DAILY_LOSS_LIMIT');
@@ -693,7 +695,7 @@ function decisionSchema(source = {}, stateEngine = {}, setup = {}, risk = {}, re
     entryZone: entryLow != null && entryHigh != null ? [round(Math.min(entryLow,entryHigh)),round(Math.max(entryLow,entryHigh))] : null,
     stopLoss: round(source.stopLoss),
     targets: targets.map(v => round(v)),
-    riskState: risk.allowed ? 'SAFE' : 'BLOCKED',
+    riskState: !risk.planComplete ? 'PENDING' : (risk.allowed ? 'SAFE' : 'BLOCKED'),
     recommendedLot: risk.recommendedLot,
     executable: reflex.executable,
     vetoes: reflex.vetoes
@@ -706,17 +708,18 @@ function finalCheckAgent(stateEngine = {}, setup = {}, risk = {}, reflex = {}) {
   if (stateEngine.degraded) concerns.push('Market data feed is degraded');
   if (stateEngine.blockedByNews) concerns.push('High-impact USD news veto is active');
   const opposite = setup.side === 'BUY' ? 'SELL' : setup.side === 'SELL' ? 'BUY' : null;
-  if (opposite && Object.values(stateEngine.timeframes || {}).filter(v => v === opposite).length >= 4) concerns.push('Multi-timeframe direction is materially conflicted');
+  if (opposite && Object.values(stateEngine.timeframes || {}).filter(v => v === opposite).length >= 4) concerns.push('Multi-timeframe direction is materially conflicted — advisory only');
   if (risk.rrToTp1 != null && risk.rrToTp1 < risk.minRr) concerns.push('RR to TP1 is below minimum');
-  if (risk.estimatedRiskPct != null && risk.estimatedRiskPct > 5) concerns.push('Risk exceeds 5% of reference balance');
-  if (!reflex.executionEnabled) concerns.push('Live execution permission is disabled');
+  if (risk.estimatedRiskPct != null && risk.estimatedRiskPct > 5) concerns.push('Risk exceeds 5% of reference balance — advisory only');
+  if (!reflex.executionEnabled) concerns.push('Live execution permission is disabled — manual/Telegram mode');
+  const hardFail=Boolean(!stateEngine.fresh||stateEngine.degraded||stateEngine.blockedByNews||(risk.planComplete&&!risk.allowed));
   return {
     name: 'FINAL_CHECK',
     question: 'WHAT COULD I BE WRONG ABOUT?',
     concerns,
     survivabilityFirst: true,
-    pass: reflex.allGatesPassed,
-    conclusion: concerns.length ? 'Keep the deterministic gate in control.' : 'No additional contradiction detected.'
+    pass: !hardFail,
+    conclusion: hardFail ? 'A deterministic market/risk gate is blocking the setup.' : (concerns.length ? 'Advisory concerns only; they do not replace the ICT execution gate.' : 'No additional contradiction detected.')
   };
 }
 
