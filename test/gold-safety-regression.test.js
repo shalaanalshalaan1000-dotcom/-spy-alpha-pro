@@ -133,3 +133,12 @@ test('timeframe agreement supports confidence but never gates a valid ICT setup'
  assert.match(confluenceSource,/Timeframe agreement can add confidence only; disagreement never vetoes/);
 });
 
+test('site execution treats completed ICT confidence as advisory and supports M5 momentum acceptance',()=>{
+ const enginePatch=fs.readFileSync(new URL('../gold-site-signal-engine-v9.js',import.meta.url),'utf8');
+ assert.match(enginePatch,/function directContinuationMomentumAccepted/);
+ assert.match(enginePatch,/entryConfirmation:momentumAccepted\?'M5_MOMENTUM_ACCEPTANCE':'ENTRY_RANGE_TOUCH'/);
+ assert.match(enginePatch,/m\.status==='CANDIDATE'&&\['BUY','SELL'\]\.includes\(m\.candidateAction\)&&validLevels\(m\)/);
+ assert.match(enginePatch,/m\.status!=='CANDIDATE'\|\|!validLevels\(m\)\)return/);
+ assert.match(enginePatch,/if\(!inRange\(p,lo,hi\)&&!momentumAccepted\)/);
+});
+
