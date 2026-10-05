@@ -308,6 +308,35 @@ for (const [from, to] of replacements) {
   source=source.replace("const BUILD='site-signal-noai-v66-stop-advisory-only';","const BUILD='site-signal-noai-v67-laura-context';");
 }
 
+
+{
+  // Completed ICT candidates are structurally eligible; confidence and higher-timeframe agreement are advisory.
+  // For an already confirmed direct continuation, allow two closed M5 candles to prove momentum acceptance
+  // when price never comes back to the frozen entry zone: decisive close, then a no-reclaim directional hold.
+  const lockedPlanConfidenceGate="function validCandidatePlan(m){return Boolean(m&&m.status==='CANDIDATE'&&['BUY','SELL'].includes(m.candidateAction)&&Number(m.confidence)>=MIN_CONFIDENCE&&validLevels(m));}";
+  if(!source.includes(lockedPlanConfidenceGate))throw new Error('momentum-acceptance patch: candidate confidence gate missing');
+  source=source.replace(lockedPlanConfidenceGate,"function validCandidatePlan(m){return Boolean(m&&m.status==='CANDIDATE'&&['BUY','SELL'].includes(m.candidateAction)&&validLevels(m));}");
+
+  const entryConfidenceGate="if(state.signal||!freshQuote(q,now)||m.status!=='CANDIDATE'||Number(m.confidence)<MIN_CONFIDENCE||!validLevels(m))return;";
+  if(!source.includes(entryConfidenceGate))throw new Error('momentum-acceptance patch: entry confidence gate missing');
+  source=source.replace(entryConfidenceGate,"if(state.signal||!freshQuote(q,now)||m.status!=='CANDIDATE'||!validLevels(m))return;");
+
+  const maybeCreateAnchor="function maybeCreate(m,q,now){\n refreshDailyQuota(now);";
+  if(!source.includes(maybeCreateAnchor))throw new Error('momentum-acceptance patch: maybeCreate anchor missing');
+  const helper="function directContinuationMomentumAccepted(m,side,now=Date.now()){if(!m||!['BUY','SELL'].includes(side))return false;const ict=m.ict||{};if(!(ict.entryMode==='CONFIRMED_CONTINUATION'||ict.useDirectContinuation===true||ict.directContinuation===true))return false;const lo=n(m.entryLow),hi=n(m.entryHigh);if(lo==null||hi==null)return false;const bars=completedTimeframeBars(300000,now).slice(-2);if(bars.length<2)return false;const first=bars[0],second=bars[1],level=side==='BUY'?hi:lo,decisive=side==='BUY'?first.close>level+.25:first.close<level-.25,firstDirectional=side==='BUY'?first.close>=first.open:first.close<=first.open,noReclaim=side==='BUY'?second.low>level:second.high<level,held=side==='BUY'?second.close>level:second.close<level,secondDirectional=side==='BUY'?second.close>=second.open:second.close<=second.open;return Boolean(decisive&&firstDirectional&&noReclaim&&held&&secondDirectional);}\n";
+  source=source.replace(maybeCreateAnchor,helper+maybeCreateAnchor);
+
+  const rangeGate="if(!inRange(p,lo,hi)){state.lastEntryGuard={atMs:now,reason:'WAITING_ENTRY_RANGE',side,price:round(p,3),entryLow:round(lo,3),entryHigh:round(hi,3),candidateLocked:Boolean(m.candidateLocked),entryMode:m?.ict?.entryMode||null};return;}";
+  if(!source.includes(rangeGate))throw new Error('momentum-acceptance patch: entry-range guard missing');
+  source=source.replace(rangeGate,"const momentumAccepted=directContinuationMomentumAccepted(m,side,now);if(!inRange(p,lo,hi)&&!momentumAccepted){state.lastEntryGuard={atMs:now,reason:'WAITING_ENTRY_RANGE',side,price:round(p,3),entryLow:round(lo,3),entryHigh:round(hi,3),candidateLocked:Boolean(m.candidateLocked),entryMode:m?.ict?.entryMode||null,momentumAcceptance:'WAITING'};return;}");
+
+  const payloadAnchor="confidence:Number(m.confidence)||0,signalConfidence:Number(m.confidence)||0,entry:p,entryLow:lo,entryHigh:hi,";
+  if(!source.includes(payloadAnchor))throw new Error('momentum-acceptance patch: signal payload anchor missing');
+  source=source.replace(payloadAnchor,"confidence:Number(m.confidence)||0,signalConfidence:Number(m.confidence)||0,entryConfirmation:momentumAccepted?'M5_MOMENTUM_ACCEPTANCE':'ENTRY_RANGE_TOUCH',entry:p,entryLow:lo,entryHigh:hi,");
+
+  source=source.replace("const BUILD='site-signal-noai-v67-laura-context';","const BUILD='site-signal-noai-v68-m5-momentum-acceptance';");
+}
+
 // marketClock runs for every retained M15 bar. Reuse its native formatter.
 {
   const allocation="new Intl.DateTimeFormat('en-GB',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',weekday:'short',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(new Date(ms))";
