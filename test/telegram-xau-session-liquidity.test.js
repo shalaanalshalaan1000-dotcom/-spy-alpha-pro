@@ -18,6 +18,7 @@ test('nearest closed-session external liquidity becomes Secondary and next becom
   const t=sessionLiquidityTargets(rows,'LOW',4143.225,friday);
   assert.equal(t.secondary?.level,4152);
   assert.equal(t.primary?.level,4166);
+  assert.equal(t.runner?.level,4192.280);
   assert.equal(t.primaryFiltered,false);
 
   const msg=sessionReversalSetupMessage(
@@ -28,9 +29,9 @@ test('nearest closed-session external liquidity becomes Secondary and next becom
     rows,
     friday
   );
-  assert.match(msg,/TP1 — Secondary BSL: 4152\\.000/);
-  assert.match(msg,/TP2 — Primary BSL: 4166\\.000/);
-  assert.match(msg,/Runner — External BSL: 4192\\.280/);
+  assert.match(msg,/TP1 — Secondary BSL: 4152\.000/);
+  assert.match(msg,/TP2 — Primary BSL: 4166\.000/);
+  assert.match(msg,/Runner — External BSL: 4192\.280/);
   assert.match(msg,/BUY يستهدف BSL وSELL يستهدف SSL/);
   assert.match(msg,/Execution gate ثابت: External Liquidity Sweep → M5 MSS → Retest\/Hold → Entry/);
   assert.match(msg,/confluence only/);
@@ -53,7 +54,7 @@ test('non-Friday single external objective remains Primary without duplicate Sec
 });
 
 
-test('continuation retest uses classical next S/R targets without replacing ICT structure',()=>{
+test('continuation retest uses external-liquidity targets while confluence stays advisory',()=>{
   const rows=[
     {id:'TOKYO',label:'TOKYO',status:'CLOSED',high:4192.280,low:4133.715},
     {id:'LONDON',label:'LONDON',status:'CLOSED',high:4166.000,low:4140.000},
@@ -71,9 +72,9 @@ test('continuation retest uses classical next S/R targets without replacing ICT 
     rows,
     thursday
   );
-  assert.match(msg,/BUY continuation: decisive M15 close/);
-  assert.match(msg,/TP1 — Secondary BSL: 4180\\.000/);
-  assert.match(msg,/TP2 — Primary BSL: 4192\\.280/);
+  assert.match(msg,/BUY continuation: external level event → M5 retest\/hold/);
+  assert.match(msg,/TP1 — Secondary BSL: 4180\.000/);
+  assert.match(msg,/TP2 — Primary BSL: 4192\.280/);
   assert.match(msg,/Execution gate: external level event \+ M5 retest\/hold/);
   assert.match(msg,/confluence only/);
 });
