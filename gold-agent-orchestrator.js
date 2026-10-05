@@ -1,6 +1,6 @@
 // Reuse ICU state across polling calls; formatting options remain identical.
 const RIYADH_WEEKDAY_FORMATTER=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Riyadh',weekday:'short'});
-import { analyzeLaura } from './gold-laura-agent.js';
+import { analyzeGoldSnr } from './gold-snr-advisory.js';
 
 const toNum = value => value != null && value !== '' && typeof value !== 'boolean' && Number.isFinite(Number(value)) ? Number(value) : null;
 const round = (value, digits = 2) => {
@@ -863,7 +863,7 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
   const drawOnLiquidity = drawOnLiquidityAgent(source, setup, session, liquidityDecision, now);
   const dailyOpportunity = dailyOpportunityAgent(source, now);
   const month3Sponsorship = month3SponsorshipAgent(source);
-  const laura = analyzeLaura(source, now);
+  const snr = analyzeGoldSnr(source);
   const stateEngine = stateEngineAgent(source, market);
   const brain = brainAgent(source, setup, stateEngine, research);
   const risk = hardRiskLayer(source, stateEngine, setup, baseRisk);
@@ -880,8 +880,8 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
   return {
     architecture: 'GOLD_AGENT_STACK_V3_TRADING_HUB',
     layers: {
-      SPECIALISTS: 'Market + setup + state + session + H4/H1/M15 liquidity decision + AMD context + draw-on-liquidity + ICT Month 3 sponsorship advisory + daily opportunity + research + risk + journal + review',
-      LAURA_AGENT: 'Independent classical price-action desk: W1/D1/H4 outlook + M15 break + M5 retest; does not feed or override ICT execution',
+      SPECIALISTS: 'Market + setup + state + session + H4/H1/M15 liquidity decision + AMD context + draw-on-liquidity + ICT Month 3 sponsorship advisory + SNR advisory + daily opportunity + research + risk + journal + review',
+      SNR_ADVISORY: 'Support/resistance map only; advisory to ICT and never an execution gate, blocker, opener, score, or override',
       TRADING_AGENT: 'Single consolidated consumer and decision publisher for the ICT stack',
       EXECUTION: 'Deterministic permission gate; manual MT5 remains possible when execution permission is off'
     },
@@ -898,7 +898,7 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
     },
     decisionSchema: schema,
     telegramBrief: trading.telegramBrief,
-    agents: {brain, reflex, stateEngine, market, setup, risk, tradeManager, session, amd, liquidityDecision, drawOnLiquidity, month3Sponsorship, dailyOpportunity, research, journal, selfImprovement, finalCheck, trading, laura},
+    agents: {brain, reflex, stateEngine, market, setup, risk, tradeManager, session, amd, liquidityDecision, drawOnLiquidity, month3Sponsorship, dailyOpportunity, research, journal, selfImprovement, finalCheck, trading, snr},
     updatedAt: new Date(now).toISOString()
   };
 }

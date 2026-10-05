@@ -154,35 +154,7 @@ function liquidityReversalInvalidated(key,lastM5){
 export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimeframes={}){
   const price=n(rawPrice),classic=analyzeClassicModel(samples,rawPrice,now),ict=analyzeIctModel(samples,rawPrice,now,higherTimeframes);
   const m1all=minuteBars(samples),m1=closed(m1all,1,now),m5=closed(aggregate(m1all,5),5,now),m15=closed(aggregate(m1all,15),15,now),h1=closed(aggregate(m1all,60),60,now),h4=closed(aggregate(m1all,240),240,now);
-  const monthlyBars=cleanBars(higherTimeframes?.MN1||[]),weeklyBars=cleanBars(higherTimeframes?.W1||[]),dailyBars=cleanBars(higherTimeframes?.D1||[]);
-  const weekend=[0,6].includes(new Date(now).getUTCDay());
-  const monthlyClosed=monthlyBars.at(-2)||monthlyBars.at(-1)||null;
-  const weeklyClosed=weekend?weeklyBars.at(-1)||null:weeklyBars.at(-2)||weeklyBars.at(-1)||null;
-  const dailyClosed=dailyBars.at(-1)||null;
-  const prevMonth=monthlyBars.at(-2)||null,prevWeek=weeklyBars.at(-2)||null,prevDay=dailyBars.at(-2)||null;
-  const h4p=pivots(h4.slice(-80),2,2),h1p=pivots(h1.slice(-120),2,2),m15p=pivots(m15.slice(-160),2,2),m5p=pivots(m5.slice(-180),2,2),m1p=pivots(m1.slice(-240),2,2);
-  const lauraContext={
-    monthly:{closed:monthlyClosed},
-    weekly:{closed:weeklyClosed},
-    daily:{closed:dailyClosed},
-    h4:{closed:h4.at(-1)||null},
-    h1:{closed:h1.at(-1)||null},
-    m15:{closed:m15.at(-1)||null},
-    m5:{closed:m5.at(-1)||null},
-    m1:{closed:m1.at(-1)||null},
-    levels:{
-      pmh:prevMonth?.high??null,pml:prevMonth?.low??null,
-      pwh:prevWeek?.high??null,pwl:prevWeek?.low??null,
-      pdh:prevDay?.high??null,pdl:prevDay?.low??null,
-      h4SwingHigh:h4p.highs.at(-1)?.price??null,h4SwingLow:h4p.lows.at(-1)?.price??null,
-      h1SwingHigh:h1p.highs.at(-1)?.price??null,h1SwingLow:h1p.lows.at(-1)?.price??null,
-      m15SwingHigh:m15p.highs.at(-1)?.price??null,m15SwingLow:m15p.lows.at(-1)?.price??null,
-      m5SwingHigh:m5p.highs.at(-1)?.price??null,m5SwingLow:m5p.lows.at(-1)?.price??null,
-      m1SwingHigh:m1p.highs.at(-1)?.price??null,m1SwingLow:m1p.lows.at(-1)?.price??null
-    },
-    updatedAt:new Date(now).toISOString()
-  };
-  const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'MULTI_MODEL_CONFLUENCE',tradeStyle:'MULTI_MODEL_CONFLUENCE',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',sampleCount:samples.length,modelTimeframes:{macro:'MN1/W1/D2/D1',context:'H4/H1/M15',setup:'M5 multi-model confluence',timing:'M1'},confluence:null,importantCandles:null,technicalRead:ict?.technicalRead||null,priceAction:ict?.priceAction||null,liquidityContext:ict?.ict||null,ict:ict?.ict||null,lauraContext,month5Context:null,updatedAt:new Date(now).toISOString(),reason:'Building multi-model context'};
+  const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'MULTI_MODEL_CONFLUENCE',tradeStyle:'MULTI_MODEL_CONFLUENCE',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',sampleCount:samples.length,modelTimeframes:{macro:'MN1/W1/D2/D1',context:'H4/H1/M15',setup:'M5 multi-model confluence',timing:'M1'},confluence:null,importantCandles:null,technicalRead:ict?.technicalRead||null,priceAction:ict?.priceAction||null,liquidityContext:ict?.ict||null,ict:ict?.ict||null,month5Context:null,updatedAt:new Date(now).toISOString(),reason:'Building multi-model context'};
   if(price==null||m1.length<45||m5.length<24||m15.length<16||h1.length<6)return base;
 
   const bars={m1,m5,m15,h1,h4};const topDown=buildTopDownContext(bars,higherTimeframes);base.multiTimeframe=topDown;base.topDownReady=topDown.ready;
