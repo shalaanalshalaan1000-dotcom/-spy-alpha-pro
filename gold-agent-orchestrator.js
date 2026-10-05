@@ -2,7 +2,7 @@
 const RIYADH_WEEKDAY_FORMATTER=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Riyadh',weekday:'short'});
 import { analyzeLaura } from './gold-laura-agent.js';
 
-const toNum = value => Number.isFinite(Number(value)) ? Number(value) : null;
+const toNum = value => value != null && value !== '' && typeof value !== 'boolean' && Number.isFinite(Number(value)) ? Number(value) : null;
 const round = (value, digits = 2) => {
   const n = toNum(value);
   return n == null ? null : Number(n.toFixed(digits));
