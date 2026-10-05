@@ -1,0 +1,423 @@
+const CACHE_MS = Math.max(5000, Math.min(30000, Number(process.env.BTC_CACHE_MS || 12000) || 12000));
+const MIN_STRENGTH = Math.max(60, Math.min(95, Number(process.env.BTC_SNR_MIN_STRENGTH || 72) || 72));
+const CONTRACT_SIZE = Math.max(.000001, Number(process.env.EXNESS_BTC_CONTRACT_SIZE || 1));
+const LOT_STEP = Math.max(.001, Number(process.env.EXNESS_BTC_LOT_STEP || .01));
+const SAFE_RISK_USD = Math.max(1, Number(process.env.BTC_SAFE_RISK_USD || 5));
+const MAX_RISK_USD = Math.max(SAFE_RISK_USD, Number(process.env.BTC_MAX_RISK_USD || 10));
+
+const cache = { expiresAt: 0, value: null };
+const lifecycle = { signal: null, lastTerminal: null, cooldownUntil: 0, seen: new Set() };
+
+const num = v => v == null || v === '' || typeof v === 'boolean' ? null : (Number.isFinite(Number(v)) ? Number(v) : null);
+const round = (v, d = 2) => {
+  const n = num(v);
+  return n == null ? null : Number(n.toFixed(d));
+};
+
+async function coinbaseCandles(granularity) {
+  const url = new URL('https://api.exchange.coinbase.com/products/BTC-USD/candles');
+  url.searchParams.set('granularity', String(granularity));
+  const response = await fetch(url, {
+    headers: { accept: 'application/json', 'user-agent': 'Gold-Alpha-BTC-SNR/1.0' },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10000)
+  });
+  const rows = await response.json().catch(() => []);
+  if (!response.ok || !Array.isArray(rows)) throw new Error(`Coinbase candles unavailable ${response.status}`);
+  const now = Date.now();
+  const span = granularity * 1000;
+  return rows.map(x => ({
+    t: Number(x[0]) * 1000,
+    low: Number(x[1]),
+    high: Number(x[2]),
+    open: Number(x[3]),
+    close: Number(x[4]),
+    volume: Number(x[5] || 0)
+  })).filter(x => [x.t, x.open, x.high, x.low, x.close].every(Number.isFinite) && x.close > 0 && x.t + span <= now + 1000)
+    .sort((a, b) => a.t - b.t);
+}
+
+async function coinbaseTicker() {
+  const response = await fetch('https://api.exchange.coinbase.com/products/BTC-USD/ticker', {
+    headers: { accept: 'application/json', 'user-agent': 'Gold-Alpha-BTC-SNR/1.0' },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10000)
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(`Coinbase ticker unavailable ${response.status}`);
+  return data;
+}
+
+function aggregate(rows, hours) {
+  const span = hours * 3600000;
+  const out = new Map();
+  for (const bar of rows) {
+    const key = Math.floor(bar.t / span) * span;
+    const old = out.get(key);
+    if (!old) out.set(key, { ...bar, t: key });
+    else {
+      old.high = Math.max(old.high, bar.high);
+      old.low = Math.min(old.low, bar.low);
+      old.close = bar.close;
+      old.volume += num(bar.volume) || 0;
+    }
+  }
+  return [...out.values()].sort((a, b) => a.t - b.t);
+}
+
+function atr(rows, period = 14) {
+  if (!Array.isArray(rows) || rows.length <= period) return null;
+  const vals = [];
+  for (let i = rows.length - period; i < rows.length; i += 1) {
+    const bar = rows[i], prev = rows[i - 1];
+    vals.push(Math.max(bar.high - bar.low, Math.abs(bar.high - prev.close), Math.abs(bar.low - prev.close)));
+  }
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+
+function pivots(rows, left = 2, right = 2) {
+  const highs = [], lows = [];
+  for (let i = left; i < rows.length - right; i += 1) {
+    const bar = rows[i];
+    const before = rows.slice(i - left, i), after = rows.slice(i + 1, i + 1 + right);
+    if (before.every(x => bar.high > x.high) && after.every(x => bar.high >= x.high)) highs.push({ t: bar.t, price: bar.high });
+    if (before.every(x => bar.low < x.low) && after.every(x => bar.low <= x.low)) lows.push({ t: bar.t, price: bar.low });
+  }
+  return { highs, lows };
+}
+
+function collectRawLevels(frames) {
+  const weights = { D1: 5, H4: 4, H1: 3, M15: 2 };
+  const out = [];
+  for (const [tf, rows] of Object.entries(frames)) {
+    if (!weights[tf] || !Array.isArray(rows) || rows.length < 6) continue;
+    const p = pivots(rows.slice(-160), 2, 2);
+    for (const x of p.highs.slice(-12)) out.push({ price: x.price, kind: 'RESISTANCE', timeframe: tf, weight: weights[tf], t: x.t });
+    for (const x of p.lows.slice(-12)) out.push({ price: x.price, kind: 'SUPPORT', timeframe: tf, weight: weights[tf], t: x.t });
+  }
+  return out.filter(x => Number.isFinite(x.price) && x.price > 0);
+}
+
+function clusterLevels(raw, price, m15Atr) {
+  const clusterTol = Math.max(25, Math.min(140, Math.max(price * 0.00055, (m15Atr || price * 0.001) * 0.32)));
+  const sorted = raw.slice().sort((a, b) => a.price - b.price);
+  const clusters = [];
+  for (const level of sorted) {
+    let cluster = clusters.find(c => Math.abs(c.mid - level.price) <= clusterTol);
+    if (!cluster) {
+      cluster = { items: [], mid: level.price };
+      clusters.push(cluster);
+    }
+    cluster.items.push(level);
+    const totalWeight = cluster.items.reduce((s, x) => s + x.weight, 0);
+    cluster.mid = cluster.items.reduce((s, x) => s + x.price * x.weight, 0) / totalWeight;
+  }
+  const halfWidth = Math.max(20, Math.min(120, Math.max(clusterTol * 0.55, (m15Atr || 100) * 0.18)));
+  return clusters.map((cluster, index) => {
+    const kinds = cluster.items.reduce((acc, x) => {
+      acc[x.kind] = (acc[x.kind] || 0) + x.weight;
+      return acc;
+    }, {});
+    const kind = (kinds.SUPPORT || 0) >= (kinds.RESISTANCE || 0) ? 'SUPPORT' : 'RESISTANCE';
+    const timeframes = [...new Set(cluster.items.map(x => x.timeframe))];
+    const weightedTouches = cluster.items.reduce((s, x) => s + x.weight, 0);
+    const strength = Math.min(100, Math.round(38 + Math.min(34, weightedTouches * 2.2) + Math.min(20, timeframes.length * 5)));
+    return {
+      id: `SNR-${index + 1}`,
+      kind,
+      low: round(cluster.mid - halfWidth),
+      high: round(cluster.mid + halfWidth),
+      mid: round(cluster.mid),
+      strength,
+      touches: cluster.items.length,
+      timeframes,
+      distance: round(Math.abs(cluster.mid - price))
+    };
+  }).filter(z => z.strength >= 50)
+    .sort((a, b) => a.mid - b.mid);
+}
+
+function barShape(bar = {}) {
+  const open = num(bar.open), high = num(bar.high), low = num(bar.low), close = num(bar.close);
+  if ([open, high, low, close].some(v => v == null)) return null;
+  const range = Math.max(0.01, high - low);
+  const body = Math.abs(close - open);
+  const upper = high - Math.max(open, close);
+  const lower = Math.min(open, close) - low;
+  return {
+    bullish: close > open,
+    bearish: close < open,
+    lowerReject: lower >= Math.max(body * 1.2, range * 0.28),
+    upperReject: upper >= Math.max(body * 1.2, range * 0.28),
+    closePosition: (close - low) / range
+  };
+}
+
+function nearestZones(zones, price) {
+  const support = zones.filter(z => z.mid <= price).sort((a, b) => (price - a.mid) - (price - b.mid))[0] || null;
+  const resistance = zones.filter(z => z.mid >= price).sort((a, b) => (a.mid - price) - (b.mid - price))[0] || null;
+  return { support, resistance };
+}
+
+function nextTargets(zones, entry, side) {
+  const candidates = zones.filter(z => side === 'BUY' ? z.mid > entry : z.mid < entry)
+    .sort((a, b) => Math.abs(a.mid - entry) - Math.abs(b.mid - entry));
+  const out = [];
+  for (const z of candidates) {
+    if (out.some(x => Math.abs(x.level - z.mid) < 25)) continue;
+    out.push({ level: z.mid, label: `${z.kind} ${z.timeframes.join('/')}` });
+    if (out.length === 4) break;
+  }
+  return out;
+}
+
+function lotForRisk(entry, stop, riskUsd) {
+  const distance = Math.abs(Number(entry) - Number(stop));
+  if (!(distance > 0)) return 0;
+  const raw = riskUsd / (distance * CONTRACT_SIZE);
+  const steps = Math.floor((raw + 1e-12) / LOT_STEP);
+  return steps > 0 ? Number((steps * LOT_STEP).toFixed(3)) : 0;
+}
+
+function lotSizing(entry, stop) {
+  const distance = Math.abs(entry - stop);
+  return {
+    recommendedLot: lotForRisk(entry, stop, SAFE_RISK_USD),
+    maxLot: lotForRisk(entry, stop, MAX_RISK_USD),
+    stopDistance: round(distance),
+    safeRiskUsd: SAFE_RISK_USD,
+    maxRiskUsd: MAX_RISK_USD
+  };
+}
+
+function scoreSetup(zone, confirmations) {
+  let score = Math.min(78, Math.max(45, Number(zone?.strength) || 45));
+  if (confirmations.includes('M15_BREAK')) score += 7;
+  if (confirmations.includes('M5_RETEST_HOLD')) score += 8;
+  if (confirmations.includes('M5_REJECTION')) score += 8;
+  if (confirmations.includes('M1_CONFIRM')) score += 7;
+  return Math.min(100, Math.round(score));
+}
+
+function analyze({ M1 = [], M5 = [], M15 = [], H1 = [], H4 = [], D1 = [], ticker = {} }) {
+  const price = num(ticker?.price) ?? num(M1.at(-1)?.close) ?? num(M5.at(-1)?.close);
+  const m15Atr = atr(M15) || atr(H1) || (price ? price * 0.001 : 100);
+  const m5Atr = atr(M5) || Math.max(20, m15Atr * 0.45);
+  const raw = collectRawLevels({ D1, H4, H1, M15 });
+  const zones = price == null ? [] : clusterLevels(raw, price, m15Atr);
+  const nearest = price == null ? { support: null, resistance: null } : nearestZones(zones, price);
+  const base = {
+    symbol: 'BTCUSD',
+    status: 'WAIT',
+    action: 'WAIT',
+    side: null,
+    executable: false,
+    executionMode: 'SIGNALS_ONLY',
+    strategy: 'SNR_CLASSICAL',
+    tradeStyle: 'SNR_ONLY',
+    confidence: 0,
+    price: round(price),
+    entry: null,
+    stopLoss: null,
+    target1: null,
+    target2: null,
+    target3: null,
+    target4: null,
+    targetLabels: [],
+    lotSizing: null,
+    snr: {
+      nearestSupport: nearest.support,
+      nearestResistance: nearest.resistance,
+      zones: zones.slice().sort((a, b) => a.distance - b.distance).slice(0, 12),
+      atrM15: round(m15Atr),
+      atrM5: round(m5Atr)
+    },
+    priceAction: { triggers: [] },
+    updatedAt: new Date().toISOString(),
+    reason: 'SNR WAIT — waiting for support/resistance rejection or breakout-retest confirmation.'
+  };
+  if (price == null || M5.length < 3 || M15.length < 3 || M1.length < 2 || zones.length < 2) return base;
+
+  const m5 = M5.at(-1), m1 = M1.at(-1), m15 = M15.at(-1), prev15 = M15.at(-2);
+  const m5Shape = barShape(m5);
+  const retestTol = Math.max(18, Math.min(120, m5Atr * 0.35));
+  const breakBuf = Math.max(12, Math.min(90, m15Atr * 0.15));
+  const maxZoneDistance = Math.max(120, Math.min(650, m15Atr * 2.2));
+
+  const setups = [];
+  for (const zone of zones) {
+    if (Math.abs(zone.mid - price) > maxZoneDistance && Math.abs(zone.mid - m15.close) > maxZoneDistance) continue;
+
+    const touched = m5.low <= zone.high + retestTol && m5.high >= zone.low - retestTol;
+
+    if (zone.kind === 'SUPPORT' && touched && m5.close > zone.mid && (m5Shape?.bullish || m5Shape?.lowerReject)) {
+      const confirms = ['M5_REJECTION'];
+      if (m1.close >= m1.open && m1.close > zone.mid) confirms.push('M1_CONFIRM');
+      const score = scoreSetup(zone, confirms);
+      setups.push({ side: 'BUY', type: 'SNR_REJECTION', zone, confirms, score, entry: m1.close });
+    }
+    if (zone.kind === 'RESISTANCE' && touched && m5.close < zone.mid && (m5Shape?.bearish || m5Shape?.upperReject)) {
+      const confirms = ['M5_REJECTION'];
+      if (m1.close <= m1.open && m1.close < zone.mid) confirms.push('M1_CONFIRM');
+      const score = scoreSetup(zone, confirms);
+      setups.push({ side: 'SELL', type: 'SNR_REJECTION', zone, confirms, score, entry: m1.close });
+    }
+
+    const brokeUp = prev15.close <= zone.high && m15.close > zone.high + breakBuf;
+    if (zone.kind === 'RESISTANCE' && brokeUp) {
+      const retested = m5.low <= zone.high + retestTol && m5.close > zone.high;
+      if (retested) {
+        const confirms = ['M15_BREAK', 'M5_RETEST_HOLD'];
+        if (m1.close >= m1.open && m1.close > zone.high) confirms.push('M1_CONFIRM');
+        const score = scoreSetup(zone, confirms);
+        setups.push({ side: 'BUY', type: 'SNR_BREAKOUT_RETEST', zone, confirms, score, entry: m1.close });
+      }
+    }
+
+    const brokeDown = prev15.close >= zone.low && m15.close < zone.low - breakBuf;
+    if (zone.kind === 'SUPPORT' && brokeDown) {
+      const retested = m5.high >= zone.low - retestTol && m5.close < zone.low;
+      if (retested) {
+        const confirms = ['M15_BREAK', 'M5_RETEST_HOLD'];
+        if (m1.close <= m1.open && m1.close < zone.low) confirms.push('M1_CONFIRM');
+        const score = scoreSetup(zone, confirms);
+        setups.push({ side: 'SELL', type: 'SNR_BREAKOUT_RETEST', zone, confirms, score, entry: m1.close });
+      }
+    }
+  }
+
+  const chosen = setups.sort((a, b) => b.score - a.score || Math.abs(a.zone.mid - price) - Math.abs(b.zone.mid - price))[0];
+  if (!chosen || chosen.score < MIN_STRENGTH || !chosen.confirms.includes('M1_CONFIRM')) {
+    return {
+      ...base,
+      confidence: chosen?.score || 0,
+      priceAction: { triggers: chosen?.confirms || [] },
+      reason: chosen
+        ? `SNR WATCH — ${chosen.type} at ${chosen.zone.mid} scored ${chosen.score}/100; waiting for full confirmation.`
+        : base.reason
+    };
+  }
+
+  const buffer = Math.max(18, Math.min(140, m5Atr * 0.28));
+  const stop = chosen.side === 'BUY' ? chosen.zone.low - buffer : chosen.zone.high + buffer;
+  const entry = chosen.entry;
+  const risk = Math.abs(entry - stop);
+  if (!(risk > 0)) return base;
+
+  const targets = nextTargets(zones, entry, chosen.side);
+  if (!targets.length) {
+    return { ...base, confidence: chosen.score, reason: 'SNR WAIT — setup confirmed but no opposing S/R target is mapped.' };
+  }
+  const rr1 = Math.abs(targets[0].level - entry) / risk;
+  if (rr1 < 0.9) {
+    return {
+      ...base,
+      confidence: chosen.score,
+      reason: `SNR WAIT — nearest opposing S/R gives only ${rr1.toFixed(2)}R; skip crowded setup.`
+    };
+  }
+
+  const setupId = `BTC-SNR-${chosen.side}-${chosen.type}-${chosen.zone.id}-${m5.t}`;
+  return {
+    ...base,
+    status: 'ACTIVE',
+    action: chosen.side,
+    side: chosen.side,
+    confidence: chosen.score,
+    entry: round(entry),
+    stopLoss: round(stop),
+    target1: targets[0]?.level ?? null,
+    target2: targets[1]?.level ?? null,
+    target3: targets[2]?.level ?? null,
+    target4: targets[3]?.level ?? null,
+    targetLabels: targets.map(x => x.label),
+    riskReward: round(rr1),
+    lotSizing: lotSizing(entry, stop),
+    setupId,
+    snr: {
+      ...base.snr,
+      setupType: chosen.type,
+      activeZone: chosen.zone
+    },
+    priceAction: { triggers: chosen.confirms },
+    reason: `SNR ${chosen.side} — ${chosen.type} at ${chosen.zone.mid} → ${chosen.confirms.join(' + ')}; TP1 is the nearest opposing S/R zone.`
+  };
+}
+
+function reached(side, price, target) {
+  if (!Number.isFinite(Number(target))) return false;
+  return side === 'BUY' ? price >= Number(target) : price <= Number(target);
+}
+
+function lifecycleSignal(candidate, now = Date.now()) {
+  const price = Number(candidate.price);
+  if (lifecycle.signal) {
+    const signal = lifecycle.signal;
+    const stopHit = Number.isFinite(price) && (signal.action === 'BUY' ? price <= signal.stopLoss : price >= signal.stopLoss);
+    if (stopHit) {
+      lifecycle.lastTerminal = { type: 'SL', side: signal.action, price: round(price), at: new Date(now).toISOString(), signalId: signal.signalId };
+      lifecycle.signal = null;
+      lifecycle.cooldownUntil = now + 60000;
+    } else {
+      signal.price = round(price);
+      signal.updatedAt = candidate.updatedAt;
+      signal.targetHits = [signal.target1, signal.target2, signal.target3, signal.target4].map(t => reached(signal.action, price, t));
+      const existing = [signal.target1, signal.target2, signal.target3, signal.target4].filter(Number.isFinite);
+      if (existing.length && signal.targetHits.slice(0, existing.length).every(Boolean)) {
+        lifecycle.lastTerminal = { type: `TP${existing.length}`, side: signal.action, price: round(price), at: new Date(now).toISOString(), signalId: signal.signalId };
+        lifecycle.signal = null;
+        lifecycle.cooldownUntil = now + 60000;
+      } else {
+        return { ...signal, status: 'ACTIVE', lockedTargets: true, terminalEvent: lifecycle.lastTerminal };
+      }
+    }
+  }
+
+  if (now >= lifecycle.cooldownUntil && candidate.status === 'ACTIVE' && candidate.setupId && !lifecycle.seen.has(candidate.setupId)) {
+    lifecycle.seen.add(candidate.setupId);
+    if (lifecycle.seen.size > 200) lifecycle.seen.delete(lifecycle.seen.values().next().value);
+    lifecycle.signal = { ...candidate, signalId: `BTC-SNR-${now}`, issuedAtMs: now, targetHits: [false, false, false, false], lockedTargets: true };
+    return { ...lifecycle.signal, terminalEvent: lifecycle.lastTerminal };
+  }
+
+  return {
+    ...candidate,
+    status: 'WAIT',
+    action: 'WAIT',
+    side: null,
+    entry: null,
+    stopLoss: null,
+    target1: null,
+    target2: null,
+    target3: null,
+    target4: null,
+    signalId: null,
+    terminalEvent: lifecycle.lastTerminal,
+    cooldownRemainingMs: Math.max(0, lifecycle.cooldownUntil - now)
+  };
+}
+
+async function freshCandidate(force = false) {
+  if (!force && cache.value && Date.now() < cache.expiresAt) return cache.value;
+  const [M1, M5, M15, H1, D1, ticker] = await Promise.all([
+    coinbaseCandles(60),
+    coinbaseCandles(300),
+    coinbaseCandles(900),
+    coinbaseCandles(3600),
+    coinbaseCandles(86400),
+    coinbaseTicker()
+  ]);
+  const H4 = aggregate(H1, 4);
+  const value = analyze({ M1, M5, M15, H1, H4, D1, ticker });
+  cache.value = value;
+  cache.expiresAt = Date.now() + CACHE_MS;
+  return value;
+}
+
+export async function getBtcSignal(force = false) {
+  return lifecycleSignal(await freshCandidate(force));
+}
+
+export function analyzeBtcSnr(input) {
+  return analyze(input);
+}

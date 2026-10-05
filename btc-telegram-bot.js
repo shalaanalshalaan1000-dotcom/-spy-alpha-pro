@@ -18,7 +18,8 @@ let lastSentAt = 0;
 let trackedTrade = null;
 
 function validNumber(value) {
-  return (typeof value === 'number' || (typeof value === 'string' && value.trim() !== '')) && Number.isFinite(Number(value)) && Number(value) > 0;
+  return (typeof value === 'number' || (typeof value === 'string' && value.trim() !== ''))
+    && Number.isFinite(Number(value)) && Number(value) > 0;
 }
 
 function n(value, digits = 2) {
@@ -60,20 +61,19 @@ function isConfirmed(signal) {
     signal &&
     signal.status === 'ACTIVE' &&
     ['BUY', 'SELL'].includes(signal.action) &&
-    [signal.entry, signal.stopLoss, signal.target1, signal.target2, signal.target3, signal.target4].every(validNumber)
+    signal.strategy === 'SNR_CLASSICAL' &&
+    [signal.entry, signal.stopLoss, signal.target1].every(validNumber)
   );
 }
 
-function signalKey(signal, now = Date.now()) {
-  const fiveMinuteBucket = Math.floor(now / 300000);
-  return `${signal.action}:${signal.strategy || 'SETUP'}:${fiveMinuteBucket}`;
+function signalKey(signal) {
+  return String(signal.setupId || `${signal.action}:${signal.strategy}:${signal.entry}:${signal.stopLoss}`);
 }
 
 function reached(side, price, target) {
-  const p = Number(price);
-  const t = Number(target);
+  const p = Number(price), t = Number(target);
   if (!Number.isFinite(p) || !Number.isFinite(t)) return false;
-  return side === 'BUY' ? p >= t : side === 'SELL' ? p <= t : false;
+  return side === 'BUY' ? p >= t : p <= t;
 }
 
 function readBtcJournal() {
@@ -101,8 +101,6 @@ function closeBtcJournalTrade(trade, outcome, exitPrice, closedAtMs = Date.now()
   const directionalMove = trade.side === 'BUY' ? Number(exitPrice) - entry : entry - Number(exitPrice);
   const realizedR = risk > 0 ? directionalMove / risk : 0;
   const result = realizedR > 0.05 ? 'WIN' : realizedR >= -0.05 ? 'BREAKEVEN' : 'LOSS';
-  const targets = Array.isArray(trade.targets) ? trade.targets : [];
-  const targetHits = Array.isArray(trade.sentTargets) ? trade.sentTargets : [false,false,false,false];
   const row = {
     status: 'CLOSED',
     asset: 'BTCUSD',
@@ -110,20 +108,14 @@ function closeBtcJournalTrade(trade, outcome, exitPrice, closedAtMs = Date.now()
     setupId: trade.key,
     side: trade.side,
     action: trade.side,
-    strategy: trade.strategy || 'LAURA_CLASSICAL_PRICE_ACTION',
+    strategy: 'SNR_CLASSICAL',
     confidence: Number(trade.confidence) || 0,
-    signalConfidence: Number(trade.confidence) || 0,
     entry,
-    triggerPrice: entry,
     originalStopLoss,
     stopLoss: Number(trade.stopLoss),
-    target1: Number(targets[0]),
-    target2: Number(targets[1]),
-    target3: Number(targets[2]),
-    target4: Number(targets[3]),
-    targetHits,
+    targets: trade.targets,
+    targetHits: trade.sentTargets,
     managementStage: Number(trade.managementStage) || 0,
-    bestPrice: Number.isFinite(Number(trade.bestPrice)) ? Number(trade.bestPrice) : entry,
     outcome,
     result,
     exitPrice: Number(exitPrice),
@@ -141,10 +133,12 @@ function closeBtcJournalTrade(trade, outcome, exitPrice, closedAtMs = Date.now()
 }
 
 function startTracking(signal, key, announcedAtMs = Date.now()) {
+  const rawTargets = [signal.target1, signal.target2, signal.target3, signal.target4];
+  const targets = rawTargets.filter(validNumber).map(Number);
   trackedTrade = {
     key,
     side: signal.action,
-    strategy: signal.strategy || 'LAURA_CLASSICAL_PRICE_ACTION',
+    strategy: 'SNR_CLASSICAL',
     confidence: Number(signal.confidence) || 0,
     announcedAtMs,
     entry: Number(signal.entry),
@@ -152,75 +146,53 @@ function startTracking(signal, key, announcedAtMs = Date.now()) {
     stopLoss: Number(signal.stopLoss),
     bestPrice: Number(signal.entry),
     managementStage: 0,
-    targets: [signal.target1, signal.target2, signal.target3, signal.target4].map(Number),
-    sentTargets: [false, false, false, false]
+    targets,
+    sentTargets: targets.map(() => false)
   };
 }
 
 function tpHitMessage(index, target, livePrice, newStop = null) {
-  return `✅ BTCUSD — TP${index + 1} HIT / تم ضرب الهدف ${index + 1}\n` +
-    `🎯 TP${index + 1}: ${n(target)}\n` +
-    `💵 BTC: ${n(livePrice)}\n` +
-    (validNumber(newStop) ? `🔒 ارفع وقف الخسارة إلى: ${n(newStop)}` : '');
+  return `✅ BTCUSD — TP${index + 1} HIT / تم ضرب الهدف ${index + 1}\n`
+    + `🎯 TP${index + 1}: ${n(target)}\n`
+    + `💵 BTC: ${n(livePrice)}\n`
+    + (validNumber(newStop) ? `🔒 ارفع وقف الخسارة إلى: ${n(newStop)}` : '');
 }
 
 function stopHitMessage(trade) {
   const managed = Number(trade.managementStage || 0) > 0;
-  return `${managed ? '🟢 BTCUSD — MANAGED STOP / وقف حماية' : '🔴 BTCUSD — SL HIT / تم ضرب وقف الخسارة'}\n` +
-    `الاتجاه: ${trade.side}\n📍 الدخول: ${n(trade.entry)}\n` +
-    `🛑 SL الحالي: ${n(trade.stopLoss)}${managed ? ` • بعد TP${trade.managementStage}` : ''}\n💵 BTC عند الرصد: ${n(trade.stopHitPrice)}\n` +
-    (managed ? 'انتهت الصفقة على وقف مُدار بعد تحقيق هدف سابق.' : 'انتهت متابعة الصفقة — لا تُحتسب أهداف لاحقة لها.');
+  return `${managed ? '🟢 BTCUSD — MANAGED STOP / وقف حماية' : '🔴 BTCUSD — SL HIT / تم ضرب وقف الخسارة'}\n`
+    + `الاتجاه: ${trade.side}\n📍 الدخول: ${n(trade.entry)}\n`
+    + `🛑 SL الحالي: ${n(trade.stopLoss)}${managed ? ` • بعد TP${trade.managementStage}` : ''}\n💵 BTC عند الرصد: ${n(trade.stopHitPrice)}\n`
+    + (managed ? 'انتهت الصفقة على وقف مُدار بعد تحقيق هدف سابق.' : 'انتهت متابعة الصفقة — لا تُحتسب أهداف لاحقة لها.');
 }
 
 async function sendTrackedTargetHits(signal, send = telegram) {
   if (!trackedTrade) return;
   const livePrice = Number(signal?.price);
-  if (Number.isFinite(livePrice)) {
-    trackedTrade.bestPrice = trackedTrade.side === 'BUY'
-      ? Math.max(Number(trackedTrade.bestPrice) || trackedTrade.entry, livePrice)
-      : Math.min(Number(trackedTrade.bestPrice) || trackedTrade.entry, livePrice);
-  }
-  // Latch the stop before delivery: a failed notification must never allow later TPs.
-  if (!trackedTrade.stopHitPrice && validNumber(signal?.price) &&
-      (trackedTrade.side === 'BUY' ? livePrice <= trackedTrade.stopLoss : livePrice >= trackedTrade.stopLoss)) {
+  if (!trackedTrade.stopHitPrice && validNumber(signal?.price)
+      && (trackedTrade.side === 'BUY' ? livePrice <= trackedTrade.stopLoss : livePrice >= trackedTrade.stopLoss)) {
     trackedTrade.stopHitPrice = livePrice;
   }
   if (trackedTrade.stopHitPrice) {
-    await send('sendMessage', {
-      chat_id: CHAT_ID,
-      text: stopHitMessage(trackedTrade),
-      disable_web_page_preview: true
-    });
-    console.log(`[btc-telegram] SL hit key=${trackedTrade.key} stop=${n(trackedTrade.stopLoss)} live=${n(trackedTrade.stopHitPrice)}`);
-    closeBtcJournalTrade(
-      trackedTrade,
-      Number(trackedTrade.managementStage || 0) > 0 ? 'MANAGED_STOP' : 'SL',
-      Number(trackedTrade.stopLoss),
-      Date.now()
-    );
+    await send('sendMessage', { chat_id: CHAT_ID, text: stopHitMessage(trackedTrade), disable_web_page_preview: true });
+    closeBtcJournalTrade(trackedTrade, trackedTrade.managementStage > 0 ? 'MANAGED_STOP' : 'SL', trackedTrade.stopLoss);
     trackedTrade = null;
     return;
   }
   if (!validNumber(signal?.price)) return;
 
-  for (let i = 0; i < trackedTrade.targets.length; i++) {
+  for (let i = 0; i < trackedTrade.targets.length; i += 1) {
     const target = trackedTrade.targets[i];
     if (!trackedTrade.sentTargets[i] && reached(trackedTrade.side, livePrice, target)) {
       trackedTrade.sentTargets[i] = true;
       trackedTrade.managementStage = Math.max(trackedTrade.managementStage || 0, i + 1);
       trackedTrade.stopLoss = Number(target);
-      await send('sendMessage', {
-        chat_id: CHAT_ID,
-        text: tpHitMessage(i, target, livePrice, trackedTrade.stopLoss),
-        disable_web_page_preview: true
-      });
-      console.log(`[btc-telegram] TP${i + 1} hit key=${trackedTrade.key} target=${n(target)} live=${n(livePrice)} managedSL=${n(trackedTrade.stopLoss)}`);
+      await send('sendMessage', { chat_id: CHAT_ID, text: tpHitMessage(i, target, livePrice, trackedTrade.stopLoss), disable_web_page_preview: true });
     }
   }
 
-  if (trackedTrade.sentTargets.every(Boolean)) {
-    console.log(`[btc-telegram] all targets completed key=${trackedTrade.key}`);
-    closeBtcJournalTrade(trackedTrade, 'TP4', trackedTrade.targets[3], Date.now());
+  if (trackedTrade.targets.length && trackedTrade.sentTargets.every(Boolean)) {
+    closeBtcJournalTrade(trackedTrade, `TP${trackedTrade.targets.length}`, trackedTrade.targets.at(-1));
     trackedTrade = null;
   }
 }
@@ -241,42 +213,38 @@ async function telegram(method, body) {
 
 function message(signal) {
   const icon = signal.action === 'BUY' ? '🟢' : '🔴';
-  const strategy = signal.strategy || 'LAURA_CLASSICAL_PRICE_ACTION';
-  const pa = signal.priceAction || {};
-  const laura = signal.laura || {};
-  const reads = laura.reads || {};
-  const targets = Array.isArray(signal.targetLabels) ? signal.targetLabels : [];
-  const triggers = Array.isArray(pa.triggers) && pa.triggers.length
-    ? pa.triggers.join(' + ')
-    : 'M15 decisive break → M5 retest/hold → M1 timing';
+  const snr = signal.snr || {};
+  const labels = Array.isArray(signal.targetLabels) ? signal.targetLabels : [];
+  const triggers = Array.isArray(signal.priceAction?.triggers) ? signal.priceAction.triggers.join(' + ') : '—';
   const stamp = new Intl.DateTimeFormat('ar-SA', {
     timeZone: 'Asia/Riyadh', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
   }).format(new Date());
-
   const sizing = lotSizingLines(signal.entry, signal.stopLoss);
-  return `${icon} 🟣 BTCUSD — LAURA ONLY ${signal.action}\n` +
-    `🧠 Strategy: ${strategy}\n` +
-    `📊 Laura strength: ${Math.round(Number(signal.confidence) || 0)}/100${Number(signal.confidence)>=70?' • EXCELLENT':''}\n` +
-    `🧭 MN1 ${reads.MN1?.side || '—'} • W1 ${reads.W1?.side || '—'} • D1 ${reads.D1?.side || '—'}\n` +
-    `🏗️ H4 ${reads.H4?.side || '—'} • H1 ${reads.H1?.side || '—'} • M15 ${reads.M15?.side || '—'}\n` +
-    `⚡ Laura confirmation: ${triggers}\n` +
-    `🟣 Laura bias: ${laura.outlook?.bias || 'NEUTRAL'} • ${laura.outlook?.strength || 'LOW'}\n` +
-    `💵 Price: ${n(signal.price)}\n` +
-    `📍 Entry: ${n(signal.entry)}\n` +
-    `🛑 SL: ${n(signal.stopLoss)}\n` +
-    `🎯 TP1: ${n(signal.target1)} • ${targets[0] || 'Laura S/R'}\n` +
-    `🎯 TP2: ${n(signal.target2)} • ${targets[1] || 'Laura S/R'}\n` +
-    `🎯 TP3: ${n(signal.target3)} • ${targets[2] || 'Laura extension'}\n` +
-    `🎯 TP4: ${n(signal.target4)} • ${targets[3] || 'Laura extension'}\n\n` +
-    `${sizing.join('\\n')}\n` +
-    `⏱️ Laura only: MN1/W1/D1 → H4/H1 structure → M15 decisive break → M5 retest/hold → M1 timing\n` +
-    `🕒 ${stamp} بتوقيت السعودية\n` +
-    `⚪ إشارات فقط — لا تداول آلي`;
+  const targetLines = [signal.target1, signal.target2, signal.target3, signal.target4]
+    .map((target, i) => validNumber(target) ? `🎯 TP${i + 1}: ${n(target)} • ${labels[i] || 'S/R zone'}` : null)
+    .filter(Boolean)
+    .join('\n');
+
+  return `${icon} 🟣 BTCUSD — SNR ONLY ${signal.action}\n`
+    + `🧠 Strategy: SNR_CLASSICAL\n`
+    + `📊 Setup strength: ${Math.round(Number(signal.confidence) || 0)}/100\n`
+    + `🧱 Setup: ${snr.setupType || 'SNR'}\n`
+    + `🟢 Support: ${n(snr.nearestSupport?.mid)}\n`
+    + `🔴 Resistance: ${n(snr.nearestResistance?.mid)}\n`
+    + `⚡ Confirmation: ${triggers || '—'}\n`
+    + `💵 Price: ${n(signal.price)}\n`
+    + `📍 Entry: ${n(signal.entry)}\n`
+    + `🛑 SL: ${n(signal.stopLoss)}\n`
+    + `${targetLines}\n\n`
+    + `${sizing.join('\n')}\n`
+    + `⏱️ SNR only: support/resistance zone → rejection OR breakout/retest → M1 confirmation\n`
+    + `🕒 ${stamp} بتوقيت السعودية\n`
+    + `⚪ إشارات فقط — لا تداول آلي`;
 }
 
 async function fetchSignal() {
   const response = await fetch(SIGNAL_URL, {
-    headers: { accept: 'application/json', 'user-agent': 'Gold-Alpha-BTC-Telegram/1.0' },
+    headers: { accept: 'application/json', 'user-agent': 'Gold-Alpha-BTC-Telegram-SNR/1.0' },
     cache: 'no-store',
     signal: AbortSignal.timeout(8000)
   });
@@ -286,14 +254,9 @@ async function fetchSignal() {
 
 async function tick() {
   const signal = await fetchSignal();
-
-  // Target lifecycle is independent from whether the signal endpoint still reports ACTIVE.
-  // Once announced, watch until the stop or all four targets are reached.
   await sendTrackedTargetHits(signal);
-
   const active = isConfirmed(signal);
 
-  // Prime from the live state after a deploy so an already-existing signal is not resent.
   if (!primed) {
     primed = true;
     previousActive = active;
@@ -306,27 +269,22 @@ async function tick() {
     return;
   }
 
-  // Send only on a fresh WAIT -> ACTIVE transition. The bucket key prevents rapid flicker duplicates.
   if (!previousActive) {
     const now = Date.now();
-    const key = signalKey(signal, now);
+    const key = signalKey(signal);
     if (key !== lastSentKey || now - lastSentAt > 300000) {
-      await telegram('sendMessage', {
-        chat_id: CHAT_ID,
-        text: message(signal),
-        disable_web_page_preview: true
-      });
+      await telegram('sendMessage', { chat_id: CHAT_ID, text: message(signal), disable_web_page_preview: true });
       lastSentKey = key;
       lastSentAt = now;
       startTracking(signal, key, now);
-      console.log(`[btc-telegram] sent+tracking ${signal.action} ${signal.confidence}% strategy=${signal.strategy || 'SETUP'} key=${key}`);
+      console.log(`[btc-telegram] sent+tracking ${signal.action} ${signal.confidence}% strategy=SNR_CLASSICAL key=${key}`);
     }
   }
 
   previousActive = true;
 }
 
-console.log(`[btc-telegram] ${BOT_TOKEN && CHAT_ID ? 'enabled' : 'disabled: token/chat id missing'}; source=${SIGNAL_URL}; mode=laura-only`);
+console.log(`[btc-telegram] ${BOT_TOKEN && CHAT_ID ? 'enabled' : 'disabled: token/chat id missing'}; source=${SIGNAL_URL}; mode=snr-only`);
 
 if (process.env.NODE_ENV !== 'test' && BOT_TOKEN && CHAT_ID) {
   (async function loop() {
