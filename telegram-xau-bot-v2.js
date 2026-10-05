@@ -314,6 +314,19 @@ function sessionReversalSetupMessage(x,side,bar,st,rows=[],now=Date.now()){
   const targetLines=sessionTargetLines(targets,expected);
   return `${buy?'🟢':'🔴'} XAUUSD — ${x.label||x.id} FALSE-BREAK REVERSAL SETUP\n✅ ${expected} confirmed: external liquidity sweep → M5 MSS → retest/hold\n📍 Swept level: ${n(st.level)}\n🧭 MSS trigger: ${n(st.reversalTrigger)}\n💵 Entry reference: ${n(entry)}\n🛑 Structural SL: ${n(sl)}\n📏 مسافة الوقف: ${risk.toFixed(2)} USD\n${targetLines.join('\n')}\n🧠 Execution gate ثابت: External Liquidity Sweep → M5 MSS → Retest/Hold → Entry.\n🧩 OB / FVG / iFVG / BOS + model alignment = confluence only; لا تفتح الصفقة وحدها ولا تمنعها.\n🧱 BUY يستهدف BSL وSELL يستهدف SSL. TP1 = الأقرب؛ TP2 = الهدف الاستراتيجي التالي؛ Runner = سيولة خارجية أبعد عند توفرها.\n🧱 SL خلف sweep extreme / retest structure، وليس رقمًا ثابتًا عند لحظة الكسر.`;
 }
+function sessionExecutionWatchMessage(x,side,bar,st,mode='REVERSAL'){
+  const reversal=mode==='REVERSAL',expected=reversal?(side==='LOW'?'BUY':'SELL'):(side==='HIGH'?'BUY':'SELL');
+  const level=Number(st?.level);
+  const trigger=Number(st?.reversalTrigger);
+  const sequence=reversal?'external liquidity sweep → M5 MSS → retest/hold':'external liquidity event → M5 continuation confirmation';
+  return `🟡 XAUUSD — ${x.label||x.id} ICT SESSION SETUP COMPLETE
+✅ ${expected} context complete: ${sequence}
+📍 External level: ${n(level)}
+${reversal?`🧭 MSS trigger: ${n(trigger)}\n`:''}🕯️ M5 close: ${n(bar?.close)}
+⏳ WAIT FOR AUTHORITATIVE SITE SIGNAL
+🚫 هذا تنبيه جلسة فقط، وليس صفقة دخول مستقلة.
+🔒 Entry / SL / Targets تُعتمد فقط من /api/auto-trade/signal عندما تكون الحالة ACTIVE أو MANAGING وبـ signalId واحد.`;
+}
 async function maybeSendSessionLevelAlerts(s,now=Date.now()){
   if(!SESSION_LEVEL_ALERTS_ENABLED)return;
   const rows=sessionLevelsOf(s),m15=sessionCandle(s,'lastClosedM15'),m5=sessionCandle(s,'lastClosedM5');
@@ -404,7 +417,7 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
             st.reversalConfidence=conf;
             st.reversalModelSide=modelSide;
             st.reversalModelAligned=modelSide===expected&&conf>=minConf;
-            await send(sessionReversalSetupMessage(x,side,m5,st,rows,now));
+            await send(sessionExecutionWatchMessage(x,side,m5,st,'REVERSAL'));
             st.reversalSent=true;st.retestSent=true;st.reversalRetestBarT=m5.t;sessionBreakState.set(key,st);
             console.log(`[telegram-session-level] reversal setup ${key} side=${expected} entry=${n(m5.close)} advisory=${modelSide||'WAIT'}/${Math.round(conf)}`);
           }
@@ -422,7 +435,7 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
           st.continuationModelSide=modelSide;
           st.continuationModelAligned=advisoryAligned;
           st.continuationMode=momentumAccepted&&!retestTouch?'MOMENTUM_ACCEPTANCE':'RETEST';
-          await send(sessionRetestMessage(x,side,m5,st,rows,now));
+          await send(sessionExecutionWatchMessage(x,side,m5,st,'CONTINUATION'));
           st.retestSent=true;st.retestBarT=m5.t;sessionBreakState.set(key,st);
           console.log(`[telegram-session-level] M5 continuation ${key} mode=${st.continuationMode} side=${expected} advisory=${modelSide||'WAIT'}/${Math.round(conf)} entry=${n(m5.close)}`);
         }else if(failed){
@@ -842,4 +855,4 @@ if(process.env.NODE_ENV!=='test'){
   (async function commands(){await botCommandLoop();})();
 }
 
-export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate,sessionIctContinuationGate,sessionMomentumArm,sessionMomentumAcceptance,lauraEntryMessage};
+export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate,sessionIctContinuationGate,sessionMomentumArm,sessionMomentumAcceptance,sessionExecutionWatchMessage,lauraEntryMessage};
