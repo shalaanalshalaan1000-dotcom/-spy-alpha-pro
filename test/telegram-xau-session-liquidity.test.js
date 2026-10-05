@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 process.env.NODE_ENV='test';
 process.env.TELEGRAM_FRIDAY_PRIMARY_MAX_DISTANCE_USD='25';
 
-const {sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate,sessionIctContinuationGate,sessionMomentumArm,sessionMomentumAcceptance}=await import('../telegram-xau-bot-v2.js');
+const {sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate,sessionIctContinuationGate,sessionMomentumArm,sessionMomentumAcceptance,sessionExecutionWatchMessage}=await import('../telegram-xau-bot-v2.js');
 
 const friday=Date.parse('2026-10-02T18:00:00Z');
 const thursday=Date.parse('2026-10-01T18:00:00Z');
@@ -135,4 +135,33 @@ test('gold session lookback preserves Friday levels through a normal weekend',as
   const src=fs.readFileSync(new URL('../gold-site-signal-engine-v9.js',import.meta.url),'utf8');
   assert.match(src,/session15Bars\(now=Date\.now\(\)\)\{const cutoff=now-96\*60\*60_000/);
   assert.match(src,/const cutoff=Date\.now\(\)-96\*60\*60_000/);
+});
+
+
+test('session completion alert cannot masquerade as an authoritative trade entry',()=>{
+  const msg=sessionExecutionWatchMessage(
+    {id:'TOKYO',label:'TOKYO',status:'CLOSED'},
+    'HIGH',
+    {open:4141,high:4142,low:4138,close:4139.31},
+    {level:4163.375,reversalTrigger:4156.420},
+    'REVERSAL'
+  );
+  assert.match(msg,/WAIT FOR AUTHORITATIVE SITE SIGNAL/);
+  assert.match(msg,/تنبيه جلسة فقط، وليس صفقة دخول مستقلة/);
+  assert.match(msg,/ACTIVE أو MANAGING/);
+  assert.doesNotMatch(msg,/Entry reference|Structural SL|TP1 —|TP2 —/);
+});
+
+test('session alert loop no longer sends independent trade plans',async()=>{
+  const fs=await import('node:fs');
+  const src=fs.readFileSync(new URL('../telegram-xau-bot-v2.js',import.meta.url),'utf8');
+  assert.doesNotMatch(src,/await send\(sessionReversalSetupMessage\(/);
+  assert.doesNotMatch(src,/await send\(sessionRetestMessage\(/);
+  assert.match(src,/await send\(sessionExecutionWatchMessage\(/);
+});
+
+test('active site signal never shows a pre-entry blocker',async()=>{
+  const fs=await import('node:fs');
+  const src=fs.readFileSync(new URL('../gold-site-ui-start.js',import.meta.url),'utf8');
+  assert.match(src,/const blocker=active\?'لا يوجد مانع — الصفقة مفعلة/);
 });
