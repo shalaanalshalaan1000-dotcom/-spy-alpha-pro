@@ -308,6 +308,27 @@ for (const [from, to] of replacements) {
   source=source.replace("const BUILD='site-signal-noai-v66-stop-advisory-only';","const BUILD='site-signal-noai-v67-laura-context';");
 }
 
+
+{
+  // Preserve the existing ICT candidate/confidence contract. Only relax the literal entry-zone
+  // touch when closed M5 candles prove acceptance beyond a CLOSED external session level:
+  // decisive break close -> next M5 no-reclaim directional hold.
+  const maybeCreateAnchor="function maybeCreate(m,q,now){\n refreshDailyQuota(now);";
+  if(!source.includes(maybeCreateAnchor))throw new Error('momentum-acceptance patch: maybeCreate anchor missing');
+  const helper="function sessionContinuationMomentumAccepted(side,now=Date.now()){if(!['BUY','SELL'].includes(side))return false;const rows=Object.values(goldSessionLevels(now)?.sessions||{}).filter(x=>String(x?.status||'').toUpperCase()==='CLOSED');const bars=completedTimeframeBars(300000,now).slice(-6);if(!rows.length||bars.length<3)return false;for(const row of rows){const level=n(side==='BUY'?row?.high:row?.low);if(level==null)continue;for(let i=Math.max(1,bars.length-3);i<bars.length-1;i++){const prev=bars[i-1],first=bars[i],second=bars[i+1];if(!prev||!first||!second||second.t!==bars.at(-1).t)continue;const crossed=side==='BUY'?prev.close<=level+.10&&first.close>level+.25:prev.close>=level-.10&&first.close<level-.25;const firstDirectional=side==='BUY'?first.close>=first.open:first.close<=first.open;const noReclaim=side==='BUY'?second.low>level:second.high<level;const held=side==='BUY'?second.close>level:second.close<level;const secondDirectional=side==='BUY'?second.close>=second.open:second.close<=second.open;if(crossed&&firstDirectional&&noReclaim&&held&&secondDirectional)return{id:row.id,date:row.date,level,firstT:first.t,holdT:second.t};}}return false;}\n";
+  source=source.replace(maybeCreateAnchor,helper+maybeCreateAnchor);
+
+  const rangeGate="if(!inRange(p,lo,hi)){state.lastEntryGuard={atMs:now,reason:'WAITING_ENTRY_RANGE',side,price:round(p,3),entryLow:round(lo,3),entryHigh:round(hi,3),candidateLocked:Boolean(m.candidateLocked),entryMode:m?.ict?.entryMode||null};return;}";
+  if(!source.includes(rangeGate))throw new Error('momentum-acceptance patch: entry-range guard missing');
+  source=source.replace(rangeGate,"const momentumAcceptance=sessionContinuationMomentumAccepted(side,now);const momentumAccepted=Boolean(momentumAcceptance);if(!inRange(p,lo,hi)&&!momentumAccepted){state.lastEntryGuard={atMs:now,reason:'WAITING_ENTRY_RANGE',side,price:round(p,3),entryLow:round(lo,3),entryHigh:round(hi,3),candidateLocked:Boolean(m.candidateLocked),entryMode:m?.ict?.entryMode||null,momentumAcceptance:'WAITING'};return;}");
+
+  const payloadAnchor="confidence:Number(m.confidence)||0,signalConfidence:Number(m.confidence)||0,entry:p,entryLow:lo,entryHigh:hi,";
+  if(!source.includes(payloadAnchor))throw new Error('momentum-acceptance patch: signal payload anchor missing');
+  source=source.replace(payloadAnchor,"confidence:Number(m.confidence)||0,signalConfidence:Number(m.confidence)||0,entryConfirmation:momentumAccepted?'M5_MOMENTUM_ACCEPTANCE':'ENTRY_RANGE_TOUCH',momentumAcceptance:momentumAcceptance||null,entry:p,entryLow:lo,entryHigh:hi,");
+
+  source=source.replace("const BUILD='site-signal-noai-v67-laura-context';","const BUILD='site-signal-noai-v68-m5-momentum-acceptance';");
+}
+
 // marketClock runs for every retained M15 bar. Reuse its native formatter.
 {
   const allocation="new Intl.DateTimeFormat('en-GB',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',weekday:'short',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(new Date(ms))";

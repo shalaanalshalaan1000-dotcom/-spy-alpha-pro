@@ -198,8 +198,27 @@ function sessionIctReversalGate({phase,structureShift=false,retestTouch=false,he
   if(phase==='RETEST')return Boolean(retestTouch&&held);
   return false;
 }
-function sessionIctContinuationGate({retestTouch=false,held=false}={}){
-  return Boolean(retestTouch&&held);
+function sessionIctContinuationGate({retestTouch=false,held=false,momentumAccepted=false}={}){
+  return Boolean((retestTouch&&held)||momentumAccepted);
+}
+function sessionMomentumArm({side,level,bar}={}){
+  const buy=side==='BUY',sell=side==='SELL',px=Number(level);
+  if((!buy&&!sell)||!Number.isFinite(px)||!bar)return false;
+  const open=Number(bar.open),close=Number(bar.close);
+  if(!Number.isFinite(open)||!Number.isFinite(close))return false;
+  const decisive=buy?close>px+SESSION_DECISIVE_CLOSE_USD:close<px-SESSION_DECISIVE_CLOSE_USD;
+  const directional=buy?close>=open:close<=open;
+  return Boolean(decisive&&directional);
+}
+function sessionMomentumAcceptance({side,level,bar,armedAt=0}={}){
+  const buy=side==='BUY',sell=side==='SELL',px=Number(level);
+  if((!buy&&!sell)||!Number.isFinite(px)||!bar||Number(bar.t)<=Number(armedAt||0))return false;
+  const open=Number(bar.open),high=Number(bar.high),low=Number(bar.low),close=Number(bar.close);
+  if(![open,high,low,close].every(Number.isFinite))return false;
+  const held=buy?close>px:close<px;
+  const noReclaim=buy?low>px:high<px;
+  const directional=buy?close>=open:close<=open;
+  return Boolean(held&&noReclaim&&directional);
 }
 function sessionLevelSummaryMessage(s){
   const rows=sessionLevelsOf(s);
@@ -212,7 +231,7 @@ function sessionFinalMessage(x){
 }
 function sessionBreakMessage(x,side,bar){
   const high=side==='HIGH',level=Number(high?x.high:x.low),distance=Math.abs(Number(bar.close)-level);
-  return `${high?'🚨⬆️':'🚨⬇️'} XAUUSD — ${x.label||x.id} DECISIVE LEVEL BREAK — NO ENTRY YET\n✅ M15 أغلق ${high?'فوق القمة':'تحت القاع'} بإغلاق واضح عند سيولة خارجية\n📍 المستوى: ${n(level)}\n🕯️ M15 close: ${n(bar.close)} • مسافة الإغلاق: ${distance.toFixed(2)}\n🧭 ICT context: decisive close distance ≥ ${SESSION_DECISIVE_CLOSE_USD.toFixed(2)}\n⏳ ننتظر M5 retest + hold قبل الدخول.\n🧩 Model / OB / FVG / iFVG / BOS عوامل دعم فقط ولا تمنع الإشارة إذا اكتملت بوابة التنفيذ.\n🚫 لا دخول ولا SL لمجرد الكسر.`;
+  return `${high?'🚨⬆️':'🚨⬇️'} XAUUSD — ${x.label||x.id} DECISIVE LEVEL BREAK — NO ENTRY YET\n✅ M15 أغلق ${high?'فوق القمة':'تحت القاع'} بإغلاق واضح عند سيولة خارجية\n📍 المستوى: ${n(level)}\n🕯️ M15 close: ${n(bar.close)} • مسافة الإغلاق: ${distance.toFixed(2)}\n🧭 ICT context: decisive close distance ≥ ${SESSION_DECISIVE_CLOSE_USD.toFixed(2)}\n⏳ ننتظر M5 retest/hold، أو decisive M5 close ثم شمعة M5 لاحقة تثبت no-reclaim hold.\n🧩 Model / OB / FVG / iFVG / BOS عوامل دعم فقط ولا تمنع الإشارة إذا اكتملت بوابة التنفيذ.\n🚫 لا دخول ولا SL لمجرد الكسر.`;
 }
 function sessionSweepMessage(x,side,bar){
   const high=side==='HIGH',level=Number(high?x.high:x.low),distance=Math.abs(Number(bar.close)-level),reversal=high?'SELL':'BUY';
@@ -226,7 +245,11 @@ function sessionRetestMessage(x,side,bar,st,rows=[],now=Date.now()){
   const zoneHi=level+SESSION_RETEST_TOLERANCE_USD;
   const targets=sessionTradeTargets(rows,tradeSide,entry,now);
   const targetLines=sessionTargetLines(targets,tradeSide);
-  return `${buy?'🟢':'🔴'} XAUUSD — ${x.label||x.id} RETEST CONFIRMED\n✅ ${tradeSide} continuation: external level event → M5 retest/hold\n📍 المستوى المكسور: ${n(level)}\n🎯 منطقة إعادة الاختبار: ${n(zoneLo)} – ${n(zoneHi)}\n💵 Entry reference: ${n(entry)}\n🛑 SL: ${n(sl)}\n📏 مسافة الوقف: ${risk.toFixed(2)}\n${targetLines.join('\n')}\n📊 Advisory model: ${st.continuationModelSide||'WAIT'} • confidence ${Math.round(Number(st.continuationConfidence)||0)}% • ${st.continuationModelAligned?'aligned':'not gating'}\n🧠 Execution gate: external level event + M5 retest/hold.\n🧩 OB / FVG / iFVG / BOS + model alignment = confluence only; لا تفتح الصفقة وحدها ولا تمنعها.\n🧱 الوقف خلف ${buy?'قاع':'قمة'} شمعة إعادة الاختبار M5 + buffer\n⚠️ إذا تحرك السعر بعيدًا عن منطقة الـretest، لا تطارد الدخول.`;
+  const momentum=st.continuationMode==='MOMENTUM_ACCEPTANCE';
+  const title=momentum?'MOMENTUM ACCEPTANCE CONFIRMED':'RETEST CONFIRMED';
+  const sequence=momentum?'external level event → decisive M5 close → next M5 no-reclaim hold':'external level event → M5 retest/hold';
+  const gate=momentum?'external level event + decisive M5 close + next M5 no-reclaim hold':'external level event + M5 retest/hold';
+  return `${buy?'🟢':'🔴'} XAUUSD — ${x.label||x.id} ${title}\n✅ ${tradeSide} continuation: ${sequence}\n📍 المستوى المكسور: ${n(level)}\n🎯 منطقة إعادة الاختبار المرجعية: ${n(zoneLo)} – ${n(zoneHi)}\n💵 Entry reference: ${n(entry)}\n🛑 SL: ${n(sl)}\n📏 مسافة الوقف: ${risk.toFixed(2)}\n${targetLines.join('\n')}\n📊 Advisory model: ${st.continuationModelSide||'WAIT'} • confidence ${Math.round(Number(st.continuationConfidence)||0)}% • ${st.continuationModelAligned?'aligned':'not gating'}\n🧠 Execution gate: ${gate}.\n🧩 OB / FVG / iFVG / BOS + model alignment = confluence only; لا تفتح الصفقة وحدها ولا تمنعها.\n🧱 الوقف خلف ${buy?'قاع':'قمة'} شمعة تأكيد M5 + buffer\n⚠️ لا تطارد الدخول إذا ابتعد السعر بعد شمعة التأكيد.`;
 }
 function sessionFailedBreakMessage(x,side,bar,st){
   const failedHighBreak=side==='HIGH',reversal=failedHighBreak?'SELL':'BUY';
@@ -393,13 +416,15 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
         const failed=continuationBuy?m5.close<level-SESSION_BREAK_BUFFER_USD:m5.close>level+SESSION_BREAK_BUFFER_USD;
         const expected=continuationBuy?'BUY':'SELL',modelSide=sessionModelSide(s),conf=confidenceOf(s),minConf=Math.max(75,Number(process.env.GOLD_TELEGRAM_MIN_CONFIDENCE||process.env.TELEGRAM_MIN_CONFIDENCE||75));
         const advisoryAligned=modelSide===expected&&conf>=minConf;
-        if(sessionIctContinuationGate({retestTouch,held})){
+        const momentumAccepted=Boolean(st.momentumAcceptanceArmed&&sessionMomentumAcceptance({side:expected,level,bar:m5,armedAt:st.momentumAcceptanceBarT}));
+        if(sessionIctContinuationGate({retestTouch,held,momentumAccepted})){
           st.continuationConfidence=conf;
           st.continuationModelSide=modelSide;
           st.continuationModelAligned=advisoryAligned;
+          st.continuationMode=momentumAccepted&&!retestTouch?'MOMENTUM_ACCEPTANCE':'RETEST';
           await send(sessionRetestMessage(x,side,m5,st,rows,now));
           st.retestSent=true;st.retestBarT=m5.t;sessionBreakState.set(key,st);
-          console.log(`[telegram-session-level] M5 retest ${key} side=${expected} advisory=${modelSide||'WAIT'}/${Math.round(conf)} entry=${n(m5.close)}`);
+          console.log(`[telegram-session-level] M5 continuation ${key} mode=${st.continuationMode} side=${expected} advisory=${modelSide||'WAIT'}/${Math.round(conf)} entry=${n(m5.close)}`);
         }else if(failed){
           st.failed=true;
           st.failedBarT=m5.t;
@@ -410,6 +435,12 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
           sessionBreakState.set(key,st);
           await send(sessionFailedBreakMessage(x,side,m5,st));
           console.log(`[telegram-session-level] false break / reversal watch ${key} close=${n(m5.close)}`);
+        }else if(!st.momentumAcceptanceArmed&&!retestTouch&&sessionMomentumArm({side:expected,level,bar:m5})){
+          st.momentumAcceptanceArmed=true;
+          st.momentumAcceptanceBarT=m5.t;
+          st.momentumAcceptanceClose=m5.close;
+          sessionBreakState.set(key,st);
+          console.log(`[telegram-session-level] M5 momentum acceptance armed ${key} side=${expected} close=${n(m5.close)}; waiting next M5 no-reclaim hold`);
         }
       }
     }
@@ -811,4 +842,4 @@ if(process.env.NODE_ENV!=='test'){
   (async function commands(){await botCommandLoop();})();
 }
 
-export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate,sessionIctContinuationGate,lauraEntryMessage};
+export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate,sessionIctContinuationGate,sessionMomentumArm,sessionMomentumAcceptance,lauraEntryMessage};
