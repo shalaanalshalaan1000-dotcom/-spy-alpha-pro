@@ -8,7 +8,9 @@ on:
       - 'gold-site-ui-start.js'
       - 'gold-unified-start.js'
       - 'gold-agent-orchestrator.js'
+      - 'gold-snr-advisory.js'
       - 'test/gold-agent-orchestrator.test.js'
+      - 'test/gold-snr-advisory.test.js'
       - 'site-indicator-start.js'
       - 'telegram-xau-bot-v2.js'
       - 'telegram-xau-bot-v2.js'
@@ -26,9 +28,9 @@ on:
       - 'gold-site-ui-start.js'
       - 'gold-unified-start.js'
       - 'gold-agent-orchestrator.js'
-      - 'gold-laura-agent.js'
+      - 'gold-snr-advisory.js'
       - 'test/gold-agent-orchestrator.test.js'
-      - 'test/laura-agents.test.js'
+      - 'test/gold-snr-advisory.test.js'
       - 'site-indicator-start.js'
       - 'telegram-xau-bot-v2.js'
       - 'telegram-xau-bot-v3.js'
@@ -56,6 +58,7 @@ jobs:
           node --check gold-site-ui-start.js
           node --check gold-unified-start.js
           node --check gold-agent-orchestrator.js
+          node --check gold-snr-advisory.js
           node --check site-indicator-start.js
           node --check telegram-xau-bot-v2.js
           node --check telegram-xau-bot-v3.js
