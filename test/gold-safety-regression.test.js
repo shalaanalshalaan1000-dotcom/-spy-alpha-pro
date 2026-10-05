@@ -75,6 +75,20 @@ test('confluence wrapper and Telegram require the external ICT contract',()=>{
 });
 
 
+test('gold core entry contract uses external sweep plus M5 MSS retest and keeps confluence advisory',()=>{
+ const ictSource=fs.readFileSync(new URL('../gold-ict-swing-model.js',import.meta.url),'utf8');
+ const confluenceSource=fs.readFileSync(new URL('../gold-confluence-model.js',import.meta.url),'utf8');
+ assert.match(ictSource,/executionGate:'EXTERNAL_SWEEP -> M5_MSS -> M5_RETEST_HOLD'/);
+ assert.match(ictSource,/coreIctEntryReady/);
+ assert.match(ictSource,/M5_MSS_RETEST_CONFIRMED/);
+ assert.match(ictSource,/if\(coreIctEntryReady\)confidence=Math\.max\(75,confidence\)/);
+ assert.match(ictSource,/FVG_OB_IFVG_BOS_AND_TIMEFRAME_ALIGNMENT_ARE_CONFLUENCE_ONLY/);
+ assert.doesNotMatch(ictSource,/waiting for external sweep \+ shift \+ FVG/);
+ assert.match(confluenceSource,/h4SwingHigh/);
+ assert.match(confluenceSource,/m15SwingLow/);
+ assert.match(confluenceSource,/M5 MSS → retest\/hold; FVG\/OB\/iFVG\/BOS are support only/);
+});
+
 test('ICT Month 4 context stays supportive and cannot replace the external sweep gate',()=>{
  const ictSource=fs.readFileSync(new URL('../gold-ict-swing-model.js',import.meta.url),'utf8');
  assert.match(ictSource,/ICT_MONTH4_LIQUIDITY_BASED_BIAS/);
