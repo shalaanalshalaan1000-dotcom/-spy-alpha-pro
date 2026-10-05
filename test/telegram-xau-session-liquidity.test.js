@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 process.env.NODE_ENV='test';
 process.env.TELEGRAM_FRIDAY_PRIMARY_MAX_DISTANCE_USD='25';
 
-const {sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage}=await import('../telegram-xau-bot-v2.js');
+const {sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate}=await import('../telegram-xau-bot-v2.js');
 
 const friday=Date.parse('2026-10-02T18:00:00Z');
 const thursday=Date.parse('2026-10-01T18:00:00Z');
@@ -84,4 +84,19 @@ test('sell continuation resolves nearest and next support levels as SSL targets'
   const t=sessionTradeTargets(rows,'SELL',4155,thursday);
   assert.equal(t.secondary?.level,4150);
   assert.equal(t.primary?.level,4140);
+});
+
+
+test('ICT external-liquidity reversal is not vetoed by advisory model side or confidence',()=>{
+  assert.equal(sessionIctReversalGate({phase:'MSS',structureShift:true,modelSide:'SELL',confidence:10}),true);
+  assert.equal(sessionIctReversalGate({phase:'RETEST',retestTouch:true,held:true,modelSide:'SELL',confidence:10}),true);
+  assert.equal(sessionIctReversalGate({phase:'MSS',structureShift:false,modelSide:'BUY',confidence:99}),false);
+  assert.equal(sessionIctReversalGate({phase:'RETEST',retestTouch:true,held:false,modelSide:'BUY',confidence:99}),false);
+});
+
+test('gold session lookback preserves Friday levels through a normal weekend',async()=>{
+  const fs=await import('node:fs');
+  const src=fs.readFileSync(new URL('../gold-site-signal-engine-v9.js',import.meta.url),'utf8');
+  assert.match(src,/session15Bars\(now=Date\.now\(\)\)\{const cutoff=now-96\*60\*60_000/);
+  assert.match(src,/const cutoff=Date\.now\(\)-96\*60\*60_000/);
 });
