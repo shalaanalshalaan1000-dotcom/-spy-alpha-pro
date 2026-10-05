@@ -93,6 +93,18 @@ test('reflex authorizes only a confirmed fresh setup inside deterministic risk l
   assert.equal(live.agentStack.agents.trading.action,'BUY');
 });
 
+test('watching setup with no complete entry-stop plan is pending, not risk-blocked', () => {
+  configure();
+  process.env.AGENT_EXECUTION_ENABLED='false';
+  resetGoldAgentMemory();
+  const watching=orchestrateGoldAgents({...base,status:'WAIT',signalId:null,entered:false,triggered:false,signalConfidence:60,confidence:60,entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null});
+  assert.equal(watching.agents.setup.stage,'WATCHING');
+  assert.equal(watching.decisionSchema.riskState,'PENDING');
+  assert.equal(watching.agents.risk.planComplete,false);
+  assert.ok(!watching.agents.risk.vetoes.includes('INVALID_STOP_STRUCTURE'));
+  assert.ok(!watching.agents.trading.blockers.includes('FINAL_CHECK_FAILED'));
+});
+
 test('stale data and wide spread are hard vetoes', () => {
   configure();
   process.env.AGENT_EXECUTION_ENABLED='true';
