@@ -154,8 +154,24 @@ test('site keeps existing ICT confidence contract and supports closed-session M5
  assert.match(enginePatch,/prev\.close<=level\+\.10&&first\.close>level\+\.25/);
  assert.match(enginePatch,/prev\.close>=level-\.10&&first\.close<level-\.25/);
  assert.match(enginePatch,/second\.low>level:second\.high<level/);
- assert.match(enginePatch,/entryConfirmation:momentumAccepted\?'M5_MOMENTUM_ACCEPTANCE':'ENTRY_RANGE_TOUCH'/);
- assert.match(enginePatch,/if\(!inRange\(p,lo,hi\)&&!momentumAccepted\)/);
+ assert.match(enginePatch,/M5_MOMENTUM_ACCEPTANCE/);
+ assert.match(enginePatch,/!momentumAccepted&&!coreRetestAccepted/);
  assert.match(enginePatch,/Number\(m\.confidence\)<MIN_CONFIDENCE/);
+});
+
+test('confirmed core M5 MSS retest can activate without an Origin FVG retouch',()=>{
+ const enginePatch=fs.readFileSync(new URL('../gold-site-signal-engine-v9.js',import.meta.url),'utf8');
+ const uiSource=fs.readFileSync(new URL('../gold-site-ui-start.js',import.meta.url),'utf8');
+ assert.match(enginePatch,/function coreIctRetestExecutionAccepted/);
+ assert.match(enginePatch,/ict\?\.coreIctEntryReady/);
+ assert.match(enginePatch,/ict\?\.m5MssEvent\?\.mss/);
+ assert.match(enginePatch,/retest\?\.confirmed!==true/);
+ assert.match(enginePatch,/age>15\*60_000/);
+ assert.match(enginePatch,/const held=side==='BUY'\?p>level:p<level/);
+ assert.match(enginePatch,/consumed<\.65/);
+ assert.match(enginePatch,/entryConfirmation:coreRetestAccepted\?'M5_MSS_RETEST_HOLD'/);
+ assert.doesNotMatch(uiSource,/Origin FVG محددة؛ ننتظر رجوع السعر إلى منطقة الدخول/);
+ assert.match(uiSource,/FVG\/OB\/iFVG دعم فقط/);
+ assert.match(uiSource,/External Sweep → M5 MSS → Retest\/Hold \| FVG\/iFVG\/OB = Confluence/);
 });
 
