@@ -294,19 +294,6 @@ for (const [from, to] of replacements) {
 }
 
 
-{
-  // Laura is an independent classical desk; expose its own OHLC/levels to Telegram/site
-  // without changing the ICT-owned trade signal.
-  const activeAnchor="tradeStyle:m.tradeStyle||'ICT_ONLY_EXTERNAL_LIQUIDITY',multiTimeframe:m.multiTimeframe||m.confluence?.multiTimeframe||null,priceAction:";
-  if(!source.includes(activeAnchor))throw new Error('laura-context patch: active payload anchor missing');
-  source=source.replace(activeAnchor,"tradeStyle:m.tradeStyle||'ICT_ONLY_EXTERNAL_LIQUIDITY',multiTimeframe:m.multiTimeframe||m.confluence?.multiTimeframe||null,lauraContext:m.lauraContext||null,priceAction:");
-
-  const responseAnchor="tradeStyle:state.signal?.tradeStyle||model.tradeStyle||'ICT_ONLY_EXTERNAL_LIQUIDITY',multiTimeframe:model.multiTimeframe||model.confluence?.multiTimeframe||state.signal?.multiTimeframe||null,sessionLevels:";
-  if(!source.includes(responseAnchor))throw new Error('laura-context patch: response payload anchor missing');
-  source=source.replace(responseAnchor,"tradeStyle:state.signal?.tradeStyle||model.tradeStyle||'ICT_ONLY_EXTERNAL_LIQUIDITY',multiTimeframe:model.multiTimeframe||model.confluence?.multiTimeframe||state.signal?.multiTimeframe||null,lauraContext:model.lauraContext||state.signal?.lauraContext||null,sessionLevels:");
-
-  source=source.replace("const BUILD='site-signal-noai-v66-stop-advisory-only';","const BUILD='site-signal-noai-v67-laura-context';");
-}
 
 
 {
@@ -326,7 +313,7 @@ for (const [from, to] of replacements) {
   if(!source.includes(payloadAnchor))throw new Error('momentum-acceptance patch: signal payload anchor missing');
   source=source.replace(payloadAnchor,"confidence:Number(m.confidence)||0,signalConfidence:Number(m.confidence)||0,entryConfirmation:coreRetestAccepted?'M5_MSS_RETEST_HOLD':momentumAccepted?'M5_MOMENTUM_ACCEPTANCE':'ENTRY_RANGE_TOUCH',coreRetestAcceptance:coreRetestAcceptance||null,momentumAcceptance:momentumAcceptance||null,entry:p,entryLow:lo,entryHigh:hi,");
 
-  source=source.replace("const BUILD='site-signal-noai-v67-laura-context';","const BUILD='site-signal-noai-v69-core-retest-entry';");
+  source=source.replace("const BUILD='site-signal-noai-v66-stop-advisory-only';","const BUILD='site-signal-noai-v69-core-retest-entry';");
 }
 
 // marketClock runs for every retained M15 bar. Reuse its native formatter.
