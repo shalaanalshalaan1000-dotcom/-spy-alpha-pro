@@ -231,7 +231,7 @@ function sessionFinalMessage(x){
 }
 function sessionBreakMessage(x,side,bar){
   const high=side==='HIGH',level=Number(high?x.high:x.low),distance=Math.abs(Number(bar.close)-level);
-  return `${high?'🚨⬆️':'🚨⬇️'} XAUUSD — ${x.label||x.id} DECISIVE LEVEL BREAK — NO ENTRY YET\n✅ M15 أغلق ${high?'فوق القمة':'تحت القاع'} بإغلاق واضح عند سيولة خارجية\n📍 المستوى: ${n(level)}\n🕯️ M15 close: ${n(bar.close)} • مسافة الإغلاق: ${distance.toFixed(2)}\n🧭 ICT context: decisive close distance ≥ ${SESSION_DECISIVE_CLOSE_USD.toFixed(2)}\n⏳ ننتظر M5 retest + hold قبل الدخول.\n🧩 Model / OB / FVG / iFVG / BOS عوامل دعم فقط ولا تمنع الإشارة إذا اكتملت بوابة التنفيذ.\n🚫 لا دخول ولا SL لمجرد الكسر.`;
+  return `${high?'🚨⬆️':'🚨⬇️'} XAUUSD — ${x.label||x.id} DECISIVE LEVEL BREAK — NO ENTRY YET\n✅ M15 أغلق ${high?'فوق القمة':'تحت القاع'} بإغلاق واضح عند سيولة خارجية\n📍 المستوى: ${n(level)}\n🕯️ M15 close: ${n(bar.close)} • مسافة الإغلاق: ${distance.toFixed(2)}\n🧭 ICT context: decisive close distance ≥ ${SESSION_DECISIVE_CLOSE_USD.toFixed(2)}\n⏳ ننتظر M5 retest/hold، أو decisive M5 close ثم شمعة M5 لاحقة تثبت no-reclaim hold.\n🧩 Model / OB / FVG / iFVG / BOS عوامل دعم فقط ولا تمنع الإشارة إذا اكتملت بوابة التنفيذ.\n🚫 لا دخول ولا SL لمجرد الكسر.`;
 }
 function sessionSweepMessage(x,side,bar){
   const high=side==='HIGH',level=Number(high?x.high:x.low),distance=Math.abs(Number(bar.close)-level),reversal=high?'SELL':'BUY';
