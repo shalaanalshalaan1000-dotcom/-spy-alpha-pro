@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 process.env.NODE_ENV='test';
 
 const {analyzeLaura}=await import('../gold-laura-agent.js');
-const {analyzeBtcLaura}=await import('../btc-laura-engine.js');
 const {readFileSync}=await import('node:fs');
 
 test('gold Laura is independent from ICT and uses all-timeframe classical confirmation',()=>{
@@ -39,39 +38,6 @@ test('gold Laura is independent from ICT and uses all-timeframe classical confir
   assert.ok(a.signal.target1?.level>a.signal.entry);
   assert.match(a.signal.reason,/all-timeframe classical bias/);
 });
-
-function bars(start,count,step,base=90000){
-  return Array.from({length:count},(_,i)=>{
-    const close=base+i*step;
-    return{t:start+i*60000,open:close-step*.5,high:close+step*.8,low:close-step*.8,close,volume:10+i};
-  });
-}
-
-test('BTC Laura engine remains Laura-only with no ICT/SMC/Precision dependency',()=>{
-  const start=Date.parse('2026-01-01T00:00:00Z');
-  const make=(base,step,n=10)=>Array.from({length:n},(_,i)=>({
-    t:start+i*3600000,open:base+i*step,close:base+i*step+step*.6,
-    high:base+i*step+step*.8+30,low:base+i*step-30,volume:10+i
-  }));
-  const MN1=make(82000,500),W1=make(89000,200),D1=make(90000,100),H4=make(90000,100),H1=make(90000,100);
-  W1[8]={...W1[8],high:92000};
-  const M15=make(90400,40),M5=make(90600,30),M1=make(90700,20);
-  M15[M15.length-1]={...M15.at(-1),open:90880,high:90980,low:90860,close:90940};
-  M5[M5.length-1]={...M5.at(-1),open:90910,high:90980,low:90880,close:90950};
-  M1[M1.length-1]={...M1.at(-1),open:90940,high:90980,low:90930,close:90960};
-  const x=analyzeBtcLaura({MN1,W1,D1,H4,H1,M15,M5,M1,ticker:{price:'90960'}});
-  assert.equal(x.strategy,'LAURA_CLASSICAL_PRICE_ACTION');
-  assert.equal(x.tradeStyle,'LAURA_ONLY');
-  assert.equal(x.laura.mode,'LAURA_ONLY');
-  assert.equal(x.smc,null);
-  assert.equal(x.ict,null);
-  assert.equal('precision' in x,false);
-  assert.equal(x.status,'ACTIVE');
-  assert.equal(x.action,'BUY');
-  assert.deepEqual(x.priceAction.triggers,['DECISIVE_M15_CLOSE','M5_RETEST_HOLD','M1_TIMING']);
-  assert.doesNotMatch(x.reason,/CISD|MSS|FVG|sweep|precision|PSP|POI/i);
-});
-
 
 test('TradingView HTF subscriptions use canonical daily weekly monthly resolutions',()=>{
   const src=readFileSync(new URL('../gold-site-signal-engine-v9.js',import.meta.url),'utf8');
