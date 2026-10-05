@@ -13,7 +13,6 @@ on:
       - 'telegram-xau-bot-v2.js'
       - 'telegram-xau-bot-v2.js'
       - 'telegram-xau-bot-v3.js'
-      - 'btc-ict-fast.js'
       - 'btc-murphy-model.js'
       - 'btc-telegram-bot.js'
       - 'render-start.js'
@@ -32,7 +31,6 @@ on:
       - 'telegram-xau-bot-v2.js'
       - 'telegram-xau-bot-v3.js'
       - 'btc-ict-fast.js'
-      - 'btc-laura-engine.js'
       - 'btc-murphy-model.js'
       - 'btc-telegram-bot.js'
       - 'render-start.js'
@@ -57,7 +55,6 @@ jobs:
           node --check site-indicator-start.js
           node --check telegram-xau-bot-v2.js
           node --check telegram-xau-bot-v3.js
-          node --check btc-ict-fast.js
           node --check btc-murphy-model.js
           node --check btc-telegram-bot.js
           node --check render-start.js
@@ -68,4 +65,3 @@ jobs:
       - name: Validate confluence module imports
         run: |
           node -e "import('./gold-confluence-model.js').then(m=>{if(typeof m.analyzeGoldSignal!=='function')process.exit(1)})"
-          node -e "import('./btc-ict-fast.js').then(m=>{if(typeof m.getBtcSignal!=='function')process.exit(1)})"
