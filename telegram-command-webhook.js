@@ -98,26 +98,16 @@ function sessionLevelSummaryMessage(s){
   return `📍 XAUUSD — SESSION HIGH / LOW\n\n${lines.join('\n\n')}\n\nهذه مستويات سيولة/مرجع وليست إشارة دخول بحد ذاتها.`;
 }
 
-function lauraDeskMessage(s){
-  const a=s?.agentStack?.agents?.laura||{},o=a?.outlook||{},sig=a?.signal||{},reads=o?.reads||{};
-  const target1=sig?.target1?.level!=null?sig.target1.label+' '+n(sig.target1.level):'—';
-  const target2=sig?.target2?.level!=null?sig.target2.label+' '+n(sig.target2.level):'—';
-  return `🟣 LAURA — XAUUSD
-التصور: ${o.bias||'NEUTRAL'} • القوة: ${o.strength||'LOW'} • ${Math.round(Number(o.confidence)||0)}/100
-MN1 ${reads.MN1||'—'} • W1 ${reads.W1||'—'} • D1 ${reads.D1||'—'}
-H4 ${reads.H4||'—'} • H1 ${reads.H1||'—'} • M15 ${reads.M15||'—'}
-M5 ${reads.M5||'—'} • M1 ${reads.M1||'—'}
+function snrDeskMessage(s){
+  const a=s?.agentStack?.agents?.snr||{},support=a?.nearestSupport,resistance=a?.nearestResistance;
+  return `🧱 SNR — XAUUSD (عامل مساعد فقط)
+السعر: ${n(a?.price??s?.price)}
+الاتجاه الحالي: ${a?.side||'WAIT'}
+التوافق: ${a?.alignment||'NEUTRAL'}
+🟢 أقرب دعم: ${support?support.label+' '+n(support.level):'—'}
+🔴 أقرب مقاومة: ${resistance?resistance.label+' '+n(resistance.level):'—'}
 
-📆 الأسبوع السابق
-O ${n(o?.lastWeek?.open)} • H ${n(o?.lastWeek?.high)} • L ${n(o?.lastWeek?.low)} • C ${n(o?.lastWeek?.close)}
-🧭 الأسبوع القادم: ${o.nextWeekPath||'WAIT'}
-📍 Support: ${o?.nearestSupport?o.nearestSupport.label+' '+n(o.nearestSupport.level):'—'}
-📍 Resistance: ${o?.nearestResistance?o.nearestResistance.label+' '+n(o.nearestResistance.level):'—'}
-
-الحالة الآن: ${sig.state||'WAIT'} • ${sig.action||'WAIT'}
-${sig.brokenLevel?'📌 Broken: '+sig.brokenLevel.label+' '+n(sig.brokenLevel.level)+'\n':''}${sig.entry!=null?'💵 Entry: '+n(sig.entry)+'\n🛑 SL: '+n(sig.stopLoss)+'\n🎯 TP1: '+target1+'\n🎯 TP2: '+target2:''}
-
-Laura مستقل عن ICT/SMC.`;
+SNR لا يفتح الصفقة ولا يمنعها ولا يغيّر ثقة أو بوابة ICT؛ هو خريطة دعم/مقاومة مساعدة فقط.`;
 }
 
 function agentDeskMessage(s){
@@ -163,7 +153,7 @@ async function handleUpdate(update){
   const text=String(msg.text||'').trim();
   if(/^\/start(?:@\w+)?$/i.test(text)){
     const st=telegramSendState();
-    await send(`اختر من البوت:\nحالة الإرسال: ${st.enabled?'🟢 يعمل':'⏸ متوقف'}`,{keyboard:[[{text:'🟣 Laura'}],[{text:'🤖 حالة الوكلاء'}],[{text:'📍 مستويات الجلسات'}],[{text:'📊 تقييم الصفقات'}],[{text:'⏸ إيقاف الإرسال'},{text:'▶️ تشغيل الإرسال'}],[{text:'ℹ️ حالة الإرسال'}]],resize_keyboard:true,persistent:true});
+    await send(`اختر من البوت:\nحالة الإرسال: ${st.enabled?'🟢 يعمل':'⏸ متوقف'}`,{keyboard:[[{text:'🧱 SNR الذهب'}],[{text:'🤖 حالة الوكلاء'}],[{text:'📍 مستويات الجلسات'}],[{text:'📊 تقييم الصفقات'}],[{text:'⏸ إيقاف الإرسال'},{text:'▶️ تشغيل الإرسال'}],[{text:'ℹ️ حالة الإرسال'}]],resize_keyboard:true,persistent:true});
     return;
   }
   if(/^\/signals_off(?:@\w+)?$/i.test(text)||text==='⏸ إيقاف الإرسال'){
@@ -181,9 +171,9 @@ async function handleUpdate(update){
     await send(`حالة تنبيهات الصفقات: ${st.enabled&&TRADE_SIGNALS_ENABLED?'🟢 تعمل':'⏸ متوقفة'}\n📍 مستويات الجلسات M15: ${SESSION_LEVEL_ALERTS_ENABLED?'🟢 تعمل دائمًا':'⏸ متوقفة'}\n📈 إشارات الدخول: ${TRADE_SIGNALS_ENABLED?'مسموحة من الإعداد':'موقوفة من إعداد المشروع'}${st.updatedAt?'\nآخر تغيير لمفتاح الصفقات: '+new Intl.DateTimeFormat('ar-SA',{timeZone:'Asia/Riyadh',dateStyle:'short',timeStyle:'short'}).format(new Date(st.updatedAt)):''}`);
     return;
   }
-  if(/^\/laura(?:@\w+)?$/i.test(text)||text==='🟣 Laura'){
-    try{const s=await fetchGoldSignal();await send(lauraDeskMessage(s));}
-    catch(e){await send(`⚠️ تعذر قراءة Laura الآن: ${String(e?.message||e)}`);}
+  if(/^\/snr(?:@\w+)?$/i.test(text)||text==='🧱 SNR الذهب'){
+    try{const s=await fetchGoldSignal();await send(snrDeskMessage(s));}
+    catch(e){await send(`⚠️ تعذر قراءة SNR الآن: ${String(e?.message||e)}`);}
     return;
   }
   if(/^\/agents(?:@\w+)?$/i.test(text)||text==='🤖 حالة الوكلاء'){
@@ -206,7 +196,7 @@ async function handleUpdate(update){
 
 export async function configureTelegramWebhook(){
   if(!BOT_TOKEN||!CHAT_ID||!WEBHOOK_SECRET||!APP_BASE_URL){console.warn('[telegram-webhook] disabled: missing token/chat/secret/base URL');return false;}
-  await telegram('setMyCommands',{commands:[{command:'laura',description:'🟣 Laura: النظرة الأسبوعية والإشارة الحالية'},{command:'agents',description:'🤖 حالة جميع الوكلاء وقرار التداول'},{command:'sessions',description:'📍 قمم وقيعان طوكيو ولندن ونيويورك'},{command:'evaluate',description:'📊 تقييم صفقات الذهب'},{command:'signals_off',description:'⏸ إيقاف إرسال التنبيهات'},{command:'signals_on',description:'▶️ تشغيل إرسال التنبيهات'},{command:'signals_status',description:'ℹ️ حالة إرسال البوت'}]});
+  await telegram('setMyCommands',{commands:[{command:'snr',description:'🧱 SNR الذهب: دعم/مقاومة كعامل مساعد'},{command:'agents',description:'🤖 حالة جميع الوكلاء وقرار التداول'},{command:'sessions',description:'📍 قمم وقيعان طوكيو ولندن ونيويورك'},{command:'evaluate',description:'📊 تقييم صفقات الذهب'},{command:'signals_off',description:'⏸ إيقاف إرسال التنبيهات'},{command:'signals_on',description:'▶️ تشغيل إرسال التنبيهات'},{command:'signals_status',description:'ℹ️ حالة إرسال البوت'}]});
   await telegram('setWebhook',{
     url:`${APP_BASE_URL}/api/telegram/webhook`,
     secret_token:WEBHOOK_SECRET,
