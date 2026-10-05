@@ -194,6 +194,11 @@ function sessionModelSide(s){
   if(['BUY','SELL'].includes(s?.side))return s.side;
   return null;
 }
+function sessionIctReversalGate({phase,structureShift=false,retestTouch=false,held=false}={}){
+  if(phase==='MSS')return Boolean(structureShift);
+  if(phase==='RETEST')return Boolean(retestTouch&&held);
+  return false;
+}
 function sessionLevelSummaryMessage(s){
   const rows=sessionLevelsOf(s);
   if(!rows.length)return '📍 XAUUSD — مستويات الجلسات\nلا توجد بيانات جلسات كافية حتى الآن.';
@@ -227,7 +232,7 @@ function sessionFailedBreakMessage(x,side,bar,st){
 }
 function sessionReversalMssMessage(x,side,bar,st){
   const buy=side==='LOW',expected=buy?'BUY':'SELL',trigger=buy?bar.high:bar.low;
-  return `🔄 XAUUSD — ${x.label||x.id} ${expected} STRUCTURE SHIFT DETECTED\n✅ بعد false break ظهر M5 shift موافق للانعكاس\n📍 Session level: ${n(st.level)}\n🧭 MSS trigger: ${n(trigger)}\n📊 Model side: ${expected} • confidence ${Math.round(Number(st.reversalConfidence)||0)}%\n⏳ WAIT FOR M5 RETEST — لا دخول قبل إعادة الاختبار.`;
+  return `🔄 XAUUSD — ${x.label||x.id} ${expected} STRUCTURE SHIFT DETECTED\n✅ بعد false break ظهر M5 shift موافق للانعكاس\n📍 Session level: ${n(st.level)}\n🧭 MSS trigger: ${n(trigger)}\n📊 Advisory model: ${st.reversalModelSide||'WAIT'} • confidence ${Math.round(Number(st.reversalConfidence)||0)}% • ${st.reversalModelAligned?'aligned':'not gating'}\n🧠 ICT execution gate: external sweep + M5 MSS; model/confidence are advisory only\n⏳ WAIT FOR M5 RETEST — لا دخول قبل إعادة الاختبار.`;
 }
 function sessionTradeTargets(rows,tradeSide,entry,now=Date.now()){
   const buy=tradeSide==='BUY',price=Number(entry);
@@ -346,14 +351,17 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
           if(!st.reversalMss){
             if(m5.t<=Number(st.failedBarT||0))continue;
             const structureShift=reversalBuy?m5.close>Number(st.failedBarHigh)+SESSION_BREAK_BUFFER_USD:m5.close<Number(st.failedBarLow)-SESSION_BREAK_BUFFER_USD;
-            if(modelSide===expected&&conf>=minConf&&structureShift){
+            const advisoryAligned=modelSide===expected&&conf>=minConf;
+            if(sessionIctReversalGate({phase:'MSS',structureShift})){
               st.reversalMss=true;
               st.reversalMssBarT=m5.t;
               st.reversalTrigger=reversalBuy?m5.high:m5.low;
               st.reversalConfidence=conf;
+              st.reversalModelSide=modelSide;
+              st.reversalModelAligned=advisoryAligned;
               sessionBreakState.set(key,st);
               await send(sessionReversalMssMessage(x,side,m5,st));
-              console.log(`[telegram-session-level] reversal MSS ${key} side=${expected} trigger=${n(st.reversalTrigger)}`);
+              console.log(`[telegram-session-level] reversal MSS ${key} side=${expected} trigger=${n(st.reversalTrigger)} advisory=${modelSide||'WAIT'}/${Math.round(conf)}`);
             }
             continue;
           }
@@ -361,10 +369,13 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
           const trigger=Number(st.reversalTrigger);
           const retestTouch=reversalBuy?m5.low<=trigger+SESSION_RETEST_TOLERANCE_USD:m5.high>=trigger-SESSION_RETEST_TOLERANCE_USD;
           const held=reversalBuy?m5.close>trigger:m5.close<trigger;
-          if(modelSide===expected&&conf>=minConf&&retestTouch&&held){
+          if(sessionIctReversalGate({phase:'RETEST',retestTouch,held})){
+            st.reversalConfidence=conf;
+            st.reversalModelSide=modelSide;
+            st.reversalModelAligned=modelSide===expected&&conf>=minConf;
             await send(sessionReversalSetupMessage(x,side,m5,st,rows,now));
             st.reversalSent=true;st.retestSent=true;st.reversalRetestBarT=m5.t;sessionBreakState.set(key,st);
-            console.log(`[telegram-session-level] reversal setup ${key} side=${expected} entry=${n(m5.close)}`);
+            console.log(`[telegram-session-level] reversal setup ${key} side=${expected} entry=${n(m5.close)} advisory=${modelSide||'WAIT'}/${Math.round(conf)}`);
           }
           continue;
         }
@@ -789,4 +800,4 @@ if(process.env.NODE_ENV!=='test'){
   (async function commands(){await botCommandLoop();})();
 }
 
-export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,lauraEntryMessage};
+export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate,lauraEntryMessage};
