@@ -13,6 +13,8 @@ on:
       - 'telegram-xau-bot-v2.js'
       - 'telegram-xau-bot-v2.js'
       - 'telegram-xau-bot-v3.js'
+      - 'btc-snr-engine.js'
+      - 'test/btc-snr-routing.test.js'
       - 'btc-murphy-model.js'
       - 'btc-telegram-bot.js'
       - 'render-start.js'
@@ -30,11 +32,13 @@ on:
       - 'site-indicator-start.js'
       - 'telegram-xau-bot-v2.js'
       - 'telegram-xau-bot-v3.js'
-      - 'btc-ict-fast.js'
+      - 'btc-snr-engine.js'
+      - 'test/btc-snr-routing.test.js'
       - 'btc-murphy-model.js'
       - 'btc-telegram-bot.js'
       - 'render-start.js'
       - 'render.yaml'
+      - '.github/workflows/validate-confluence.yml'
 
 jobs:
   syntax:
@@ -55,6 +59,7 @@ jobs:
           node --check site-indicator-start.js
           node --check telegram-xau-bot-v2.js
           node --check telegram-xau-bot-v3.js
+          node --check btc-snr-engine.js
           node --check btc-murphy-model.js
           node --check btc-telegram-bot.js
           node --check render-start.js
@@ -65,3 +70,4 @@ jobs:
       - name: Validate confluence module imports
         run: |
           node -e "import('./gold-confluence-model.js').then(m=>{if(typeof m.analyzeGoldSignal!=='function')process.exit(1)})"
+          node -e "import('./btc-snr-engine.js').then(m=>{if(typeof m.getBtcSignal!=='function'||typeof m.analyzeBtcSnr!=='function')process.exit(1)})"
