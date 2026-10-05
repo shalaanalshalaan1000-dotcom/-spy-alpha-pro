@@ -122,3 +122,14 @@ test('Month 5 additions cannot become a hidden execution gate',()=>{
  assert.match(siteSource,/siteMonth5Pd/);
  assert.match(siteSource,/siteMonth5Quarterly/);
 });
+
+test('timeframe agreement supports confidence but never gates a valid ICT setup',()=>{
+ const confluenceSource=fs.readFileSync(new URL('../gold-confluence-model.js',import.meta.url),'utf8');
+ assert.match(confluenceSource,/TIMEFRAME_AGREEMENT_SUPPORT_V1/);
+ assert.match(confluenceSource,/confidenceBonus/);
+ assert.match(confluenceSource,/imageSupport\.confidence\+timeframeAgreement\.confidenceBonus/);
+ assert.match(confluenceSource,/opposedFrames/);
+ assert.doesNotMatch(confluenceSource,/if\(!topDown\.ready\)return/);
+ assert.match(confluenceSource,/Timeframe agreement can add confidence only; disagreement never vetoes/);
+});
+
