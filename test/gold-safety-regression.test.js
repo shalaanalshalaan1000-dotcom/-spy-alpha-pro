@@ -241,3 +241,17 @@ test('gold liquidity targets remain monotonic so valid candidates are not silent
  assert.doesNotMatch(ictSource,/const ordered=\[secondary\];\s*if\(Math\.abs\(primary\.price-secondary\.price\)>=1\)ordered\.push\(primary\)/);
 });
 
+
+
+test('XAU sizing has no hard $10 per-trade cap or max-lot warning',()=>{
+ const agentSource=fs.readFileSync(new URL('../gold-agent-orchestrator.js',import.meta.url),'utf8');
+ const telegramSource=fs.readFileSync(new URL('../telegram-xau-bot-v2.js',import.meta.url),'utf8');
+ const engineSource=fs.readFileSync(new URL('../gold-site-signal-engine-v9.js',import.meta.url),'utf8');
+ assert.doesNotMatch(agentSource,/XAU_MAX_RISK_USD/);
+ assert.doesNotMatch(telegramSource,/XAU_MAX_RISK_USD/);
+ assert.doesNotMatch(engineSource,/XAU_MAX_RISK_USD/);
+ assert.match(agentSource,/hardDollarRiskCap: false/);
+ assert.match(engineSource,/hardDollarRiskCap:false/);
+ assert.doesNotMatch(telegramSource,/أقصى لوت/);
+ assert.match(telegramSource,/لا يوجد سقف \$10 مفروض على الصفقة/);
+});
