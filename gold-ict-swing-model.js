@@ -581,18 +581,26 @@ function targetPlan(side,entry,stop,levels,m1,m5,m15,h1,h4,atr1,atr5){
   const byStrategic=[...all].sort((a,b)=>priority(a.label)-priority(b.label)||Math.abs(b.price-entry)-Math.abs(a.price-entry));
   const primary=byStrategic.find(x=>Math.abs(x.price-secondary.price)>=1)||secondary;
 
+  // Execution targets must always progress outward from entry. The strategic primary
+  // liquidity objective may be much farther away than nearer session pools; inserting it
+  // as TP2 can make TP3/TP4 move backwards and causes validLevels() to reject the whole setup.
   const ordered=[secondary];
-  if(Math.abs(primary.price-secondary.price)>=1)ordered.push(primary);
   for(const pool of byDistance){
     if(ordered.length>=4)break;
     if(ordered.some(x=>Math.abs(x.price-pool.price)<1))continue;
     ordered.push(pool);
   }
+  const primaryAlreadyIncluded=ordered.some(x=>Math.abs(x.price-primary.price)<1);
+  if(!primaryAlreadyIncluded){
+    if(ordered.length<4)ordered.push(primary);
+    else ordered[ordered.length-1]=primary;
+  }
+  ordered.sort((a,b)=>Math.abs(a.price-entry)-Math.abs(b.price-entry));
 
   const targets=ordered.slice(0,4).map((pool,index)=>({
     label:pool.label,
     price:round(pool.price),
-    role:index===0&&Math.abs(primary.price-secondary.price)>=1?'SECONDARY':(Math.abs(pool.price-primary.price)<1?'PRIMARY':'EXTENSION'),
+    role:Math.abs(pool.price-primary.price)<1?'PRIMARY':index===0?'SECONDARY':'EXTENSION',
     liquiditySide:/HIGH|PDH|PWH/i.test(pool.label)?'BSL':'SSL',
     sourceTimeframe:pool.tf||null
   }));
