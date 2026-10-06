@@ -225,9 +225,9 @@ function tradeManagerAgent(source = {}, setup, now = Date.now()) {
   const suggestedProtection = tp1Hit && entry != null ? {type:'MOVE_SL', to:round(entry), policy:'BREAKEVEN_AFTER_TP1'} : null;
   const executionEnabled = String(process.env.AGENT_EXECUTION_ENABLED || 'false').toLowerCase() === 'true';
 
-  // Post-entry decisions are intentionally stricter than entry eligibility. A transient
-  // confidence dip never closes a trade: STOP/CONTINUE requires a fresh, fully formed
-  // live model, high confidence, and a short stability window.
+  // Post-entry management is structure-first. Model confidence is advisory only:
+  // CONTINUE requires the original ICT sequence to remain structurally valid on M5,
+  // while an early STOP requires both a high-confidence opposite model and opposite M5 structure.
   const managementMinConfidence = Math.max(75, toNum(process.env.GOLD_TRADE_MANAGEMENT_MIN_CONFIDENCE) ?? 82);
   const managementConfirmMs = Math.max(0, toNum(process.env.GOLD_TRADE_MANAGEMENT_CONFIRM_MS) ?? 5000);
   const liveModelSide = validSide(source.liveModelAction);
@@ -243,23 +243,57 @@ function tradeManagerAgent(source = {}, setup, now = Date.now()) {
   const sameSideConfirmed = Boolean(liveModelReady && liveModelSide === side);
   const oppositeConfirmed = Boolean(liveModelReady && liveModelSide !== side);
 
+  const ict = ictStateOf(source);
+  const m5Side = validSide(source?.multiTimeframe?.reads?.M5?.side || source?.confluence?.multiTimeframe?.reads?.M5?.side);
+  const liquidityConfirmed = Boolean(
+    ict?.hasSweep || ict?.legSweep || ict?.sweep || source?.confluence?.liquidity?.externalSweep
+  ) || inferCondition(source, ['liquidity', 'sweep', 'session low', 'session high']);
+  const mssConfirmed = Boolean(
+    ict?.hasShift || ict?.mss || ict?.firstMssEvent || ict?.dm5?.mss || ict?.trendContinuation?.mss?.confirmed
+  ) || inferCondition(source, ['mss', 'choch', 'structure shift']);
+  const retestConfirmed = Boolean(
+    ict?.hasIfvgRetest || ict?.retest || ict?.inverseFvg?.retested || ict?.trendContinuation?.retested
+  ) || inferCondition(source, ['retest']);
+  const displacementConfirmed = Boolean(
+    ict?.hasDisplacement || ict?.displacement || ict?.firstDisplacementEvent || ict?.dm5?.displacement
+  ) || inferCondition(source, ['displacement', 'impulse']);
+  const m5SupportsTrade = Boolean(m5Side && m5Side === side);
+  const m5OpposesTrade = Boolean(m5Side && m5Side !== side);
+  const structureValid = Boolean(
+    signalId && ['BUY','SELL'].includes(side) &&
+    liquidityConfirmed && mssConfirmed && retestConfirmed && displacementConfirmed && m5SupportsTrade
+  );
+  const structureInvalidated = Boolean(
+    signalId && ['BUY','SELL'].includes(side) &&
+    m5OpposesTrade && oppositeConfirmed
+  );
+  const structureState = stopped || structureInvalidated
+    ? 'INVALIDATED'
+    : structureValid
+      ? 'VALID'
+      : 'WEAKENING';
+
   let candidateAction = 'HOLD_PLAN';
-  let candidateReason = 'No new high-confidence model; keep the original SL/TP plan.';
+  let candidateReason = 'No structure-confirmed management change; keep the original SL/TP plan.';
   if (stopped) {
     candidateAction = 'STOP';
     candidateReason = 'Current price reached the active stop.';
-  } else if (oppositeConfirmed) {
+  } else if (structureInvalidated) {
     candidateAction = 'STOP';
-    candidateReason = `Confirmed opposite ${liveModelSide} model at ${Math.round(liveModelConfidence)}%.`;
-  } else if (sameSideConfirmed) {
+    candidateReason = `Opposite ${liveModelSide} model is confirmed and M5 structure also flipped ${m5Side}; exit the current ${side} trade.`;
+  } else if (sameSideConfirmed && structureValid) {
     candidateAction = 'CONTINUE';
-    candidateReason = `Confirmed ${side} model remains aligned at ${Math.round(liveModelConfidence)}%.`;
+    candidateReason = `ICT structure remains valid on M5; ${liveModelSide} model alignment is advisory confirmation only.`;
+  } else if (oppositeConfirmed) {
+    candidateReason = `Opposite ${liveModelSide} model is advisory only because M5 structure has not confirmed invalidation.`;
+  } else if (sameSideConfirmed) {
+    candidateReason = `Same-side ${liveModelSide} model is advisory only because the ICT/M5 structure is not fully confirmed.`;
   }
 
   let confirmed = stopped;
   let stableForMs = stopped ? managementConfirmMs : 0;
   if (!stopped && ['STOP', 'CONTINUE'].includes(candidateAction)) {
-    const signature = [signalId, candidateAction, liveModelSide].join('|');
+    const signature = [signalId, candidateAction, liveModelSide, structureState, m5Side || 'NA'].join('|');
     if (!memory.managementTrack || memory.managementTrack.signature !== signature) {
       memory.managementTrack = {signature, firstSeenAtMs:now};
     }
@@ -281,6 +315,15 @@ function tradeManagerAgent(source = {}, setup, now = Date.now()) {
     minConfidence: managementMinConfidence,
     stableForMs,
     confirmMs: managementConfirmMs,
+    structureState,
+    structureConfirmed: structureValid,
+    structureInvalidated,
+    m5Side,
+    liquidityConfirmed,
+    mssConfirmed,
+    displacementConfirmed,
+    retestConfirmed,
+    confidenceRole: 'ADVISORY_ONLY',
     reason: confirmed
       ? candidateReason
       : candidateAction === 'HOLD_PLAN'
