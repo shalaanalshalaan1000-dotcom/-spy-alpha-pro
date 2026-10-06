@@ -68,7 +68,11 @@ services:
       - key: TELEGRAM_SESSION_LEVEL_ALERTS_ENABLED
         value: "true"
       - key: TELEGRAM_TRADE_SIGNALS_ENABLED
-        value: "false"
+        value: "true"
+      - key: GOLD_TRADE_MANAGEMENT_MIN_CONFIDENCE
+        value: "82"
+      - key: GOLD_TRADE_MANAGEMENT_CONFIRM_MS
+        value: "5000"
       - key: TELEGRAM_SESSION_BREAK_BUFFER_USD
         value: "0.10"
       - key: GOLD_TELEGRAM_MIN_CONFIDENCE
