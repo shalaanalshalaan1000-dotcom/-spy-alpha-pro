@@ -190,3 +190,20 @@ test('external ICT sweep remains armed through the same trading session instead 
  assert.match(uiSource,/تم حفظ '\+sweepLabel\+' sweep — ننتظر M5 MSS/);
  assert.match(uiSource,/M5 MSS مؤكد — ننتظر Retest\/Hold/);
 });
+
+
+test('retained external sweep stays eligible for side selection until the configured ICT TTL expires',()=>{
+ const ictSource=fs.readFileSync(new URL('../gold-ict-swing-model.js',import.meta.url),'utf8');
+ assert.match(ictSource,/freshSweep=Boolean\(sweep&&now-sweep\.t>=0&&now-sweep\.t<=EXTERNAL_SWEEP_TTL_MS\)/);
+ assert.doesNotMatch(ictSource,/freshSweep=Boolean\(sweep&&now-sweep\.t>=0&&now-sweep\.t<=120\*60_000\)/);
+ assert.match(ictSource,/executionStage:'ENTRY_READY'/);
+ assert.match(ictSource,/externalSweepTtlMinutes:Math\.round\(EXTERNAL_SWEEP_TTL_MS\/60_000\)/);
+});
+
+test('USD calendar risk is advisory and cannot suppress a completed gold ICT entry',()=>{
+ const enginePatch=fs.readFileSync(new URL('../gold-site-signal-engine-v9.js',import.meta.url),'utf8');
+ assert.match(enginePatch,/blockEntries:false,advisoryOnly:true,executionGate:false/);
+ assert.match(enginePatch,/if\(!state\.signal\)maybeCreate\(model,q,now\);/);
+ assert.doesNotMatch(enginePatch,/if\(!state\.signal\)\{if\(newsRisk\.blockEntries\)/);
+ assert.match(enginePatch,/site-signal-noai-v70-ict-confirmation-pipeline/);
+});

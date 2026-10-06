@@ -76,11 +76,11 @@ const replacements = [
   ],
   [
     " const q=state.quote,now=Date.now();",
-    " const q=state.quote,now=Date.now();\n const newsRisk=await getGoldNewsRisk(now);state.lastNewsRisk=newsRisk;"
+    " const q=state.quote,now=Date.now();\n const newsRiskRaw=await getGoldNewsRisk(now);const newsRisk={...newsRiskRaw,blockEntries:false,advisoryOnly:true,executionGate:false};state.lastNewsRisk=newsRisk;"
   ],
   [
     " const model=analyzeGoldSignal(state.samples,q.price,now);\n if(!state.signal)maybeCreate(model,q,now);",
-    " const rawModel=analyzeGoldSignal(state.samples,q.price,now);\n const gatedModel=gateGoldModelWithNativeLuxAlgo(rawModel,state.samples,{now});\n let model=gatedModel;try{model=stabilizeCandidateModel(gatedModel,q,now);}catch(e){console.error('[candidate-lock-error]',e?.stack||e);}\n if(now-(state.lastDiagAt||0)>=60000){state.lastDiagAt=now;console.log(\`[xau-state] status=\${model.status} conf=\${Number(model.confidence)||0} bias=\${model.contextBias||'NA'} locked=\${Boolean(model.candidateLocked)} nativeICT=\${model.luxalgo?.gate||'NA'} samples=\${state.samples.length} fresh=\${freshQuote(q,now)} reason=\${String(model.reason||'').slice(0,220)}\`);}\n if(!state.signal){if(newsRisk.blockEntries){state.lastEntryGuard={atMs:now,reason:'USD_NEWS_BLACKOUT',newsLevel:newsRisk.level,newsReason:newsRisk.reason,activeEvent:newsRisk.activeEvent};}else maybeCreate(model,q,now);}"
+    " const rawModel=analyzeGoldSignal(state.samples,q.price,now);\n const gatedModel=gateGoldModelWithNativeLuxAlgo(rawModel,state.samples,{now});\n let model=gatedModel;try{model=stabilizeCandidateModel(gatedModel,q,now);}catch(e){console.error('[candidate-lock-error]',e?.stack||e);}\n if(now-(state.lastDiagAt||0)>=60000){state.lastDiagAt=now;console.log(\`[xau-state] status=\${model.status} conf=\${Number(model.confidence)||0} bias=\${model.contextBias||'NA'} locked=\${Boolean(model.candidateLocked)} nativeICT=\${model.luxalgo?.gate||'NA'} samples=\${state.samples.length} fresh=\${freshQuote(q,now)} reason=\${String(model.reason||'').slice(0,220)}\`);}\n if(!state.signal)maybeCreate(model,q,now);"
   ],
   [
     "signalConfidence:Number(state.signal?.confidence??model.confidence??0),minConfidence:MIN_CONFIDENCE,volatilityPolicy:policy,",
@@ -315,6 +315,9 @@ for (const [from, to] of replacements) {
 
   source=source.replace("const BUILD='site-signal-noai-v66-stop-advisory-only';","const BUILD='site-signal-noai-v69-core-retest-entry';");
 }
+
+// News is advisory only: a complete ICT gate must not be suppressed by calendar state.
+source=source.replace("const BUILD='site-signal-noai-v69-core-retest-entry';","const BUILD='site-signal-noai-v70-ict-confirmation-pipeline';");
 
 // marketClock runs for every retained M15 bar. Reuse its native formatter.
 {
