@@ -4,12 +4,14 @@ on:
   push:
     paths:
       - 'gold-confluence-model.js'
+      - 'gold-ict-swing-model.js'
       - 'gold-site-signal-engine-v9.js'
       - 'gold-site-ui-start.js'
       - 'gold-unified-start.js'
       - 'gold-agent-orchestrator.js'
       - 'gold-snr-advisory.js'
       - 'test/gold-agent-orchestrator.test.js'
+      - 'test/gold-safety-regression.test.js'
       - 'test/gold-snr-advisory.test.js'
       - 'site-indicator-start.js'
       - 'telegram-xau-bot-v2.js'
@@ -24,12 +26,14 @@ on:
   pull_request:
     paths:
       - 'gold-confluence-model.js'
+      - 'gold-ict-swing-model.js'
       - 'gold-site-signal-engine-v9.js'
       - 'gold-site-ui-start.js'
       - 'gold-unified-start.js'
       - 'gold-agent-orchestrator.js'
       - 'gold-snr-advisory.js'
       - 'test/gold-agent-orchestrator.test.js'
+      - 'test/gold-safety-regression.test.js'
       - 'test/gold-snr-advisory.test.js'
       - 'site-indicator-start.js'
       - 'telegram-xau-bot-v2.js'
