@@ -573,7 +573,10 @@ function targetPlan(side,entry,stop,levels,m1,m5,m15,h1,h4,atr1,atr5){
   ];
   const MIN_TARGET_MOVE=5;
   const priority=label=>/^H4_/.test(label)?0:/^H1_/.test(label)?1:/^M15_/.test(label)?2:/^PW[HL]$/.test(label)?0:/^PD[HL]$/.test(label)?1:/^ASIA_|^LONDON_|^NY_AM_/.test(label)?3:4;
-  const all=dedupePools(pools,side,entry).filter(x=>Math.abs(x.price-entry)>=MIN_TARGET_MOVE);
+  const liquiditySideOf=label=>/HIGH|PDH|PWH|EQH/i.test(String(label||''))?'BSL':/LOW|PDL|PWL|EQL/i.test(String(label||''))?'SSL':null;
+  const requiredLiquiditySide=side==='BUY'?'BSL':'SSL';
+  const directionalPools=pools.filter(x=>liquiditySideOf(x.label)===requiredLiquiditySide);
+  const all=dedupePools(directionalPools,side,entry).filter(x=>Math.abs(x.price-entry)>=MIN_TARGET_MOVE);
   if(!all.length)return null;
 
   const byDistance=[...all].sort((a,b)=>Math.abs(a.price-entry)-Math.abs(b.price-entry)||priority(a.label)-priority(b.label));
@@ -601,7 +604,7 @@ function targetPlan(side,entry,stop,levels,m1,m5,m15,h1,h4,atr1,atr5){
     label:pool.label,
     price:round(pool.price),
     role:Math.abs(pool.price-primary.price)<1?'PRIMARY':index===0?'SECONDARY':'EXTENSION',
-    liquiditySide:/HIGH|PDH|PWH/i.test(pool.label)?'BSL':'SSL',
+    liquiditySide:liquiditySideOf(pool.label),
     sourceTimeframe:pool.tf||null
   }));
   const rr=Math.abs(targets[0].price-entry)/risk;
@@ -609,9 +612,9 @@ function targetPlan(side,entry,stop,levels,m1,m5,m15,h1,h4,atr1,atr5){
     risk,rr,targets,
     mode:'ICT_EXTERNAL_LIQUIDITY_ONLY',
     minimumTargetMove:MIN_TARGET_MOVE,
-    mainLiquidity:{label:primary.label,price:round(primary.price),role:'PRIMARY',liquiditySide:/HIGH|PDH|PWH/i.test(primary.label)?'BSL':'SSL',sourceTimeframe:primary.tf||null},
-    primaryLiquidity:{label:primary.label,price:round(primary.price),distance:round(Math.abs(primary.price-entry),2),liquiditySide:/HIGH|PDH|PWH/i.test(primary.label)?'BSL':'SSL',sourceTimeframe:primary.tf||null},
-    secondaryLiquidity:Math.abs(primary.price-secondary.price)>=1?{label:secondary.label,price:round(secondary.price),distance:round(Math.abs(secondary.price-entry),2),liquiditySide:/HIGH|PDH|PWH/i.test(secondary.label)?'BSL':'SSL',sourceTimeframe:secondary.tf||null}:null
+    mainLiquidity:{label:primary.label,price:round(primary.price),role:'PRIMARY',liquiditySide:liquiditySideOf(primary.label),sourceTimeframe:primary.tf||null},
+    primaryLiquidity:{label:primary.label,price:round(primary.price),distance:round(Math.abs(primary.price-entry),2),liquiditySide:liquiditySideOf(primary.label),sourceTimeframe:primary.tf||null},
+    secondaryLiquidity:Math.abs(primary.price-secondary.price)>=1?{label:secondary.label,price:round(secondary.price),distance:round(Math.abs(secondary.price-entry),2),liquiditySide:liquiditySideOf(secondary.label),sourceTimeframe:secondary.tf||null}:null
   };
 }
 

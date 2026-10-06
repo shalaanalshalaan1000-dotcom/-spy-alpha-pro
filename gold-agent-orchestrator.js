@@ -99,14 +99,15 @@ function marketAgent(source = {}, now = Date.now()) {
 function setupAgent(source = {}, market, now = Date.now()) {
   const side = sourceSide(source);
   const confidence = toNum(source.signalConfidence ?? source.confidence) ?? 0;
-  const minConfidence = Math.max(0, toNum(process.env.AGENT_MIN_CONFIDENCE ?? process.env.GOLD_TELEGRAM_MIN_CONFIDENCE ?? process.env.MIN_CONFIDENCE) ?? 75);
+  const minConfidence = Math.max(75, toNum(process.env.AGENT_MIN_CONFIDENCE ?? process.env.GOLD_TELEGRAM_MIN_CONFIDENCE ?? process.env.MIN_CONFIDENCE) ?? 75);
   const status = String(source.status || 'WAIT').toUpperCase();
   const terminal = source.terminalEvent || null;
+  const terminalMatchesCurrent = Boolean(terminal && source.signalId && terminal.signalId && String(terminal.signalId) === String(source.signalId));
   const hasEntry = toNum(source.entry) != null && toNum(source.stopLoss) != null;
   const setupKey = String(source.signalId || ((side || 'WAIT') + ':' + round(source.entry) + ':' + round(source.stopLoss) + ':' + (source.strategy || source.tradeStyle || 'UNKNOWN')));
 
   let stage = 'WAIT';
-  if (terminal) stage = 'INVALIDATED';
+  if (terminalMatchesCurrent) stage = 'INVALIDATED';
   else if (status === 'MANAGING' || source.brokerConfirmed === true) stage = 'MANAGING';
   else if (
     side && hasEntry && confidence >= minConfidence && market.ready &&
