@@ -215,3 +215,13 @@ test('stale external sweep is invalidated after closed M5 accepts beyond the swe
  assert.match(ictSource,/side==='SELL'\?Number\(b\.close\)>Number\(sweep\.level\)\+tolerance:Number\(b\.close\)<Number\(sweep\.level\)-tolerance/);
  assert.match(ictSource,/sweepStillValid\(m5,side,x,atr5\)/);
 });
+
+test('fresh armed M5 external sweep outranks older completed or trend-continuation state while retest is pending',()=>{
+ const ictSource=fs.readFileSync(new URL('../gold-ict-swing-model.js',import.meta.url),'utf8');
+ assert.match(ictSource,/const m5Armed=Boolean\(seq5\?\.firstMss\)/);
+ assert.match(ictSource,/\(m5Armed\?2200:complete\?1000:0\)/);
+ assert.match(ictSource,/const armedReversalWinner=\[buy5Preview,sell5Preview\]/);
+ assert.match(ictSource,/\.filter\(x=>x\.freshSweep&&x\.m5Mss\)/);
+ assert.match(ictSource,/reversalWinner\?\?armedReversalWinner\?\?\(trendWinner/);
+});
+
