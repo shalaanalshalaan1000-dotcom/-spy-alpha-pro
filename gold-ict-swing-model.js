@@ -454,9 +454,12 @@ function selectSweepSequence({m1,m5,m15,side,levels,atr1,atr5,atr15,now}){
     const firstMss=[seq5?.firstMss,seq1?.firstMss].filter(Boolean).sort((a,b)=>(a.closeT??a.t)-(b.closeT??b.t))[0]??null;
     const firstDisplacement=[seq5?.firstDisplacement,seq1?.firstDisplacement].filter(Boolean).sort((a,b)=>(a.closeT??a.t)-(b.closeT??b.t))[0]??null;
     const complete=Boolean(firstMss&&firstDisplacement),progress=(firstMss?1:0)+(firstDisplacement?1:0);
+    // A fresh external sweep that already produced an M5 MSS is the active execution leg.
+    // Do not let an older completed M1/M5 sequence reclaim priority while the newer M5 retest is pending.
+    const m5Armed=Boolean(seq5?.firstMss);
     const named=Boolean(sweep?.liquidityClass==='EXTERNAL'),ageMin=Math.max(0,(now-sweep.t)/60000);
-    const quality=(complete?1000:0)+progress*120+(named?28:0)+(sweep.tf===5?12:sweep.tf===1?8:3)-ageMin*.08;
-    const candidate={sweep,seq5,seq1,firstMss,firstDisplacement,complete,quality};
+    const quality=(m5Armed?2200:complete?1000:0)+progress*120+(named?28:0)+(sweep.tf===5?12:sweep.tf===1?8:3)-ageMin*.08;
+    const candidate={sweep,seq5,seq1,firstMss,firstDisplacement,complete,m5Armed,quality};
     if(!best||candidate.quality>best.quality||(candidate.quality===best.quality&&sweep.t>best.sweep.t))best=candidate;
   }
   return best;
@@ -688,8 +691,14 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   };
   const buy5Preview=build5Preview('BUY'),sell5Preview=build5Preview('SELL');
   const reversalWinner=[buy5Preview,sell5Preview].filter(x=>x.coreEntryReady).sort((a,b)=>(b.m5MssRetest?.t||0)-(a.m5MssRetest?.t||0)||(b.sweep?.t||0)-(a.sweep?.t||0))[0]??null;
+  // While a fresh external-liquidity reversal is armed on M5, keep that side selected until
+  // its retest confirms or the sweep is structurally invalidated. A trend-continuation read
+  // must never switch the engine back to an older opposite-side sweep during this window.
+  const armedReversalWinner=[buy5Preview,sell5Preview]
+    .filter(x=>x.freshSweep&&x.m5Mss)
+    .sort((a,b)=>(b.m5Mss?.closeT??b.m5Mss?.t??0)-(a.m5Mss?.closeT??a.m5Mss?.t??0)||(b.sweep?.t||0)-(a.sweep?.t||0))[0]??null;
   const trendWinner=['BUY','SELL'].map(side=>findTrendContinuation({bars:m5,contextBars:{H4:h4,H1:h1},side,dir4,dir1,price,now})).find(Boolean)??null;
-  const lowerTfWinner=reversalWinner??(trendWinner?{side:trendWinner.side,score:70}:null)??(buy5Preview.score>sell5Preview.score?buy5Preview:sell5Preview.score>buy5Preview.score?sell5Preview:null);
+  const lowerTfWinner=reversalWinner??armedReversalWinner??(trendWinner?{side:trendWinner.side,score:70}:null)??(buy5Preview.score>sell5Preview.score?buy5Preview:sell5Preview.score>buy5Preview.score?sell5Preview:null);
   let setup15=lowerTfWinner&&lowerTfWinner.score>=28
     ?(lowerTfWinner.side==='BUY'?buy15:sell15)
     :(buy15.tieScore>sell15.tieScore?buy15:sell15.tieScore>buy15.tieScore?sell15:(dir15===1?buy15:dir15===-1?sell15:dir1===1?buy15:dir1===-1?sell15:buy15));
