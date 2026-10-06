@@ -207,3 +207,11 @@ test('USD calendar risk is advisory and cannot suppress a completed gold ICT ent
  assert.doesNotMatch(enginePatch,/if\(!state\.signal\)\{if\(newsRisk\.blockEntries\)/);
  assert.match(enginePatch,/site-signal-noai-v70-ict-confirmation-pipeline/);
 });
+
+
+test('stale external sweep is invalidated after closed M5 accepts beyond the swept level',()=>{
+ const ictSource=fs.readFileSync(new URL('../gold-ict-swing-model.js',import.meta.url),'utf8');
+ assert.match(ictSource,/function sweepStillValid\(m5,side,sweep,atr5\)/);
+ assert.match(ictSource,/side==='SELL'\?Number\(b\.close\)>Number\(sweep\.level\)\+tolerance:Number\(b\.close\)<Number\(sweep\.level\)-tolerance/);
+ assert.match(ictSource,/sweepStillValid\(m5,side,x,atr5\)/);
+});

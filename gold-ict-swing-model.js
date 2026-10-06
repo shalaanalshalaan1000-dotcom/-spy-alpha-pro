@@ -434,13 +434,20 @@ function recentSweeps(bars,side,levels,limit=12,lookbackBars=120){
   }
   return out.sort((a,b)=>b.t-a.t);
 }
+function sweepStillValid(m5,side,sweep,atr5){
+  if(!sweep||!['BUY','SELL'].includes(side))return false;
+  const tolerance=Math.max(.15,(Number(atr5)||1)*.08);
+  const later=(Array.isArray(m5)?m5:[]).filter(b=>Number(b.t)>Number(sweep.t));
+  const invalidated=later.some(b=>side==='SELL'?Number(b.close)>Number(sweep.level)+tolerance:Number(b.close)<Number(sweep.level)-tolerance);
+  return !invalidated;
+}
 function selectSweepSequence({m1,m5,m15,side,levels,atr1,atr5,atr15,now}){
   const ttlMinutes=Math.ceil(EXTERNAL_SWEEP_TTL_MS/60_000),m1Lookback=Math.max(120,ttlMinutes),m5Lookback=Math.max(72,Math.ceil(ttlMinutes/5)),m15Lookback=Math.max(32,Math.ceil(ttlMinutes/15));
   const rows=[
     ...recentSweeps(m5,side,levels,18,m5Lookback).map(x=>({...x,tf:5})),
     ...recentSweeps(m1,side,levels,24,m1Lookback).map(x=>({...x,tf:1})),
     ...recentSweeps(m15,side,levels,10,m15Lookback).map(x=>({...x,tf:15}))
-  ].filter(x=>now-x.t>=0&&now-x.t<=EXTERNAL_SWEEP_TTL_MS);
+  ].filter(x=>now-x.t>=0&&now-x.t<=EXTERNAL_SWEEP_TTL_MS&&sweepStillValid(m5,side,x,atr5));
   let best=null;
   for(const sweep of rows){
     const seq5=sequenceAfter(m5,side,sweep.t,atr5,300000),seq1=sequenceAfter(m1,side,sweep.t,atr1,60000);
@@ -696,7 +703,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const fvg5=latestFvg(m5,side),sweep5=localSweep(m5,side,levels),dm5=displacementAndMss(m5,side,atr5),bos5=latestBos(m5,side);
   const fvg1=latestFvg(m1,side),sweep1=localSweep(m1,side,levels),dm1=displacementAndMss(m1,side,atr1),bos1=latestBos(m1,side);
   const bos15=latestBos(m15,side);
-  // Execution hierarchy: keep the best live sweep anchor for the configured external-sweep session TTL.
+  // Execution hierarchy: keep the best live sweep anchor for the configured TTL, but invalidate it once a closed M5 accepts beyond the swept external level.
   // A later micro-sweep must not erase an earlier sweep that already produced MSS/displacement.
   const sweepState=selectSweepSequence({m1,m5,m15,side,levels,atr1,atr5,atr15,now});
   const legSweep=sweepState?.sweep??null;
