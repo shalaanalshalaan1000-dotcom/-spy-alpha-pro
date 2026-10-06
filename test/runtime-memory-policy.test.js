@@ -25,6 +25,9 @@ test('production engine generator applies cached clock and emits valid module wi
   assert.match(generated,/const parts=clockParts\(ms,timeZone\)/);
   const check=spawnSync(process.execPath,['--input-type=module','--check'],{input:generated,encoding:'utf8'});
   assert.equal(check.status,0,check.stderr);
+  assert.match(generated,/const key=Math\.floor\(t\/60000\)\*60000/);
+  assert.match(generated,/state\.samples=\[\.\.\.buckets\.values\(\)\]\.sort/);
+  assert.doesNotMatch(generated,/if\(last&&last\.t===x\.t\)Object\.assign\(last,x\)/);
 });
 
 // Execute the exact module-level formatter declaration; no workers or HTTP servers start.
