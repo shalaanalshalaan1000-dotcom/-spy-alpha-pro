@@ -23,8 +23,8 @@ const replacements = [
     "if(CONFIRM_ON_5M_CLOSE&&!fiveMinuteCloseConfirmed(s,now))return false;\n  if(tp1AlreadyGone(s,side,p,t[0]))return false;\n  const liveRisk=side==='BUY'?p-sl:sl-p,liveReward=side==='BUY'?t[0]-p:p-t[0];\n  if(!(liveRisk>0)||!(liveReward>0)||liveReward/liveRisk<MIN_LIVE_RR)return false;\n  if(side==='BUY'?p<=sl:p>=sl)return false;"
   ],
   [
-    "console.log(`[telegram-xau-confirmed] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} session-level-alerts=${SESSION_LEVEL_ALERTS_ENABLED?'on':'off'}; trade-signals=${TRADE_SIGNALS_ENABLED?'on':'off'}; gold-snr=advisory-only; one-active-trade lock; TP/SL lifecycle alerts=on`);",
-    "console.log(`[telegram-xau-confirmed] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} session-level-alerts=${SESSION_LEVEL_ALERTS_ENABLED?'on':'off'}; trade-signals=${TRADE_SIGNALS_ENABLED?'on':'off'}; gold-snr=advisory-only; confidence>=${MIN_CONFIDENCE}%; 5m-close=engine-confirmed; min-live-RR=${MIN_LIVE_RR}; TP/SL lifecycle alerts=on`);"
+    "console.log(`[telegram-xau-confirmed] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} session-level-alerts=${SESSION_LEVEL_ALERTS_ENABLED?'on':'off'}; trade-signals=${TRADE_SIGNALS_ENABLED?'on':'off'}; gold-snr=advisory-only; one-active-trade lock; TP/SL + STOP/CONTINUE management alerts=on`);",
+    "console.log(`[telegram-xau-confirmed] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} session-level-alerts=${SESSION_LEVEL_ALERTS_ENABLED?'on':'off'}; trade-signals=${TRADE_SIGNALS_ENABLED?'on':'off'}; gold-snr=advisory-only; confidence>=${MIN_CONFIDENCE}%; 5m-close=engine-confirmed; min-live-RR=${MIN_LIVE_RR}; TP/SL + STOP/CONTINUE management alerts=on`);"
   ]
 ];
 

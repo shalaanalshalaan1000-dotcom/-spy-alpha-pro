@@ -244,3 +244,39 @@ test('daily opportunity agent prefers 1-3 qualified setups but has no hard cap',
   assert.equal(five.agents.dailyOpportunity.state,'OPEN_FOR_ADDITIONAL_QUALIFIED_SETUPS');
   assert.equal(five.agents.dailyOpportunity.canExecute,false);
 });
+
+
+test('trade manager publishes stable high-confidence CONTINUE and STOP decisions only', () => {
+  configure();
+  process.env.AGENT_EXECUTION_ENABLED='false';
+  process.env.GOLD_TRADE_MANAGEMENT_MIN_CONFIDENCE='82';
+  process.env.GOLD_TRADE_MANAGEMENT_CONFIRM_MS='5000';
+  resetGoldAgentMemory();
+  const t=Date.UTC(2026,9,6,13,0,0);
+  const aligned={...base,status:'ACTIVE',liveModelStatus:'CANDIDATE',liveModelAction:'BUY',liveModelConfidence:88,liveModelReady:true};
+
+  let stack=orchestrateGoldAgents(aligned,t);
+  assert.equal(stack.agents.tradeManager.managementDecision.action,'HOLD_PLAN');
+  assert.equal(stack.agents.tradeManager.managementDecision.candidateAction,'CONTINUE');
+  assert.equal(stack.agents.tradeManager.managementDecision.confirmed,false);
+
+  stack=orchestrateGoldAgents(aligned,t+5001);
+  assert.equal(stack.agents.tradeManager.managementDecision.action,'CONTINUE');
+  assert.equal(stack.agents.tradeManager.managementDecision.manualAction,'KEEP_TRADE');
+  assert.equal(stack.agents.tradeManager.managementDecision.confirmed,true);
+
+  const weakOpposite={...aligned,liveModelAction:'SELL',liveModelConfidence:79};
+  stack=orchestrateGoldAgents(weakOpposite,t+6000);
+  assert.equal(stack.agents.tradeManager.managementDecision.action,'HOLD_PLAN');
+  assert.equal(stack.agents.tradeManager.managementDecision.candidateAction,'HOLD_PLAN');
+
+  const opposite={...aligned,liveModelAction:'SELL',liveModelConfidence:91};
+  stack=orchestrateGoldAgents(opposite,t+7000);
+  assert.equal(stack.agents.tradeManager.managementDecision.action,'HOLD_PLAN');
+  assert.equal(stack.agents.tradeManager.managementDecision.candidateAction,'STOP');
+
+  stack=orchestrateGoldAgents(opposite,t+12001);
+  assert.equal(stack.agents.tradeManager.managementDecision.action,'STOP');
+  assert.equal(stack.agents.tradeManager.managementDecision.manualAction,'EXIT_TRADE');
+  assert.equal(stack.agents.tradeManager.managementDecision.confirmed,true);
+});

@@ -6,7 +6,7 @@ import { orchestrateGoldAgents, applyAgentExecutionGate } from './gold-agent-orc
 
 const PORT = Number(process.env.PORT || 3000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_INNER_PORT || 3100);
-const BUILD_TAG = 'site-indicator-v23-gold-snr-advisory';
+const BUILD_TAG = 'site-indicator-v24-trade-manager-stop-continue';
 
 const app = spawn(process.execPath, ['gold-unified-start.js'], {
   env: { ...process.env, PORT: String(INNER_PORT) },
@@ -188,7 +188,7 @@ function injectIndicator(html) {
    const ad=s.agentDecision||{},ags=s.agents||{},risk=ags.risk||{},tm=ags.tradeManager||{};
    document.getElementById('siteAgentStage').textContent=(ad.stage||'WAIT')+' • '+(ad.side||'WAIT');
    document.getElementById('siteRiskAgent').textContent=risk.recommendedLot!=null?('Lot '+Number(risk.recommendedLot).toFixed(2)+' • Risk USD '+Number(risk.estimatedRiskUsd||0).toFixed(2)):(risk.allowed?'READY':'WAIT');
-   document.getElementById('siteTradeManager').textContent=(tm.action||'OBSERVE')+(tm.suggestedProtection?' • MOVE SL TO BE':'');
+   const md=tm.managementDecision||{},mdConf=Number.isFinite(Number(md.confidence))?Math.round(Number(md.confidence))+'%':'—';document.getElementById('siteTradeManager').textContent=md.action==='STOP'?('⛔ STOP • '+mdConf):md.action==='CONTINUE'?('✅ CONTINUE • '+mdConf):((tm.action||'OBSERVE')+' • HOLD PLAN')+(tm.suggestedProtection?' • MOVE SL TO BE':'');
    document.getElementById('siteAgentMode').textContent=s.agentMode||'OBSERVE_ONLY';
    const brain=ags.brain||{},reflex=ags.reflex||{},schema=s.decisionSchema||{};
    document.getElementById('siteBrain').textContent=(brain.direction||'NEUTRAL')+' • '+(brain.regime||'TRANSITION')+' • Q'+(brain.setupQuality??0);
@@ -197,7 +197,7 @@ function injectIndicator(html) {
    const m2=s.riskFramework||s.ict?.month2Risk||{};
    const m2El=document.getElementById('siteMonth2Risk');
    if(m2El)m2El.textContent=m2.riskDistance!=null?(m2.primaryBeyond3R?('3R '+money(m2.threeRPrice)+' • 50% اختياري ثم Primary liquidity'):('Primary liquidity قبل 3R • لا نفرض هدف 3R')):'—';
-   document.getElementById('siteSignalReason').textContent=(ad.reason?('[Agents] '+ad.reason+' • '):'')+(s.reason||'—');
+   document.getElementById('siteSignalReason').textContent=(md.reason?('[Trade Manager] '+md.reason+' • '):'')+(ad.reason?('[Agents] '+ad.reason+' • '):'')+(s.reason||'—');
   }catch(e){const word=document.getElementById('siteSignalWord');if(word){word.textContent='WAIT';word.className='siteWait';}}
  }
  // Three seconds is fast enough for a 5m execution model and cuts needless internal polling by ~67%.
