@@ -160,8 +160,6 @@ function riskAgent(source = {}, setup) {
   const stopLoss = toNum(source.stopLoss);
   const balance = Math.max(0, toNum(process.env.XAU_ACCOUNT_BALANCE_USD) ?? 70);
   const safeRiskUsd = Math.max(0, toNum(process.env.XAU_SAFE_RISK_USD) ?? 5);
-  const maxRiskUsd = Math.max(safeRiskUsd, toNum(process.env.XAU_MAX_RISK_USD) ?? 10);
-  const maxStopDistanceUsd = Math.max(0.3, toNum(process.env.XAU_MAX_STOP_DISTANCE_USD) ?? 10);
   const contractSize = Math.max(0.000001, toNum(process.env.XAU_CONTRACT_SIZE) ?? 100);
   const lotStep = Math.max(0.000001, toNum(process.env.XAU_LOT_STEP) ?? 0.01);
   const stopDistance = entry != null && stopLoss != null ? Math.abs(entry - stopLoss) : null;
@@ -176,8 +174,9 @@ function riskAgent(source = {}, setup) {
     name: 'RISK_AGENT',
     balanceUsd: round(balance),
     safeRiskUsd: round(safeRiskUsd),
-    maxRiskUsd: round(maxRiskUsd),
-    maxStopDistanceUsd: round(maxStopDistanceUsd),
+    maxRiskUsd: null,
+    maxStopDistanceUsd: null,
+    hardDollarRiskCap: false,
     entry: round(entry),
     stopLoss: round(stopLoss),
     stopDistanceUsd: round(stopDistance),
@@ -189,7 +188,7 @@ function riskAgent(source = {}, setup) {
     allowed: planComplete && structurallyValid && stopDistance != null && estimatedRiskUsd != null,
     stopDistanceBlocking: false,
     riskAmountBlocking: false,
-    note: stopDistance != null && stopDistance > maxStopDistanceUsd ? 'Wide structural stop is informational only; the setup is not blocked by stop distance.' : estimatedRiskUsd != null && estimatedRiskUsd > maxRiskUsd ? 'Estimated risk exceeds the reference ceiling, but stop/risk size is advisory only for setup authorization.' : riskPct != null && riskPct > 5 ? 'Risk exceeds 5% of reference balance; advisory only.' : 'Stop and risk are informational for setup authorization.'
+    note: riskPct != null && riskPct > 5 ? 'Estimated risk is above 5% of the reference balance; informational only. Structural SL remains authoritative and there is no hard $10 per-trade cap.' : 'Structural SL remains authoritative; safe-risk sizing is advisory and there is no hard $10 per-trade cap.'
   };
 }
 
