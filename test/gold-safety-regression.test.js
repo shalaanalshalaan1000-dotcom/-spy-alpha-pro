@@ -225,3 +225,10 @@ test('fresh armed M5 external sweep outranks older completed or trend-continuati
  assert.match(ictSource,/reversalWinner\?\?armedReversalWinner\?\?\(trendWinner/);
 });
 
+test('gold liquidity targets remain monotonic so valid candidates are not silently rejected',()=>{
+ const ictSource=fs.readFileSync(new URL('../gold-ict-swing-model.js',import.meta.url),'utf8');
+ assert.match(ictSource,/ordered\.sort\(\(a,b\)=>Math\.abs\(a\.price-entry\)-Math\.abs\(b\.price-entry\)\)/);
+ assert.match(ictSource,/primaryAlreadyIncluded/);
+ assert.doesNotMatch(ictSource,/const ordered=\[secondary\];\s*if\(Math\.abs\(primary\.price-secondary\.price\)>=1\)ordered\.push\(primary\)/);
+});
+
