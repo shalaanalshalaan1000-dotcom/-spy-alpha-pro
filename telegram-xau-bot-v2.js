@@ -23,7 +23,7 @@ let telegramUpdateOffset=0;
 let lastSendControlEnabled=null;
 
 let ready=false;
-const sent={side:null,key:null,above:false,messageId:null,lastText:null,lastEditMs:0,announcedAtMs:0,targets:[false,false,false,false],managedStops:[false,false,false,false]};
+const sent={side:null,key:null,above:false,messageId:null,lastText:null,lastEditMs:0,announcedAtMs:0,targets:[false,false,false,false],managedStops:[false,false,false,false],managementKey:null};
 const tradeLock={active:false,key:null,side:null,startedAtMs:0};
 const recentKeys=new Map();
 const sessionAlertKeys=new Set();
@@ -657,6 +657,43 @@ function tpHitMessage(i,target){
 function managedStopMessage(i,managed){
   return `🔒 XAUUSD — بعد TP${i+1}\n⬆️ ارفع وقف الخسارة إلى: ${n(managed)}`;
 }
+function managementDecisionOf(s){
+  const d=s?.agentStack?.agents?.tradeManager?.managementDecision||s?.agents?.tradeManager?.managementDecision||s?.tradeManagement||null;
+  if(!d||d.confirmed!==true||!['CONTINUE','STOP'].includes(String(d.action||'').toUpperCase()))return null;
+  return {...d,action:String(d.action).toUpperCase()};
+}
+function tradeManagementMessage(s){
+  const d=managementDecisionOf(s);
+  if(!d)return null;
+  const side=sideOf(s)||'TRADE',confidence=Math.round(Number(d.confidence)||0),live=n(s?.price),modelSide=String(d.modelSide||side);
+  if(d.action==='STOP'){
+    return `⛔ XAUUSD — STOP / EXIT TRADE
+🚪 اخرج من صفقة ${side}
+📊 التأكيد الحي المعاكس: ${modelSide} • ${confidence}%
+💵 السعر الآن: ${live}
+🧠 ${d.reason||'ظهر تأكيد معاكس قوي ومستقر.'}
+⚠️ هذا قرار إدارة للصفقة الحالية، وليس إشارة دخول عكسية.`;
+  }
+  return `✅ XAUUSD — CONTINUE TRADE
+📌 استمر في صفقة ${side}
+📊 التأكيد الحي: ${modelSide} • ${confidence}%
+💵 السعر الآن: ${live}
+🧠 ${d.reason||'الإعداد الحي ما زال متوافقًا مع اتجاه الصفقة.'}
+🛡️ حافظ على SL / managed stop الحالي حتى يصدر تحديث جديد.`;
+}
+async function sendTradeManagement(s){
+  if(!sent.above||sent.key!==signalKey(s))return false;
+  const d=managementDecisionOf(s);
+  if(!d)return false;
+  const key=`${d.action}|${d.modelSide||''}`;
+  if(sent.managementKey===key)return false;
+  const message=tradeManagementMessage(s);
+  if(!message)return false;
+  await send(message);
+  sent.managementKey=key;
+  console.log(`[telegram-xau-confirmed] trade-management ${key} confidence=${Math.round(Number(d.confidence)||0)} signal=${sent.key}`);
+  return true;
+}
 function terminalMessage(t){
   const outcome=String(t?.outcome||'').toUpperCase();
   if(['SL','MANAGED_STOP'].includes(outcome)){
@@ -699,6 +736,7 @@ function resetSent(){
   sent.announcedAtMs=0;
   sent.targets=[false,false,false,false];
   sent.managedStops=[false,false,false,false];
+  sent.managementKey=null;
 }
 async function tick(){
   try{
@@ -761,7 +799,8 @@ async function tick(){
         sent.lastEditMs=now;
         sent.announcedAtMs=now;
         sent.targets=[false,false,false,false];
-  sent.managedStops=[false,false,false,false];
+        sent.managedStops=[false,false,false,false];
+        sent.managementKey=null;
         recentKeys.set(key,now);
         console.log(`[telegram-xau-confirmed] sent+locked ${side} ${Math.round(confidence)}% entry=${n(entry)} SL=${n(sl)} key=${key} msg=${messageId||'na'}`);
       }else if(sameLockedTrade&&sent.above&&sent.key===key&&sent.messageId&&text!==sent.lastText&&now-sent.lastEditMs>=EDIT_MIN_MS){
@@ -770,12 +809,16 @@ async function tick(){
         sent.lastEditMs=now;
         console.log(`[telegram-xau-confirmed] edited locked ${side} ${Math.round(confidence)}% key=${key} msg=${sent.messageId}`);
       }
-      if(sameLockedTrade||tradeLock.key===key)await sendTargetHits(s);
+      if(sameLockedTrade||tradeLock.key===key){
+        await sendTargetHits(s);
+        await sendTradeManagement(s);
+      }
       return;
     }
 
     if(sameLockedTrade&&sent.above){
       await sendTargetHits(s);
+      await sendTradeManagement(s);
       return;
     }
     if(tradeLock.active&&active&&key!==tradeLock.key){
@@ -789,10 +832,10 @@ async function tick(){
   }catch(e){console.error('[telegram-xau-confirmed]',e?.message||e);}
 }
 
-console.log(`[telegram-xau-confirmed] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} session-level-alerts=${SESSION_LEVEL_ALERTS_ENABLED?'on':'off'}; trade-signals=${TRADE_SIGNALS_ENABLED?'on':'off'}; gold-snr=advisory-only; one-active-trade lock; TP/SL lifecycle alerts=on`);
+console.log(`[telegram-xau-confirmed] ${BOT_TOKEN&&CHAT_ID?'enabled':'disabled'} session-level-alerts=${SESSION_LEVEL_ALERTS_ENABLED?'on':'off'}; trade-signals=${TRADE_SIGNALS_ENABLED?'on':'off'}; gold-snr=advisory-only; one-active-trade lock; TP/SL + STOP/CONTINUE management alerts=on`);
 if(process.env.NODE_ENV!=='test'){
   (async function loop(){while(true){await tick();await new Promise(r=>setTimeout(r,POLL_MS));}})();
   (async function commands(){await botCommandLoop();})();
 }
 
-export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate,sessionIctContinuationGate,sessionMomentumArm,sessionMomentumAcceptance,sessionExecutionWatchMessage};
+export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeManagementMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate,sessionIctContinuationGate,sessionMomentumArm,sessionMomentumAcceptance,sessionExecutionWatchMessage};
