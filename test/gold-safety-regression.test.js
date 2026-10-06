@@ -175,3 +175,18 @@ test('confirmed core M5 MSS retest can activate without an Origin FVG retouch',(
  assert.match(uiSource,/External Sweep → M5 MSS → Retest\/Hold \| FVG\/iFVG\/OB = Confluence/);
 });
 
+
+
+test('external ICT sweep remains armed through the same trading session instead of resetting after ~72 minutes',()=>{
+ const ictSource=fs.readFileSync(new URL('../gold-ict-swing-model.js',import.meta.url),'utf8');
+ const uiSource=fs.readFileSync(new URL('../gold-site-ui-start.js',import.meta.url),'utf8');
+ assert.match(ictSource,/GOLD_EXTERNAL_SWEEP_TTL_MS\|\|12\*60\*60_000/);
+ assert.match(ictSource,/recentSweeps\(m1,side,levels,24,m1Lookback\)/);
+ assert.match(ictSource,/now-x\.t<=EXTERNAL_SWEEP_TTL_MS/);
+ assert.match(ictSource,/EXTERNAL_LIQUIDITY_SWEEP -> WAIT_M5_MSS/);
+ assert.match(ictSource,/EXTERNAL_LIQUIDITY_SWEEP -> M5_MSS -> WAIT_RETEST_HOLD/);
+ assert.match(ictSource,/sweep retained; waiting for M5 MSS/);
+ assert.match(ictSource,/sweep \+ M5 MSS retained; waiting for M5 retest\/hold/);
+ assert.match(uiSource,/تم حفظ '\+sweepLabel\+' sweep — ننتظر M5 MSS/);
+ assert.match(uiSource,/M5 MSS مؤكد — ننتظر Retest\/Hold/);
+});
