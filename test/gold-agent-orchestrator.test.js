@@ -307,3 +307,43 @@ test('trade manager requires ICT/M5 structure for CONTINUE and structure flip fo
   assert.equal(stack.agents.tradeManager.managementDecision.manualAction,'EXIT_TRADE');
   assert.equal(stack.agents.tradeManager.managementDecision.confirmed,true);
 });
+
+
+test('terminal event from a previous signal cannot invalidate a new active setup', () => {
+  configure();
+  process.env.AGENT_EXECUTION_ENABLED='false';
+  resetGoldAgentMemory();
+  const freshSignal={
+    ...base,
+    status:'ACTIVE',
+    signalId:'new-sell-signal',
+    action:'SELL',
+    candidateAction:'SELL',
+    side:'SELL',
+    price:4169,
+    entry:4171.92,
+    entryLow:4171.74,
+    entryHigh:4172.10,
+    stopLoss:4184.58,
+    target1:4154.34,
+    target2:4143.58,
+    target3:4128.43,
+    target4:4103.52,
+    signalConfidence:98,
+    terminalEvent:{signalId:'old-buy-signal',side:'BUY',closedAtMs:Date.now()-60_000},
+    multiTimeframe:{...base.multiTimeframe,side:'SELL',reads:{...base.multiTimeframe.reads,M5:{side:'SELL'},M1:{side:'SELL'}}}
+  };
+  const stack=orchestrateGoldAgents(freshSignal);
+  assert.notEqual(stack.agents.setup.stage,'INVALIDATED');
+  assert.equal(stack.agents.setup.side,'SELL');
+});
+
+test('agent confidence floor remains 75 even if environment is configured lower', () => {
+  configure();
+  process.env.AGENT_EXECUTION_ENABLED='false';
+  process.env.AGENT_MIN_CONFIDENCE='65';
+  resetGoldAgentMemory();
+  const stack=orchestrateGoldAgents({...base,signalId:'confidence-floor',signalConfidence:70,confidence:70});
+  assert.equal(stack.agents.setup.minConfidence,75);
+  assert.equal(stack.agents.setup.stage,'WATCHING');
+});
