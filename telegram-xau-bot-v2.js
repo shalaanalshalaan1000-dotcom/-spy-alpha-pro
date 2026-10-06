@@ -15,7 +15,6 @@ const XAU_CONTRACT_SIZE=Math.max(1,Number(process.env.XAU_CONTRACT_SIZE||100));
 const XAU_LOT_STEP=Math.max(.001,Number(process.env.XAU_LOT_STEP||.01));
 const XAU_ACCOUNT_BALANCE_USD=Math.max(1,Number(process.env.XAU_ACCOUNT_BALANCE_USD||155));
 const XAU_SAFE_RISK_USD=Math.max(1,Number(process.env.XAU_SAFE_RISK_USD||5));
-const XAU_MAX_RISK_USD=Math.max(XAU_SAFE_RISK_USD,Number(process.env.XAU_MAX_RISK_USD||10));
 const BOOT_GRACE_MS=15_000;
 const JOURNAL_URL=String(process.env.TELEGRAM_JOURNAL_URL||'http://127.0.0.1:3002/api/performance/journal').trim();
 const BTC_JOURNAL_PATH=String(process.env.BTC_TRADE_JOURNAL_PATH||'/tmp/gold-alpha-btc-trades.json').trim();
@@ -71,7 +70,7 @@ function valid(v){const x=num(v);return x!=null&&x>0;}
 function n(v,d=3){return valid(v)?Number(v).toFixed(d):'—';}
 function money(v,d=2){return valid(v)?'$'+Number(v).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d}):'—';}
 function lotForRisk(entry,sl,riskUsd){const distance=Math.abs(Number(entry)-Number(sl));if(!(distance>0)||!(riskUsd>0))return null;const raw=riskUsd/(distance*XAU_CONTRACT_SIZE);if(!(raw>0))return null;const stepped=Math.floor((raw+1e-12)/XAU_LOT_STEP)*XAU_LOT_STEP;return stepped>=XAU_LOT_STEP?Number(stepped.toFixed(3)):0;}
-function lotSizingLines(entry,sl){const distance=Math.abs(Number(entry)-Number(sl));if(!(distance>0))return [];const safeLot=lotForRisk(entry,sl,XAU_SAFE_RISK_USD),maxLot=lotForRisk(entry,sl,XAU_MAX_RISK_USD),minLotRisk=distance*XAU_CONTRACT_SIZE*XAU_LOT_STEP;const safePct=XAU_SAFE_RISK_USD/XAU_ACCOUNT_BALANCE_USD*100,maxPct=XAU_MAX_RISK_USD/XAU_ACCOUNT_BALANCE_USD*100;const fmt=lot=>lot&&lot>0?`${lot.toFixed(2)} lot`:`أقل من ${XAU_LOT_STEP.toFixed(2)} lot`;const lines=[`💼 الرصيد المرجعي: $${XAU_ACCOUNT_BALANCE_USD.toFixed(0)}`,`📏 مسافة الوقف: $${distance.toFixed(2)}`,`✅ اللوت المقترح (خطر ≈ $${XAU_SAFE_RISK_USD.toFixed(0)} / ${safePct.toFixed(1)}%): ${fmt(safeLot)}`,`⛔ أقصى لوت (خطر ≈ $${XAU_MAX_RISK_USD.toFixed(0)} / ${maxPct.toFixed(1)}%): ${fmt(maxLot)}`];if(maxLot===0)lines.push(`🚫 تخطَّ الصفقة: أقل لوت ${XAU_LOT_STEP.toFixed(2)} قد يخسر ≈ $${minLotRisk.toFixed(2)} عند SL`);else lines.push('⚠️ لا تتجاوز اللوت الأقصى لهذه الصفقة');return lines;}
+function lotSizingLines(entry,sl){const distance=Math.abs(Number(entry)-Number(sl));if(!(distance>0))return [];const safeLot=lotForRisk(entry,sl,XAU_SAFE_RISK_USD),suggestedLot=safeLot&&safeLot>0?safeLot:XAU_LOT_STEP,actualRisk=distance*XAU_CONTRACT_SIZE*suggestedLot,safePct=XAU_SAFE_RISK_USD/XAU_ACCOUNT_BALANCE_USD*100;return[`💼 الرصيد المرجعي: ${XAU_ACCOUNT_BALANCE_USD.toFixed(0)}`,`📏 مسافة الوقف الهيكلي: ${distance.toFixed(2)}`,`✅ اللوت المرجعي: ${suggestedLot.toFixed(2)} lot (هدف مخاطرة مرجعي ≈ ${XAU_SAFE_RISK_USD.toFixed(0)} / ${safePct.toFixed(1)}%)`,`📊 الخطر الفعلي عند هذا اللوت والوقف: ≈ ${actualRisk.toFixed(2)}`,'ℹ️ لا يوجد سقف $10 مفروض على الصفقة؛ الوقف الهيكلي هو المرجع.'];}
 function sideOf(s){return ['BUY','SELL'].includes(s?.side)?s.side:null;}
 function confidenceOf(s){return Number(s?.signalConfidence??s?.confidence??0)||0;}
 function targetOf(s,i){return num(s?.[`target${i}`]);}

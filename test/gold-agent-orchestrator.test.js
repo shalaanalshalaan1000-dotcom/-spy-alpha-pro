@@ -347,3 +347,34 @@ test('agent confidence floor remains 75 even if environment is configured lower'
   assert.equal(stack.agents.setup.minConfidence,75);
   assert.equal(stack.agents.setup.stage,'WATCHING');
 });
+
+
+test('wide structural stop remains allowed without a hard $10 per-trade cap', () => {
+  configure();
+  process.env.AGENT_EXECUTION_ENABLED='false';
+  resetGoldAgentMemory();
+  const wideStop={
+    ...base,
+    signalId:'wide-stop-no-cap',
+    entry:4171.92,
+    entryLow:4171.74,
+    entryHigh:4172.10,
+    stopLoss:4184.58,
+    target1:4154.34,
+    target2:4143.58,
+    target3:4128.43,
+    target4:4103.52,
+    side:'SELL',
+    action:'SELL',
+    candidateAction:'SELL',
+    signalConfidence:98,
+    confidence:98,
+    multiTimeframe:{...base.multiTimeframe,side:'SELL',reads:{...base.multiTimeframe.reads,M5:{side:'SELL'},M1:{side:'SELL'}}}
+  };
+  const stack=orchestrateGoldAgents(wideStop);
+  assert.equal(stack.agents.risk.hardDollarRiskCap,false);
+  assert.equal(stack.agents.risk.maxRiskUsd,null);
+  assert.equal(stack.agents.risk.maxStopDistanceUsd,null);
+  assert.equal(stack.agents.risk.allowed,true);
+  assert.ok(stack.agents.risk.estimatedRiskUsd>10);
+});
