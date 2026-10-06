@@ -225,6 +225,15 @@ test('fresh armed M5 external sweep outranks older completed or trend-continuati
  assert.match(ictSource,/reversalWinner\?\?armedReversalWinner\?\?\(trendWinner/);
 });
 
+
+
+test('gold ICT targets use the correct liquidity side: BUY to BSL highs, SELL to SSL lows',()=>{
+ const ictSource=fs.readFileSync(new URL('../gold-ict-swing-model.js',import.meta.url),'utf8');
+ assert.match(ictSource,/const requiredLiquiditySide=side==='BUY'\?'BSL':'SSL'/);
+ assert.match(ictSource,/directionalPools=pools\.filter\(x=>liquiditySideOf\(x\.label\)===requiredLiquiditySide\)/);
+ assert.match(ictSource,/HIGH\|PDH\|PWH\|EQH/);
+ assert.match(ictSource,/LOW\|PDL\|PWL\|EQL/);
+});
 test('gold liquidity targets remain monotonic so valid candidates are not silently rejected',()=>{
  const ictSource=fs.readFileSync(new URL('../gold-ict-swing-model.js',import.meta.url),'utf8');
  assert.match(ictSource,/ordered\.sort\(\(a,b\)=>Math\.abs\(a\.price-entry\)-Math\.abs\(b\.price-entry\)\)/);
