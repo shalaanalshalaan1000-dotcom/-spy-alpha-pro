@@ -14,6 +14,7 @@ const memory = {
   setupKey: null,
   activeSignalId: null,
   tpHits: [false, false, false, false],
+  managementTrack: null,
   lastEventKey: null,
   events: []
 };
@@ -202,6 +203,7 @@ function tradeManagerAgent(source = {}, setup, now = Date.now()) {
   if (signalId && memory.activeSignalId !== signalId) {
     memory.activeSignalId = signalId;
     memory.tpHits = [false, false, false, false];
+    memory.managementTrack = null;
     pushEvent('TRADE_TRACK', {signalId, setupKey:setup.setupKey, side, stage:setup.stage}, now);
   }
 
@@ -223,6 +225,75 @@ function tradeManagerAgent(source = {}, setup, now = Date.now()) {
   const suggestedProtection = tp1Hit && entry != null ? {type:'MOVE_SL', to:round(entry), policy:'BREAKEVEN_AFTER_TP1'} : null;
   const executionEnabled = String(process.env.AGENT_EXECUTION_ENABLED || 'false').toLowerCase() === 'true';
 
+  // Post-entry decisions are intentionally stricter than entry eligibility. A transient
+  // confidence dip never closes a trade: STOP/CONTINUE requires a fresh, fully formed
+  // live model, high confidence, and a short stability window.
+  const managementMinConfidence = Math.max(75, toNum(process.env.GOLD_TRADE_MANAGEMENT_MIN_CONFIDENCE) ?? 82);
+  const managementConfirmMs = Math.max(0, toNum(process.env.GOLD_TRADE_MANAGEMENT_CONFIRM_MS) ?? 5000);
+  const liveModelSide = validSide(source.liveModelAction);
+  const liveModelConfidence = toNum(source.liveModelConfidence) ?? 0;
+  const liveModelStatus = String(source.liveModelStatus || 'WAIT').toUpperCase();
+  const liveModelReady = Boolean(
+    signalId &&
+    liveModelSide &&
+    liveModelStatus === 'CANDIDATE' &&
+    source.liveModelReady !== false &&
+    liveModelConfidence >= managementMinConfidence
+  );
+  const sameSideConfirmed = Boolean(liveModelReady && liveModelSide === side);
+  const oppositeConfirmed = Boolean(liveModelReady && liveModelSide !== side);
+
+  let candidateAction = 'HOLD_PLAN';
+  let candidateReason = 'No new high-confidence model; keep the original SL/TP plan.';
+  if (stopped) {
+    candidateAction = 'STOP';
+    candidateReason = 'Current price reached the active stop.';
+  } else if (oppositeConfirmed) {
+    candidateAction = 'STOP';
+    candidateReason = `Confirmed opposite ${liveModelSide} model at ${Math.round(liveModelConfidence)}%.`;
+  } else if (sameSideConfirmed) {
+    candidateAction = 'CONTINUE';
+    candidateReason = `Confirmed ${side} model remains aligned at ${Math.round(liveModelConfidence)}%.`;
+  }
+
+  let confirmed = stopped;
+  let stableForMs = stopped ? managementConfirmMs : 0;
+  if (!stopped && ['STOP', 'CONTINUE'].includes(candidateAction)) {
+    const signature = [signalId, candidateAction, liveModelSide].join('|');
+    if (!memory.managementTrack || memory.managementTrack.signature !== signature) {
+      memory.managementTrack = {signature, firstSeenAtMs:now};
+    }
+    stableForMs = Math.max(0, now - memory.managementTrack.firstSeenAtMs);
+    confirmed = stableForMs >= managementConfirmMs;
+  } else if (candidateAction === 'HOLD_PLAN') {
+    memory.managementTrack = null;
+  }
+
+  const finalAction = confirmed ? candidateAction : 'HOLD_PLAN';
+  const managementDecision = {
+    action: finalAction,
+    candidateAction,
+    confirmed,
+    manualAction: finalAction === 'STOP' ? 'EXIT_TRADE' : finalAction === 'CONTINUE' ? 'KEEP_TRADE' : 'FOLLOW_ORIGINAL_PLAN',
+    confidence: round(liveModelConfidence, 0),
+    modelSide: liveModelSide,
+    modelStatus: liveModelStatus,
+    minConfidence: managementMinConfidence,
+    stableForMs,
+    confirmMs: managementConfirmMs,
+    reason: confirmed
+      ? candidateReason
+      : candidateAction === 'HOLD_PLAN'
+        ? candidateReason
+        : `${candidateReason} Waiting for ${managementConfirmMs} ms stability before publishing.`
+  };
+
+  if (confirmed && candidateAction === 'CONTINUE') {
+    pushEvent('TRADE_CONTINUE', {signalId:signalId || setup.setupKey, side, stage:setup.stage}, now);
+  } else if (confirmed && candidateAction === 'STOP') {
+    pushEvent('TRADE_STOP', {signalId:signalId || setup.setupKey, side, stage:setup.stage}, now);
+  }
+
   return {
     name: 'TRADE_MANAGER_AGENT',
     signalId,
@@ -231,6 +302,7 @@ function tradeManagerAgent(source = {}, setup, now = Date.now()) {
     tpHits: {tp1:memory.tpHits[0], tp2:memory.tpHits[1], tp3:memory.tpHits[2], tp4:memory.tpHits[3]},
     stopped,
     suggestedProtection,
+    managementDecision,
     executionEnabled,
     action: stopped ? 'EXIT_STATE' : setup.stage === 'MANAGING' ? 'MANAGE' : setup.stage === 'CONFIRMED' ? 'READY' : 'OBSERVE',
     note: executionEnabled ? 'Execution permission enabled by environment.' : 'Observation mode: no broker orders are sent by the agent layer.'
@@ -935,6 +1007,7 @@ export function resetGoldAgentMemory() {
   memory.setupKey = null;
   memory.activeSignalId = null;
   memory.tpHits = [false, false, false, false];
+  memory.managementTrack = null;
   memory.lastEventKey = null;
   memory.events = [];
 }
