@@ -666,19 +666,22 @@ function tradeManagementMessage(s){
   const d=managementDecisionOf(s);
   if(!d)return null;
   const side=sideOf(s)||'TRADE',confidence=Math.round(Number(d.confidence)||0),live=n(s?.price),modelSide=String(d.modelSide||side);
+  const structure=String(d.structureState||'UNKNOWN').toUpperCase(),m5=String(d.m5Side||'—');
   if(d.action==='STOP'){
     return `⛔ XAUUSD — STOP / EXIT TRADE
 🚪 اخرج من صفقة ${side}
-📊 التأكيد الحي المعاكس: ${modelSide} • ${confidence}%
+🧱 M5/ICT structure: ${structure} • M5 ${m5}
+📊 Advisory model: ${modelSide} • ${confidence}%
 💵 السعر الآن: ${live}
-🧠 ${d.reason||'ظهر تأكيد معاكس قوي ومستقر.'}
+🧠 ${d.reason||'تم تأكيد إبطال البنية على M5.'}
 ⚠️ هذا قرار إدارة للصفقة الحالية، وليس إشارة دخول عكسية.`;
   }
   return `✅ XAUUSD — CONTINUE TRADE
 📌 استمر في صفقة ${side}
-📊 التأكيد الحي: ${modelSide} • ${confidence}%
+🧱 M5/ICT structure: ${structure} • M5 ${m5}
+📊 Advisory model: ${modelSide} • ${confidence}%
 💵 السعر الآن: ${live}
-🧠 ${d.reason||'الإعداد الحي ما زال متوافقًا مع اتجاه الصفقة.'}
+🧠 ${d.reason||'بنية ICT/M5 ما زالت صالحة؛ ثقة النموذج عامل مساعد فقط.'}
 🛡️ حافظ على SL / managed stop الحالي حتى يصدر تحديث جديد.`;
 }
 async function sendTradeManagement(s){

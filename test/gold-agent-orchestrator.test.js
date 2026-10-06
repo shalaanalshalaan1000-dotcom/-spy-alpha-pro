@@ -246,7 +246,7 @@ test('daily opportunity agent prefers 1-3 qualified setups but has no hard cap',
 });
 
 
-test('trade manager publishes stable high-confidence CONTINUE and STOP decisions only', () => {
+test('trade manager requires ICT/M5 structure for CONTINUE and structure flip for early STOP', () => {
   configure();
   process.env.AGENT_EXECUTION_ENABLED='false';
   process.env.GOLD_TRADE_MANAGEMENT_MIN_CONFIDENCE='82';
@@ -258,6 +258,8 @@ test('trade manager publishes stable high-confidence CONTINUE and STOP decisions
   let stack=orchestrateGoldAgents(aligned,t);
   assert.equal(stack.agents.tradeManager.managementDecision.action,'HOLD_PLAN');
   assert.equal(stack.agents.tradeManager.managementDecision.candidateAction,'CONTINUE');
+  assert.equal(stack.agents.tradeManager.managementDecision.structureState,'VALID');
+  assert.equal(stack.agents.tradeManager.managementDecision.confidenceRole,'ADVISORY_ONLY');
   assert.equal(stack.agents.tradeManager.managementDecision.confirmed,false);
 
   stack=orchestrateGoldAgents(aligned,t+5001);
@@ -265,17 +267,42 @@ test('trade manager publishes stable high-confidence CONTINUE and STOP decisions
   assert.equal(stack.agents.tradeManager.managementDecision.manualAction,'KEEP_TRADE');
   assert.equal(stack.agents.tradeManager.managementDecision.confirmed,true);
 
+  const missingStructure={
+    ...aligned,
+    signalId:'agent-test-missing-structure',
+    reason:'live model only',
+    ict:{},
+    multiTimeframe:{...aligned.multiTimeframe,reads:{...aligned.multiTimeframe.reads,M5:{side:'BUY'}}}
+  };
+  resetGoldAgentMemory();
+  stack=orchestrateGoldAgents(missingStructure,t+6000);
+  assert.equal(stack.agents.tradeManager.managementDecision.action,'HOLD_PLAN');
+  assert.equal(stack.agents.tradeManager.managementDecision.candidateAction,'HOLD_PLAN');
+  assert.equal(stack.agents.tradeManager.managementDecision.structureState,'WEAKENING');
+
   const weakOpposite={...aligned,liveModelAction:'SELL',liveModelConfidence:79};
-  stack=orchestrateGoldAgents(weakOpposite,t+6000);
+  resetGoldAgentMemory();
+  stack=orchestrateGoldAgents(weakOpposite,t+7000);
   assert.equal(stack.agents.tradeManager.managementDecision.action,'HOLD_PLAN');
   assert.equal(stack.agents.tradeManager.managementDecision.candidateAction,'HOLD_PLAN');
 
-  const opposite={...aligned,liveModelAction:'SELL',liveModelConfidence:91};
-  stack=orchestrateGoldAgents(opposite,t+7000);
+  const oppositeWithoutM5Flip={...aligned,liveModelAction:'SELL',liveModelConfidence:91};
+  resetGoldAgentMemory();
+  stack=orchestrateGoldAgents(oppositeWithoutM5Flip,t+8000);
+  assert.equal(stack.agents.tradeManager.managementDecision.action,'HOLD_PLAN');
+  assert.equal(stack.agents.tradeManager.managementDecision.candidateAction,'HOLD_PLAN');
+
+  const opposite={
+    ...oppositeWithoutM5Flip,
+    multiTimeframe:{...aligned.multiTimeframe,reads:{...aligned.multiTimeframe.reads,M5:{side:'SELL'}}}
+  };
+  resetGoldAgentMemory();
+  stack=orchestrateGoldAgents(opposite,t+9000);
   assert.equal(stack.agents.tradeManager.managementDecision.action,'HOLD_PLAN');
   assert.equal(stack.agents.tradeManager.managementDecision.candidateAction,'STOP');
+  assert.equal(stack.agents.tradeManager.managementDecision.structureState,'INVALIDATED');
 
-  stack=orchestrateGoldAgents(opposite,t+12001);
+  stack=orchestrateGoldAgents(opposite,t+14001);
   assert.equal(stack.agents.tradeManager.managementDecision.action,'STOP');
   assert.equal(stack.agents.tradeManager.managementDecision.manualAction,'EXIT_TRADE');
   assert.equal(stack.agents.tradeManager.managementDecision.confirmed,true);
