@@ -344,6 +344,7 @@ function inverseFvgAfterSweep(bars,side,sweep){
   return null;
 }
 const EXTERNAL_LIQUIDITY_KEYS=new Set(['pdh','pdl','pwh','pwl','h4SwingHigh','h4SwingLow','h1SwingHigh','h1SwingLow','m15SwingHigh','m15SwingLow','asiaHigh','asiaLow','londonHigh','londonLow','nyHigh','nyLow']);
+const EXTERNAL_SWEEP_TTL_MS=Math.max(2*60*60_000,Math.min(18*60*60_000,Number(process.env.GOLD_EXTERNAL_SWEEP_TTL_MS||12*60*60_000)));
 function externalLiquidityEntries(levels={}){
   return Object.entries(levels).filter(([key,value])=>EXTERNAL_LIQUIDITY_KEYS.has(key)&&Number.isFinite(value));
 }
@@ -414,10 +415,10 @@ function m5RetestAfterMss(bars,side,mssEvent,atrValue){
   }
   return{confirmed:false,level:round(level),t:null,open:null,high:null,low:null,close:null,tolerance:round(tolerance)};
 }
-function recentSweeps(bars,side,levels,limit=12){
-  const x=bars.slice(-120); if(x.length<4)return[];
+function recentSweeps(bars,side,levels,limit=12,lookbackBars=120){
+  const scan=Math.max(24,Math.floor(Number(lookbackBars)||120)),x=bars.slice(-scan); if(x.length<4)return[];
   const named=externalLiquidityEntries(levels),out=[],seen=new Set();
-  for(let i=x.length-1;i>=Math.max(1,x.length-72)&&out.length<limit;i--){
+  for(let i=x.length-1;i>=Math.max(1,x.length-scan)&&out.length<limit;i--){
     const b=x[i];
     const candidates=side==='BUY'
       ?named.filter(([k])=>/Low|pdl|pwl/i.test(k))
@@ -434,11 +435,12 @@ function recentSweeps(bars,side,levels,limit=12){
   return out.sort((a,b)=>b.t-a.t);
 }
 function selectSweepSequence({m1,m5,m15,side,levels,atr1,atr5,atr15,now}){
+  const ttlMinutes=Math.ceil(EXTERNAL_SWEEP_TTL_MS/60_000),m1Lookback=Math.max(120,ttlMinutes),m5Lookback=Math.max(72,Math.ceil(ttlMinutes/5)),m15Lookback=Math.max(32,Math.ceil(ttlMinutes/15));
   const rows=[
-    ...recentSweeps(m5,side,levels,10).map(x=>({...x,tf:5})),
-    ...recentSweeps(m1,side,levels,14).map(x=>({...x,tf:1})),
-    ...recentSweeps(m15,side,levels,6).map(x=>({...x,tf:15}))
-  ].filter(x=>now-x.t>=0&&now-x.t<=120*60_000);
+    ...recentSweeps(m5,side,levels,18,m5Lookback).map(x=>({...x,tf:5})),
+    ...recentSweeps(m1,side,levels,24,m1Lookback).map(x=>({...x,tf:1})),
+    ...recentSweeps(m15,side,levels,10,m15Lookback).map(x=>({...x,tf:15}))
+  ].filter(x=>now-x.t>=0&&now-x.t<=EXTERNAL_SWEEP_TTL_MS);
   let best=null;
   for(const sweep of rows){
     const seq5=sequenceAfter(m5,side,sweep.t,atr5,300000),seq1=sequenceAfter(m1,side,sweep.t,atr1,60000);
@@ -752,11 +754,20 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const selectedFvg=reversalPoiFvg??continuationFvg??fvg1??fvg5??null;
   const contextSequence=coreIctEntryReady
     ?'EXTERNAL_LIQUIDITY_SWEEP -> M5_MSS -> RETEST_HOLD'
-    :hasSweep
-      ?'EXTERNAL_LIQUIDITY_SWEEP -> WAIT_M5_MSS_RETEST'
-      :'WAIT_EXTERNAL_LIQUIDITY_SWEEP';
+    :hasSweep&&m5MssEvent
+      ?'EXTERNAL_LIQUIDITY_SWEEP -> M5_MSS -> WAIT_RETEST_HOLD'
+      :hasSweep
+        ?'EXTERNAL_LIQUIDITY_SWEEP -> WAIT_M5_MSS'
+        :'WAIT_EXTERNAL_LIQUIDITY_SWEEP';
+  const sweepAgeMinutes=hasSweep?Math.max(0,round((now-legSweep.t)/60_000,1)):null,sweepExpiresAt=hasSweep?new Date(legSweep.t+EXTERNAL_SWEEP_TTL_MS).toISOString():null;
+  const executionStage=coreIctEntryReady?'ENTRY_READY':hasSweep&&m5MssEvent?'WAIT_RETEST_HOLD':hasSweep?'WAIT_M5_MSS':'WAIT_EXTERNAL_SWEEP';
+  const waitReason=!hasSweep
+    ?'ICT WAIT: external liquidity sweep required; then M5 MSS and retest/hold.'
+    :!m5MssEvent
+      ?`ICT ARMED: ${String(legSweep?.name||'external liquidity').toUpperCase()} sweep retained; waiting for M5 MSS.`
+      :`ICT ARMED: ${String(legSweep?.name||'external liquidity').toUpperCase()} sweep + M5 MSS retained; waiting for M5 retest/hold.`;
 
-  if(!executionReady)return{...base,status:'WAIT',candidateAction:side,confidence:0,contextBias:side,oneMinuteConfirmed,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,contextAligned,biasAligned,setupAligned,setupVotes,setupReady,fvg15,sweep15,dm15,fvg5,sweep5,dm5,bos5,fvg1,sweep1,dm1,bos1,bos15,legSweep,sequence1,sequence5,m5MssEvent,m5MssRetest,coreIctEntryReady,shift1,shift5,shift15,firstMssEvent,firstDisplacementEvent,firstTriggerEvent,triggerConfirmed,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),hasSweep,hasShift,hasDisplacement,hasBos,contextSequence},reason:'ICT WAIT: external liquidity first; then M5 MSS and retest/hold. FVG/OB/iFVG/BOS and timeframe agreement are confluence only.'};
+  if(!executionReady)return{...base,status:'WAIT',candidateAction:side,confidence:0,contextBias:side,oneMinuteConfirmed,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,contextAligned,biasAligned,setupAligned,setupVotes,setupReady,fvg15,sweep15,dm15,fvg5,sweep5,dm5,bos5,fvg1,sweep1,dm1,bos1,bos15,legSweep,sequence1,sequence5,m5MssEvent,m5MssRetest,coreIctEntryReady,shift1,shift5,shift15,firstMssEvent,firstDisplacementEvent,firstTriggerEvent,triggerConfirmed,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),hasSweep,hasShift,hasDisplacement,hasBos,contextSequence,executionStage,sweepAgeMinutes,sweepExpiresAt,externalSweepTtlMinutes:Math.round(EXTERNAL_SWEEP_TTL_MS/60_000)},reason:waitReason+' FVG/OB/iFVG/BOS and timeframe agreement are confluence only.'};
 
   const setupType='ICT_EXTERNAL_SWEEP_M5_MSS_RETEST';
   const fvg=selectedFvg,shiftT=m5MssEvent?.t??firstShift?.t??sequenceShiftT;
