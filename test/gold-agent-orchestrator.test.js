@@ -62,7 +62,7 @@ function configure() {
   process.env.AGENT_MIN_RR='0.60';
 }
 
-test('brain/reflex stack is fail-closed while execution permission is off', () => {
+test('confirmed trade stays authoritative while broker execution permission is off', () => {
   configure();
   process.env.AGENT_EXECUTION_ENABLED='false';
   resetGoldAgentMemory();
@@ -73,8 +73,77 @@ test('brain/reflex stack is fail-closed while execution permission is off', () =
   assert.equal(stack.agents.trading.advisoryReady,true);
   assert.equal(stack.agents.trading.manualAction,'BUY');
   assert.equal(stack.agents.trading.executable,false);
+  assert.equal(stack.agents.reflex.setupAuthorized,true);
+  assert.equal(stack.agents.reflex.advisoryAction,'BUY');
   const gated=applyAgentExecutionGate(base);
-  assert.equal(gated.action,'WAIT');
+  assert.equal(gated.status,'ACTIVE');
+  assert.equal(gated.action,'BUY');
+  assert.equal(gated.executionAction,'WAIT');
+  assert.equal(gated.tradeState.active,true);
+  assert.equal(gated.tradeState.side,'BUY');
+  assert.equal(gated.executable,false);
+});
+
+test('active core ICT trade cannot be demoted by conflicting macro or live advisory state', () => {
+  configure();
+  process.env.AGENT_EXECUTION_ENABLED='false';
+  resetGoldAgentMemory();
+  const source={
+    ...base,
+    status:'ACTIVE',
+    action:'WAIT',
+    candidateAction:'WAIT',
+    side:'BUY',
+    signalId:'authoritative-active-buy',
+    tradeState:{
+      version:'XAU_TRADE_STATE_V1',
+      lifecycle:'CONFIRMED',
+      active:true,
+      side:'BUY',
+      signalId:'authoritative-active-buy',
+      entry:4300,
+      initialStopLoss:4299,
+      targets:[4301,4302,4303,4304],
+      immutablePlan:true
+    },
+    ict:{
+      hasSweep:true,
+      legSweep:{name:'pwl',level:4297,liquidityClass:'EXTERNAL'},
+      m5MssEvent:{mss:true,level:4299.8},
+      m5MssRetest:{confirmed:true,level:4299.9}
+    },
+    liveModelStatus:'WAIT',
+    liveModelAction:'SELL',
+    liveModelConfidence:95,
+    liveModelReady:false,
+    multiTimeframe:{
+      ...base.multiTimeframe,
+      side:'SELL',
+      macroAligned:4,
+      reads:{
+        ...base.multiTimeframe.reads,
+        W1:{side:'SELL'},D1:{side:'SELL'},H4:{side:'SELL'},H1:{side:'SELL'},M15:{side:'SELL'},
+        M5:{side:'BUY'},M1:{side:'BUY'}
+      }
+    }
+  };
+  const stack=orchestrateGoldAgents(source);
+  assert.equal(stack.tradeState.active,true);
+  assert.equal(stack.tradeState.side,'BUY');
+  assert.equal(stack.agents.setup.stage,'CONFIRMED');
+  assert.equal(stack.agents.market.context.mss,true);
+  assert.equal(stack.agents.market.context.retest,true);
+  assert.equal(stack.agents.market.context.macro,'SELL');
+  assert.equal(stack.agents.tradeManager.managementDecision.structureState,'VALID');
+  assert.equal(stack.agents.reflex.setupAuthorized,true);
+  assert.equal(stack.agents.reflex.displayState,'CONFIRMED_BUY');
+
+  const gated=applyAgentExecutionGate(source);
+  assert.equal(gated.status,'ACTIVE');
+  assert.equal(gated.action,'BUY');
+  assert.equal(gated.executionAction,'WAIT');
+  assert.equal(gated.tradeState.active,true);
+  assert.equal(gated.tradeState.immutablePlan,true);
   assert.equal(gated.executable,false);
 });
 
