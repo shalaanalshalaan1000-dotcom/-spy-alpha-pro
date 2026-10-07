@@ -7,7 +7,7 @@ import { buildTomorrowOutlook } from './gold-tomorrow-outlook.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_INNER_PORT || 3100);
-const BUILD_TAG = 'site-indicator-v25-tomorrow-ict-outlook';
+const BUILD_TAG = 'site-indicator-v26-authoritative-trade-state';
 
 const app = spawn(process.execPath, ['gold-unified-start.js'], {
   env: { ...process.env, PORT: String(INNER_PORT) },
@@ -66,15 +66,26 @@ function getJson(path) {
 }
 
 function mapIndicator(source = {}) {
-  const raw = ['BUY', 'SELL'].includes(source.action)
+  const sourceStatus = String(source.status || '').toUpperCase();
+  const tradeState = source.tradeState || source.agentStack?.tradeState || {};
+  const activeTrade = Boolean(
+    tradeState?.active === true ||
+    (source.signalId && source.entered === true && source.triggered === true && ['ACTIVE','MANAGING','CONFIRMED'].includes(sourceStatus))
+  );
+  const authoritativeSide = activeTrade && ['BUY','SELL'].includes(tradeState?.side)
+    ? tradeState.side
+    : activeTrade && ['BUY','SELL'].includes(source.side)
+      ? source.side
+      : null;
+  const raw = authoritativeSide || (['BUY', 'SELL'].includes(source.action)
     ? source.action
     : ['BUY', 'SELL'].includes(source.candidateAction)
       ? source.candidateAction
-      : null;
+      : null);
 
   const newsRisk = source.newsRisk || null;
   const blockedByNews = Boolean(newsRisk?.blockEntries);
-  const signal = blockedByNews ? 'WAIT' : raw === 'BUY' ? 'BULL' : raw === 'SELL' ? 'BEAR' : 'WAIT';
+  const signal = activeTrade ? (raw === 'BUY' ? 'BULL' : raw === 'SELL' ? 'BEAR' : 'WAIT') : blockedByNews ? 'WAIT' : raw === 'BUY' ? 'BULL' : raw === 'SELL' ? 'BEAR' : 'WAIT';
   const confidence = Number(source.signalConfidence ?? source.confidence ?? 0);
   const scenarioPlan = source.scenarioPlan || source.momentum?.scenarioPlan || null;
   const agentStack = orchestrateGoldAgents(source);
@@ -87,7 +98,8 @@ function mapIndicator(source = {}) {
     price: Number.isFinite(Number(source.price)) ? Number(source.price) : null,
     timeframe: '1h/15m context / 5m multi-model confluence / 1m timing',
     provider: source.provider || null,
-    status: blockedByNews ? 'NEWS_BLOCK' : (source.status || 'WAIT'),
+    status: activeTrade ? (source.status || 'ACTIVE') : (blockedByNews ? 'NEWS_BLOCK' : (source.status || 'WAIT')),
+    tradeState: activeTrade ? {...tradeState,active:true,side:authoritativeSide||tradeState?.side||source.side||null} : tradeState,
     scenarioPlan,
     tradeStyle: source.tradeStyle || source.strategy || 'MULTI_MODEL_CONFLUENCE',
     newsRisk,
@@ -135,6 +147,7 @@ function injectIndicator(html) {
   try{
    const r=await fetch('/api/site-indicator',{cache:'no-store'});const s=await r.json();
    const word=document.getElementById('siteSignalWord');if(!word)return;
+   const sourceStatus=String(s.status||'').toUpperCase(),trade=s.tradeState||{},activeTrade=Boolean(trade.active===true||(['ACTIVE','MANAGING','CONFIRMED'].includes(sourceStatus)&&['BUY','SELL'].includes(trade.side||s.agentDecision?.side))),activeSide=['BUY','SELL'].includes(trade.side)?trade.side:(['BUY','SELL'].includes(s.agentDecision?.side)?s.agentDecision.side:null);
    word.textContent=s.signal||'WAIT';word.className=s.status==='NEWS_BLOCK'?'siteNewsBlock':s.signal==='BULL'?'siteBull':s.signal==='BEAR'?'siteBear':'siteWait';
    document.getElementById('siteSignalConfidence').textContent=Math.round(Number(s.confidence)||0)+'/100';
    document.getElementById('siteSignalPrice').textContent=Number.isFinite(Number(s.price))?Number(s.price).toFixed(2):'—';
@@ -149,12 +162,12 @@ function injectIndicator(html) {
    document.getElementById('tomorrowTriggers').textContent='BUY: '+(to.bullishTrigger||'—')+' • SELL: '+(to.bearishTrigger||'—')+' • Advisory only';
    const sp=s.scenarioPlan||{},buy=sp.buy||{},sell=sp.sell||{};
    const money=v=>Number.isFinite(Number(v))?Number(v).toFixed(2):'—';
-   document.getElementById('siteMarketBias').textContent=sp.bias||'RANGE';
+   document.getElementById('siteMarketBias').textContent=(sp.bias||'RANGE')+(activeTrade&&activeSide?' • ADVISORY ONLY • active '+activeSide+' unchanged':' • ADVISORY ONLY');
    const snr=s.snr||{},snrSup=snr.nearestSupport?.level,snrRes=snr.nearestResistance?.level;document.getElementById('siteGoldSnr').textContent='S '+money(snrSup)+' • R '+money(snrRes)+' • '+(snr.alignment||'NEUTRAL')+' • advisory only';
    document.getElementById('siteBuyZone').textContent=buy.zoneLow!=null?money(buy.zoneLow)+' – '+money(buy.zoneHigh):'—';
    document.getElementById('siteSellZone').textContent=sell.zoneLow!=null?money(sell.zoneLow)+' – '+money(sell.zoneHigh):'—';
    const inBuy=Boolean(buy.insideZone),inSell=Boolean(sell.insideZone),buyTrig=Boolean(buy?.trigger?.ready),sellTrig=Boolean(sell?.trigger?.ready);
-   document.getElementById('siteZoneTrigger').textContent=inBuy?(buyTrig?'BUY trigger ready':'داخل BUY zone — انتظر 5m'):inSell?(sellTrig?'SELL trigger ready':'داخل SELL zone — انتظر 5m'):'WAIT FOR ZONE';
+   document.getElementById('siteZoneTrigger').textContent=activeTrade&&activeSide?('CONFIRMED '+activeSide+' • ENTRY ACTIVE'):inBuy?(buyTrig?'BUY trigger ready':'داخل BUY zone — انتظر 5m'):inSell?(sellTrig?'SELL trigger ready':'داخل SELL zone — انتظر 5m'):'WAIT FOR ZONE';
    const kc=s.importantCandles?.primary||null;document.getElementById('siteKeyCandle').textContent=kc?(kc.pattern+' • '+kc.side+' • '+Math.round(Number(kc.score)||0)+'/100 • '+(kc.status||'CANDIDATE')):'—';
    const tc=s.ict?.trendContinuation||{},hf=tc.htfFvg||{};
    document.getElementById('siteHtfFvg').textContent=hf.valid?(hf.timeframe+' '+money(hf.low)+' – '+money(hf.high)):'غير متوفر — اختياري';
@@ -177,8 +190,10 @@ function injectIndicator(html) {
    document.getElementById('siteIctMonth3').textContent=m3.available===false?'غير متوفر':(m3.side&&m3.side!=='WAIT'?(m3.side+' • '+m3Checks+'/'+m3Total+' دعم فقط'):(m3Checks+'/'+m3Total+' دعم فقط'));
    const mark=x=>x?.supported?'✓':'–';
    document.getElementById('siteIctMonth3Detail').textContent='HTF '+mark(m3.higherTimeFramePriceDisplacement)+' • Liquidity '+mark(m3.intermediateTermImbalance)+' • Target '+mark(m3.shortTermExitLiquidity)+' • Time '+mark(m3.timeOfDayInfluence);
-   document.getElementById('siteM5Mss').textContent=tc.mss?.confirmed?('مؤكد • '+money(tc.mss.level)):'غير متوفر — اختياري';
-   document.getElementById('siteM5Retest').textContent=tc.retested?'إعادة اختبار مؤكدة':'انتظار إعادة الاختبار';
+   const coreMss=Boolean(ict?.m5MssEvent?.mss||ict?.hasShift||ict?.mss||tc.mss?.confirmed),coreMssLevel=ict?.m5MssEvent?.level??ict?.m5MssEvent?.trigger??tc.mss?.level;
+   const coreRetest=Boolean(ict?.m5MssRetest?.confirmed||ict?.retest===true||tc.retested),coreRetestLevel=ict?.m5MssRetest?.level;
+   document.getElementById('siteM5Mss').textContent=coreMss?('مؤكد'+(Number.isFinite(Number(coreMssLevel))?' • '+money(coreMssLevel):'')):'بانتظار M5 MSS';
+   document.getElementById('siteM5Retest').textContent=coreRetest?('إعادة اختبار مؤكدة'+(Number.isFinite(Number(coreRetestLevel))?' • '+money(coreRetestLevel):'')):'انتظار إعادة الاختبار';
    const cf=s.confluence||{},scores=cf.scores||{};
    const support=cf.imageSupport||{};
    document.getElementById('siteConfluence').textContent=(support.advisoryOnly?('دعم الصور +'+(support.bonus||0)+'/100 • '):'')+'BUY '+Math.round(Number(scores.BUY)||0)+'/100 • SELL '+Math.round(Number(scores.SELL)||0)+'/100';
@@ -203,12 +218,12 @@ function injectIndicator(html) {
    document.getElementById('siteAgentMode').textContent=s.agentMode||'OBSERVE_ONLY';
    const brain=ags.brain||{},reflex=ags.reflex||{},schema=s.decisionSchema||{};
    document.getElementById('siteBrain').textContent=(brain.direction||'NEUTRAL')+' • '+(brain.regime||'TRANSITION')+' • Q'+(brain.setupQuality??0);
-   document.getElementById('siteReflex').textContent=(reflex.action||'WAIT')+(reflex.executable?' • EXECUTE':' • GATED');
+   document.getElementById('siteReflex').textContent=activeTrade&&activeSide?((reflex.executable?activeSide+' • EXECUTE':activeSide+' CONFIRMED • MANUAL/TELEGRAM')):((reflex.advisoryAction||reflex.action||'WAIT')+(reflex.executable?' • EXECUTE':' • GATED'));
    document.getElementById('siteRiskState').textContent=schema.riskState||'BLOCKED';
    const m2=s.riskFramework||s.ict?.month2Risk||{};
    const m2El=document.getElementById('siteMonth2Risk');
    if(m2El)m2El.textContent=m2.riskDistance!=null?(m2.primaryBeyond3R?('3R '+money(m2.threeRPrice)+' • 50% اختياري ثم Primary liquidity'):('Primary liquidity قبل 3R • لا نفرض هدف 3R')):'—';
-   document.getElementById('siteSignalReason').textContent=(md.reason?('[Trade Manager] '+md.reason+' • '):'')+(ad.reason?('[Agents] '+ad.reason+' • '):'')+(s.reason||'—');
+   document.getElementById('siteSignalReason').textContent=(activeTrade&&activeSide?('[TRADE STATE] '+activeSide+' CONFIRMED • Entry/SL/Targets locked until TP/SL/invalidation • '):'')+(md.reason?('[Trade Manager] '+md.reason+' • '):'')+(ad.reason?('[Agents] '+ad.reason+' • '):'')+(s.reason||'—');
   }catch(e){const word=document.getElementById('siteSignalWord');if(word){word.textContent='WAIT';word.className='siteWait';}}
  }
  // Three seconds is fast enough for a 5m execution model and cuts needless internal polling by ~67%.
