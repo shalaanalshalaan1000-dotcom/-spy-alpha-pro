@@ -211,7 +211,7 @@ test('USD calendar risk is advisory and cannot suppress a completed gold ICT ent
  assert.match(enginePatch,/blockEntries:false,advisoryOnly:true,executionGate:false/);
  assert.match(enginePatch,/if\(!state\.signal\)maybeCreate\(model,q,now\);/);
  assert.doesNotMatch(enginePatch,/if\(!state\.signal\)\{if\(newsRisk\.blockEntries\)/);
- assert.match(enginePatch,/site-signal-noai-v71-authoritative-trade-state/);
+ assert.match(enginePatch,/site-signal-noai-v72-restart-persistent-trade-state/);
 });
 
 
@@ -233,6 +233,23 @@ test('confirmed XAU lifecycle has one authoritative state across engine agents s
  assert.match(siteSource,/CONFIRMED • MANUAL\/TELEGRAM/);
  assert.match(telegramSource,/mirrorWindowOpen\(s,now\)/);
  assert.doesNotMatch(telegramSource,/eligibleNewTrade=!tradeLock\.active&&startedThisRun\(s\)/);
+});
+
+test('authoritative ACTIVE trade state survives worker restart and Render deploy handoff',()=>{
+ const enginePatch=fs.readFileSync(new URL('../gold-site-signal-engine-v9.js',import.meta.url),'utf8');
+ const telegramSource=fs.readFileSync(new URL('../telegram-xau-bot-v2.js',import.meta.url),'utf8');
+ assert.match(enginePatch,/XAU_ACTIVE_STATE_V1/);
+ assert.match(enginePatch,/GOLD_ACTIVE_TRADE_STATE_PATH/);
+ assert.match(enginePatch,/persistActiveTradeState/);
+ assert.match(enginePatch,/restoreLocalActiveTradeState/);
+ assert.match(enginePatch,/recoverPreviousDeployment/);
+ assert.match(enginePatch,/APP_BASE_URL/);
+ assert.match(enginePatch,/PREVIOUS_DEPLOYMENT/);
+ assert.match(enginePatch,/clearPersistedActiveTradeState/);
+ assert.match(enginePatch,/bootGoldEngine/);
+ assert.match(telegramSource,/adopted restored active trade without replaying entry/);
+ assert.match(telegramSource,/await sendTargetHits\(s\)/);
+ assert.match(telegramSource,/await sendTradeManagement\(s\)/);
 });
 
 test('stale external sweep is invalidated after closed M5 accepts beyond the swept level',()=>{
