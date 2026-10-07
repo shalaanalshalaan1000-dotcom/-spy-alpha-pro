@@ -32,6 +32,18 @@ test('UI follows actual server entry, managed stop and target hits',()=>{
  assert.equal(r.entry,4300);assert.equal(r.invalidation,4300.5);assert.equal(r.locked,true);assert.equal(r.tp1Hit,true);
  assert.equal(ctx.goldSignalReading({...good,triggerPrice:null,entry:null}).plan.locked,false);
 });
+
+test('UI keeps confirmed trade locked when live quote becomes stale',()=>{
+ const stale={...good,degraded:true,liveFeedFresh:false,quoteAgeMs:60000,updatedAt:new Date(now-60000).toISOString()};
+ const r=ctx.goldSignalReading(stale);
+ assert.equal(r.stale,true);
+ assert.equal(r.plan.locked,true);
+ assert.equal(r.plan.state,'UP');
+ assert.equal(r.plan.feedPaused,true);
+ assert.equal(r.plan.signalId,'test');
+ assert.equal(r.plan.entry,4300);
+ assert.equal(r.plan.target1,4302);
+});
 let engine=fs.readFileSync(new URL('../gold-site-signal-engine-v7.js',import.meta.url),'utf8');
 engine=engine.replace(/^import .*;\n/gm,'').split('const server=http.createServer')[0];
 const e=vm.createContext({process:{env:{}},console,Date,Buffer,setTimeout,analyzeGoldSignal:()=>({status:'WAIT'})});
@@ -211,7 +223,7 @@ test('USD calendar risk is advisory and cannot suppress a completed gold ICT ent
  assert.match(enginePatch,/blockEntries:false,advisoryOnly:true,executionGate:false/);
  assert.match(enginePatch,/if\(!state\.signal\)maybeCreate\(model,q,now\);/);
  assert.doesNotMatch(enginePatch,/if\(!state\.signal\)\{if\(newsRisk\.blockEntries\)/);
- assert.match(enginePatch,/site-signal-noai-v72-restart-persistent-trade-state/);
+ assert.match(enginePatch,/site-signal-noai-v73-authoritative-active-through-stale-feed/);
 });
 
 
@@ -233,6 +245,20 @@ test('confirmed XAU lifecycle has one authoritative state across engine agents s
  assert.match(siteSource,/CONFIRMED • MANUAL\/TELEGRAM/);
  assert.match(telegramSource,/mirrorWindowOpen\(s,now\)/);
  assert.doesNotMatch(telegramSource,/eligibleNewTrade=!tradeLock\.active&&startedThisRun\(s\)/);
+});
+
+test('stale TradingView feed cannot demote an already confirmed XAU trade to WAIT',()=>{
+ const enginePatch=fs.readFileSync(new URL('../gold-site-signal-engine-v9.js',import.meta.url),'utf8');
+ const uiSource=fs.readFileSync(new URL('../gold-site-ui-start.js',import.meta.url),'utf8');
+ assert.match(enginePatch,/if\(state\.signal\)\{persistActiveTradeState\(now\)/);
+ assert.match(enginePatch,/ACTIVE_TRADE_DATA_PAUSED/);
+ assert.match(enginePatch,/lifecycle:'CONFIRMED',active:true,status:'ACTIVE'/);
+ assert.match(enginePatch,/feedState:'STALE'/);
+ assert.doesNotMatch(uiSource,/const active=!stale&&Boolean\(raw\?\.signalId\)/);
+ assert.match(uiSource,/const active=Boolean\(raw\?\.signalId\)/);
+ assert.match(uiSource,/state:active\?\(side==='BUY'\?'UP':'DOWN'\):stale\?'STALE'/);
+ assert.match(uiSource,/feedPaused:Boolean\(active&&stale\)/);
+ assert.match(uiSource,/ENTRY ACTIVE • DATA PAUSED/);
 });
 
 test('authoritative ACTIVE trade state survives worker restart and Render deploy handoff',()=>{
