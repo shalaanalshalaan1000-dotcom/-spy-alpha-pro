@@ -319,6 +319,17 @@ for (const [from, to] of replacements) {
 // News is advisory only: a complete ICT gate must not be suppressed by calendar state.
 source=source.replace("const BUILD='site-signal-noai-v69-core-retest-entry';","const BUILD='site-signal-noai-v70-ict-confirmation-pipeline';");
 
+
+// Authoritative lifecycle snapshot: once the engine promotes an ICT setup to ACTIVE,
+// freeze the confirmed entry plan so every downstream layer reads the same trade state.
+{
+  const confirmedPush="state.trades.push({...state.signal,status:'SIGNAL'});state.trades=state.trades.slice(-300);state.dailySignalCount+=1;state.lastSignalAtMs=now;state.candidateLock=null;state.candidateLockBucket=null;";
+  if(!source.includes(confirmedPush))throw new Error('authoritative trade-state patch: confirmed signal anchor missing');
+  const snapshot="state.signal.tradeState={version:'XAU_TRADE_STATE_V1',lifecycle:'CONFIRMED',active:true,status:'ACTIVE',signalId:state.signal.signalId,setupId:state.signal.setupId||null,side,entry:round(p,3),entryLow:round(lo,3),entryHigh:round(hi,3),initialStopLoss:round(sl,3),targets:[tp1,tp2,tp3,tp4].map(v=>round(v,3)),sweptName:m?.ict?.legSweep?.name||m?.ict?.sweep?.name||null,sweptLevel:round(m?.ict?.legSweep?.level??m?.ict?.sweep?.level,3),mssTrigger:round(m?.ict?.m5MssEvent?.level??m?.ict?.m5MssEvent?.trigger,3),m5RetestConfirmed:Boolean(m?.ict?.m5MssRetest?.confirmed),retestLevel:round(m?.ict?.m5MssRetest?.level,3),entryConfirmation:state.signal.entryConfirmation||null,confirmedAtMs:now,confirmedAt:iso(now),immutablePlan:true};";
+  source=source.replace(confirmedPush,snapshot+confirmedPush);
+  source=source.replace("const BUILD='site-signal-noai-v70-ict-confirmation-pipeline';","const BUILD='site-signal-noai-v71-authoritative-trade-state';");
+}
+
 // marketClock runs for every retained M15 bar. Reuse its native formatter.
 {
   const allocation="new Intl.DateTimeFormat('en-GB',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',weekday:'short',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(new Date(ms))";
