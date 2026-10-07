@@ -330,6 +330,49 @@ source=source.replace("const BUILD='site-signal-noai-v69-core-retest-entry';","c
   source=source.replace("const BUILD='site-signal-noai-v70-ict-confirmation-pipeline';","const BUILD='site-signal-noai-v71-authoritative-trade-state';");
 }
 
+// Persist the authoritative ACTIVE trade across worker restarts and hand it off
+// from the previous Render deployment during zero-downtime deploys. This state is
+// lifecycle data only; it never creates a new trade that was not already ACTIVE.
+{
+  source="import fs from 'node:fs';\n"+source;
+
+  const utilAnchor="const n=v=>v!=null&&v!==''&&typeof v!=='boolean'&&Number.isFinite(Number(v))?Number(v):null;";
+  if(!source.includes(utilAnchor))throw new Error('active persistence patch: utility anchor missing');
+  const persistenceFns=[
+    "const ACTIVE_TRADE_STATE_PATH=String(process.env.GOLD_ACTIVE_TRADE_STATE_PATH||'/tmp/gold-alpha-active-trade-state.json').trim();",
+    "const ACTIVE_TRADE_MAX_AGE_MS=Math.max(60*60_000,Number(process.env.GOLD_ACTIVE_TRADE_MAX_AGE_MS||24*60*60_000));",
+    "const HANDOFF_BASE_URL=String(process.env.APP_BASE_URL||'').trim().replace(/\\/+$/,'');",
+    "let lastActivePersistAt=0;",
+    "function activeStateEnvelope(now=Date.now()){return{version:'XAU_ACTIVE_STATE_V1',savedAtMs:now,dailySignalDate:state.dailySignalDate,dailySignalCount:state.dailySignalCount,lastSignalAtMs:state.lastSignalAtMs,signal:state.signal};}",
+    "function persistActiveTradeState(now=Date.now(),force=false){if(!state.signal)return false;if(!force&&now-lastActivePersistAt<5000)return true;try{const tmp=ACTIVE_TRADE_STATE_PATH+'.tmp';fs.writeFileSync(tmp,JSON.stringify(activeStateEnvelope(now)),'utf8');fs.renameSync(tmp,ACTIVE_TRADE_STATE_PATH);lastActivePersistAt=now;return true;}catch(e){console.error('[active-trade-persist]',e?.message||e);return false;}}",
+    "function clearPersistedActiveTradeState(){try{if(fs.existsSync(ACTIVE_TRADE_STATE_PATH))fs.unlinkSync(ACTIVE_TRADE_STATE_PATH);}catch(e){console.error('[active-trade-persist-clear]',e?.message||e);}}",
+    "function restorableActiveSignal(s,now=Date.now()){const side=['BUY','SELL'].includes(s?.side)?s.side:null,status=String(s?.status||'').toUpperCase(),issued=n(s?.issuedAtMs)??Date.parse(s?.issuedAt||'');if(!side||!s?.signalId||s?.entered!==true||s?.triggered!==true||!['ACTIVE','MANAGING','CONFIRMED'].includes(status)||!Number.isFinite(issued)||issued>now+5000||now-issued>ACTIVE_TRADE_MAX_AGE_MS)return false;if(s?.tp4===true||s?.targetHits?.[3]===true)return false;return n(s?.entry??s?.triggerPrice)>0&&n(s?.stopLoss??s?.managedStopLoss)>0&&n(s?.target1)>0;}",
+    "function sanitizedRestoredSignal(input){const s={...(input||{})};delete s.agentStack;delete s.agents;delete s.agentDecision;delete s.agentSchema;delete s.scenarioPlan;delete s.telegramBrief;return s;}",
+    "function restoreActivePayload(payload,origin='LOCAL_STATE',now=Date.now()){const raw=payload?.signal||payload;if(!restorableActiveSignal(raw,now))return false;const s=sanitizedRestoredSignal(raw),side=s.side;state.signal={...s,status:'ACTIVE',action:'WAIT',candidateAction:side,side,executable:false,restoredFrom:origin,restoredAt:iso(now)};const snap=state.signal.tradeState&&typeof state.signal.tradeState==='object'?state.signal.tradeState:{};state.signal.tradeState={...snap,version:snap.version||'XAU_TRADE_STATE_V1',lifecycle:'CONFIRMED',active:true,status:'ACTIVE',signalId:state.signal.signalId,setupId:state.signal.setupId||snap.setupId||null,side,entry:round(state.signal.triggerPrice??state.signal.entry??snap.entry,3),entryLow:round(state.signal.entryLow??snap.entryLow,3),entryHigh:round(state.signal.entryHigh??snap.entryHigh,3),initialStopLoss:round(snap.initialStopLoss??state.signal.originalStopLoss??state.signal.stopLoss,3),managedStopLoss:round(state.signal.stopLoss??state.signal.managedStopLoss??snap.managedStopLoss,3),targets:[state.signal.target1,state.signal.target2,state.signal.target3,state.signal.target4].map(v=>round(v,3)),targetHits:Array.isArray(state.signal.targetHits)?[...state.signal.targetHits]:(Array.isArray(snap.targetHits)?[...snap.targetHits]:[false,false,false,false]),immutablePlan:true,restoredFrom:origin,restoredAt:iso(now)};if(payload?.dailySignalDate)state.dailySignalDate=payload.dailySignalDate;if(n(payload?.dailySignalCount)!=null)state.dailySignalCount=Math.max(state.dailySignalCount,n(payload.dailySignalCount));state.lastSignalAtMs=Math.max(state.lastSignalAtMs,n(payload?.lastSignalAtMs)??n(state.signal.issuedAtMs)??0);persistActiveTradeState(now,true);console.log('[active-trade-restore] '+origin+' '+side+' '+state.signal.signalId);return true;}",
+    "function restoreLocalActiveTradeState(){try{if(!fs.existsSync(ACTIVE_TRADE_STATE_PATH))return false;const payload=JSON.parse(fs.readFileSync(ACTIVE_TRADE_STATE_PATH,'utf8'));if(restoreActivePayload(payload,'LOCAL_STATE'))return true;clearPersistedActiveTradeState();}catch(e){console.error('[active-trade-restore-local]',e?.message||e);clearPersistedActiveTradeState();}return false;}",
+    "async function recoverPreviousDeployment(){if(state.signal||!HANDOFF_BASE_URL)return false;try{const url=HANDOFF_BASE_URL+'/api/auto-trade/signal?observe=1&handoff=1';const r=await fetch(url,{headers:{accept:'application/json','x-gold-state-handoff':'1'},cache:'no-store',signal:AbortSignal.timeout(3500)});if(!r.ok)return false;const prior=await r.json();return restoreActivePayload({signal:prior,dailySignalDate:prior?.dailySignalDate||null,dailySignalCount:n(prior?.dailySignalCount)??n(prior?.dailySignalNumber)??0,lastSignalAtMs:n(prior?.issuedAtMs)??0},'PREVIOUS_DEPLOYMENT');}catch(e){console.warn('[active-trade-handoff]',e?.message||e);return false;}}"
+  ].join("\n");
+  source=source.replace(utilAnchor,persistenceFns+"\n"+utilAnchor);
+
+  const closeAnchor="state.trades.push({...state.lastTerminal,status:'CLOSED'});state.trades=state.trades.slice(-300);state.signal=null;";
+  if(!source.includes(closeAnchor))throw new Error('active persistence patch: close anchor missing');
+  source=source.replace(closeAnchor,closeAnchor+"clearPersistedActiveTradeState();");
+
+  const manageAnchor="manage(q,now);";
+  if(!source.includes(manageAnchor))throw new Error('active persistence patch: manage anchor missing');
+  source=source.replace(manageAnchor,"manage(q,now);if(state.signal)persistActiveTradeState(now);");
+
+  const createAnchor="state.trades.push({...state.signal,status:'SIGNAL'});state.trades=state.trades.slice(-300);state.dailySignalCount+=1;state.lastSignalAtMs=now;state.candidateLock=null;state.candidateLockBucket=null;";
+  if(!source.includes(createAnchor))throw new Error('active persistence patch: create anchor missing');
+  source=source.replace(createAnchor,"persistActiveTradeState(now,true);"+createAnchor);
+
+  const listenAnchor="server.listen(PORT,'0.0.0.0',()=>{console.log(\`[gold-site-signal-engine] \${BUILD} listening on \${PORT}; TradingView OANDA LP primary + 1m chart fallback; confidence score \${MIN_CONFIDENCE}; 1m confirmation \${REQUIRE_1M_CONFIRM?'required':'optional'}; volatility-adaptive risk/TP guard; TP1 structure protection; TP2 profit lock; TP3 M1 trailing; SL cooldown \${SL_COOLDOWN_MS/1000}s; same-side block \${SAME_SIDE_REENTRY_MS/1000}s; AI=off; execution=off; telegram-only\`);connectTradingView();});";
+  if(!source.includes(listenAnchor))throw new Error('active persistence patch: server listen anchor missing');
+  source=source.replace(listenAnchor,"async function bootGoldEngine(){restoreLocalActiveTradeState();if(!state.signal)await recoverPreviousDeployment();server.listen(PORT,'0.0.0.0',()=>{console.log(\`[gold-site-signal-engine] \${BUILD} listening on \${PORT}; TradingView OANDA LP primary + 1m chart fallback; confidence score \${MIN_CONFIDENCE}; 1m confirmation \${REQUIRE_1M_CONFIRM?'required':'optional'}; volatility-adaptive risk/TP guard; TP1 structure protection; TP2 profit lock; TP3 M1 trailing; SL cooldown \${SL_COOLDOWN_MS/1000}s; same-side block \${SAME_SIDE_REENTRY_MS/1000}s; AI=off; execution=off; telegram-only\`);connectTradingView();});}\nvoid bootGoldEngine();");
+
+  source=source.replace("const BUILD='site-signal-noai-v71-authoritative-trade-state';","const BUILD='site-signal-noai-v72-restart-persistent-trade-state';");
+}
+
 // marketClock runs for every retained M15 bar. Reuse its native formatter.
 {
   const allocation="new Intl.DateTimeFormat('en-GB',{timeZone,year:'numeric',month:'2-digit',day:'2-digit',weekday:'short',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(new Date(ms))";
