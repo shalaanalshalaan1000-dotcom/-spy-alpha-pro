@@ -412,7 +412,7 @@ test('agent confidence floor remains 75 even if environment is configured lower'
   process.env.AGENT_EXECUTION_ENABLED='false';
   process.env.AGENT_MIN_CONFIDENCE='65';
   resetGoldAgentMemory();
-  const stack=orchestrateGoldAgents({...base,signalId:'confidence-floor',signalConfidence:70,confidence:70});
+  const stack=orchestrateGoldAgents({...base,status:'WAIT',signalId:null,entered:false,triggered:false,executable:false,signalConfidence:70,confidence:70});
   assert.equal(stack.agents.setup.minConfidence,75);
   assert.equal(stack.agents.setup.stage,'WATCHING');
 });
