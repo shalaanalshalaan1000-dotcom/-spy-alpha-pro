@@ -277,7 +277,7 @@ function tradeManagerAgent(source = {}, setup, now = Date.now()) {
     liveModelConfidence >= managementMinConfidence
   );
   const sameSideConfirmed = Boolean(liveModelReady && liveModelSide === side);
-  const oppositeConfirmed = Boolean(liveModelReady && liveModelSide !== side);
+  const oppositeAdvisoryConfirmed = Boolean(liveModelReady && liveModelSide !== side);
 
   const ict = ictStateOf(source);
   const m5Side = validSide(source?.multiTimeframe?.reads?.M5?.side || source?.confluence?.multiTimeframe?.reads?.M5?.side);
@@ -299,10 +299,21 @@ function tradeManagerAgent(source = {}, setup, now = Date.now()) {
     signalId && ['BUY','SELL'].includes(side) &&
     liquidityConfirmed && mssConfirmed && retestConfirmed && m5SupportsTrade
   );
-  const structureInvalidated = Boolean(
-    signalId && ['BUY','SELL'].includes(side) &&
-    m5OpposesTrade && oppositeConfirmed
+  // Early exit uses the same deterministic ICT sequence as entry, but in the opposite
+  // direction. Confidence, HTF, SNR and macro context are advisory only and cannot be
+  // required to protect an already-open trade.
+  const oppositeCoreIctReversal = Boolean(
+    signalId &&
+    ['BUY','SELL'].includes(side) &&
+    liveModelSide &&
+    liveModelSide !== side &&
+    liveModelStatus === 'CANDIDATE' &&
+    ict?.coreIctEntryReady === true &&
+    Boolean(ict?.hasSweep || ict?.legSweep || ict?.sweep) &&
+    ict?.m5MssEvent?.mss === true &&
+    ict?.m5MssRetest?.confirmed === true
   );
+  const structureInvalidated = oppositeCoreIctReversal;
   const structureState = stopped || structureInvalidated
     ? 'INVALIDATED'
     : structureValid
@@ -316,12 +327,12 @@ function tradeManagerAgent(source = {}, setup, now = Date.now()) {
     candidateReason = 'Current price reached the active stop.';
   } else if (structureInvalidated) {
     candidateAction = 'STOP';
-    candidateReason = `Opposite ${liveModelSide} model is confirmed and M5 structure also flipped ${m5Side}; exit the current ${side} trade.`;
+    candidateReason = `Opposite ICT reversal confirmed: external liquidity sweep → M5 MSS → retest/hold on ${liveModelSide}; exit the current ${side} trade before the original SL if price has not reached it.`;
   } else if (sameSideConfirmed && structureValid) {
     candidateAction = 'CONTINUE';
     candidateReason = `ICT structure remains valid on M5; ${liveModelSide} model alignment is advisory confirmation only.`;
-  } else if (oppositeConfirmed) {
-    candidateReason = `Opposite ${liveModelSide} model is advisory only because M5 structure has not confirmed invalidation.`;
+  } else if (oppositeAdvisoryConfirmed) {
+    candidateReason = `Opposite ${liveModelSide} model is advisory only; no exit until opposite external sweep → M5 MSS → retest/hold completes.`;
   } else if (sameSideConfirmed) {
     candidateReason = `Same-side ${liveModelSide} model is advisory only because the ICT/M5 structure is not fully confirmed.`;
   }
@@ -354,6 +365,12 @@ function tradeManagerAgent(source = {}, setup, now = Date.now()) {
     structureState,
     structureConfirmed: structureValid,
     structureInvalidated,
+    earlyExit: Boolean(structureInvalidated && !stopped),
+    exitTrigger: structureInvalidated ? 'OPPOSITE_ICT_EXTERNAL_SWEEP_M5_MSS_RETEST' : stopped ? 'STOP_LOSS' : null,
+    reversalSide: structureInvalidated ? liveModelSide : null,
+    reversalSweep: structureInvalidated ? (ict?.legSweep || ict?.sweep || null) : null,
+    reversalMss: structureInvalidated ? (ict?.m5MssEvent || null) : null,
+    reversalRetest: structureInvalidated ? (ict?.m5MssRetest || null) : null,
     m5Side,
     liquidityConfirmed,
     mssConfirmed,
