@@ -836,7 +836,23 @@ async function tick(){
       return;
     }
     if(active&&!tradeLock.active&&!mirrorWindowOpen(s,now)){
-      console.warn(`[telegram-xau-confirmed] skipped stale active signal key=${key}; outside mirror window`);
+      // Adopt the restored server lifecycle without replaying a stale entry alert.
+      // This keeps TP/SL and management notifications attached after a worker/deploy restart.
+      setTradeLock(s,now);
+      sent.above=true;
+      sent.side=side;
+      sent.key=key;
+      sent.messageId=null;
+      sent.lastText=targetMessage(s);
+      sent.lastEditMs=now;
+      sent.announcedAtMs=now;
+      sent.targets=[false,false,false,false];
+      sent.managedStops=[false,false,false,false];
+      sent.managementKey=null;
+      recentKeys.set(key,now);
+      console.log(`[telegram-xau-confirmed] adopted restored active trade without replaying entry key=${key}`);
+      await sendTargetHits(s);
+      await sendTradeManagement(s);
       return;
     }
   }catch(e){console.error('[telegram-xau-confirmed]',e?.message||e);}
