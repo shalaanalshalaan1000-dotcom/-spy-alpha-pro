@@ -42,7 +42,41 @@ function sweepSideOf(source = {}) {
   return null;
 }
 
+function authoritativeTradeState(source = {}, now = Date.now()) {
+  const snapshot = source?.tradeState && typeof source.tradeState === 'object' ? source.tradeState : {};
+  const status = String(source.status || snapshot.status || 'WAIT').toUpperCase();
+  const side = validSide(snapshot.side) || validSide(source.side) || validSide(source.candidateAction) || validSide(source.action);
+  const lifecycleStatus = ['ACTIVE','MANAGING','CONFIRMED','SIGNAL'].includes(status);
+  const rootActive = Boolean(source.signalId && side && source.entered === true && source.triggered === true && lifecycleStatus);
+  const snapshotActive = Boolean(snapshot.active === true && (snapshot.signalId || source.signalId) && side);
+  const active = rootActive || snapshotActive;
+  const targets = [source.target1,source.target2,source.target3,source.target4].map(toNum);
+  return {
+    ...snapshot,
+    version: snapshot.version || 'XAU_TRADE_STATE_V1',
+    lifecycle: active ? 'CONFIRMED' : (snapshot.lifecycle || 'WAIT'),
+    active,
+    status: active ? (status === 'MANAGING' ? 'MANAGING' : 'ACTIVE') : status,
+    side: side || null,
+    signalId: source.signalId || snapshot.signalId || null,
+    setupId: source.setupId || snapshot.setupId || null,
+    entry: round(source.triggerPrice ?? source.entry ?? snapshot.entry, 3),
+    entryLow: round(source.entryLow ?? snapshot.entryLow, 3),
+    entryHigh: round(source.entryHigh ?? snapshot.entryHigh, 3),
+    initialStopLoss: round(snapshot.initialStopLoss ?? source.originalStopLoss ?? source.stopLoss, 3),
+    managedStopLoss: round(source.stopLoss ?? source.managedStopLoss ?? snapshot.managedStopLoss, 3),
+    targets: targets.some(v => v != null) ? targets.map(v => round(v, 3)) : (Array.isArray(snapshot.targets) ? snapshot.targets : []),
+    targetHits: Array.isArray(source.targetHits) ? [...source.targetHits] : (Array.isArray(snapshot.targetHits) ? [...snapshot.targetHits] : [false,false,false,false]),
+    confirmedAtMs: toNum(snapshot.confirmedAtMs ?? source.issuedAtMs),
+    confirmedAt: snapshot.confirmedAt || source.issuedAt || null,
+    immutablePlan: active ? true : Boolean(snapshot.immutablePlan),
+    updatedAt: new Date(now).toISOString()
+  };
+}
+
 function sourceSide(source = {}) {
+  const trade = authoritativeTradeState(source);
+  if (trade.active && trade.side) return trade.side;
   return validSide(source.action) || validSide(source.candidateAction) || validSide(source.side) || sweepSideOf(source);
 }
 
@@ -69,9 +103,9 @@ function marketAgent(source = {}, now = Date.now()) {
   const news = source.newsRisk || {};
   const blockedByNews = Boolean(news.blockEntries);
   const liquidity = Boolean(ict?.hasSweep || ict?.legSweep || ict?.sweep || source?.confluence?.liquidity?.externalSweep) || inferCondition(source, ['liquidity', 'sweep', 'session low', 'session high']);
-  const mss = Boolean(ict?.hasShift || ict?.mss || ict?.firstMssEvent) || inferCondition(source, ['mss', 'choch', 'structure shift']);
+  const mss = Boolean(ict?.m5MssEvent?.mss || ict?.hasShift || ict?.mss || ict?.firstMssEvent) || inferCondition(source, ['mss', 'choch', 'structure shift']);
   const displacement = Boolean(ict?.hasDisplacement || ict?.displacement || ict?.firstDisplacementEvent) || inferCondition(source, ['displacement', 'impulse']);
-  const retest = Boolean(ict?.hasIfvgRetest || ict?.retest || ict?.inverseFvg?.retested) || inferCondition(source, ['retest']);
+  const retest = Boolean(ict?.m5MssRetest?.confirmed || ict?.hasIfvgRetest || ict?.retest || ict?.inverseFvg?.retested) || inferCondition(source, ['retest']);
 
   return {
     name: 'MARKET_AGENT',
@@ -103,11 +137,13 @@ function setupAgent(source = {}, market, now = Date.now()) {
   const status = String(source.status || 'WAIT').toUpperCase();
   const terminal = source.terminalEvent || null;
   const terminalMatchesCurrent = Boolean(terminal && source.signalId && terminal.signalId && String(terminal.signalId) === String(source.signalId));
+  const tradeState = authoritativeTradeState(source, now);
   const hasEntry = toNum(source.entry) != null && toNum(source.stopLoss) != null;
   const setupKey = String(source.signalId || ((side || 'WAIT') + ':' + round(source.entry) + ':' + round(source.stopLoss) + ':' + (source.strategy || source.tradeStyle || 'UNKNOWN')));
 
   let stage = 'WAIT';
   if (terminalMatchesCurrent) stage = 'INVALIDATED';
+  else if (tradeState.active) stage = status === 'MANAGING' || source.brokerConfirmed === true ? 'MANAGING' : 'CONFIRMED';
   else if (status === 'MANAGING' || source.brokerConfirmed === true) stage = 'MANAGING';
   else if (
     side && hasEntry && confidence >= minConfidence && market.ready &&
@@ -249,10 +285,10 @@ function tradeManagerAgent(source = {}, setup, now = Date.now()) {
     ict?.hasSweep || ict?.legSweep || ict?.sweep || source?.confluence?.liquidity?.externalSweep
   ) || inferCondition(source, ['liquidity', 'sweep', 'session low', 'session high']);
   const mssConfirmed = Boolean(
-    ict?.hasShift || ict?.mss || ict?.firstMssEvent || ict?.dm5?.mss || ict?.trendContinuation?.mss?.confirmed
+    ict?.m5MssEvent?.mss || ict?.hasShift || ict?.mss || ict?.firstMssEvent || ict?.dm5?.mss || ict?.trendContinuation?.mss?.confirmed
   ) || inferCondition(source, ['mss', 'choch', 'structure shift']);
   const retestConfirmed = Boolean(
-    ict?.hasIfvgRetest || ict?.retest || ict?.inverseFvg?.retested || ict?.trendContinuation?.retested
+    ict?.m5MssRetest?.confirmed || ict?.hasIfvgRetest || ict?.retest || ict?.inverseFvg?.retested || ict?.trendContinuation?.retested
   ) || inferCondition(source, ['retest']);
   const displacementConfirmed = Boolean(
     ict?.hasDisplacement || ict?.displacement || ict?.firstDisplacementEvent || ict?.dm5?.displacement
@@ -261,7 +297,7 @@ function tradeManagerAgent(source = {}, setup, now = Date.now()) {
   const m5OpposesTrade = Boolean(m5Side && m5Side !== side);
   const structureValid = Boolean(
     signalId && ['BUY','SELL'].includes(side) &&
-    liquidityConfirmed && mssConfirmed && retestConfirmed && displacementConfirmed && m5SupportsTrade
+    liquidityConfirmed && mssConfirmed && retestConfirmed && m5SupportsTrade
   );
   const structureInvalidated = Boolean(
     signalId && ['BUY','SELL'].includes(side) &&
@@ -783,9 +819,12 @@ function reflexAgent(stateEngine = {}, setup = {}, risk = {}, research = {}, tra
     role: 'LIVE_DECISION_AND_EXECUTION_GATE',
     deterministic: true,
     allGatesPassed,
+    setupAuthorized: allGatesPassed,
+    advisoryAction: allGatesPassed ? setup.side : 'WAIT',
     executionEnabled,
     executable: allGatesPassed && executionEnabled,
     action: allGatesPassed && executionEnabled ? setup.side : 'WAIT',
+    displayState: sourceConfirmed ? `CONFIRMED_${setup.side}` : setup.stage,
     vetoes: [...new Set(vetoes)],
     rule: 'Only REFLEX may authorize execution. BRAIN output alone is never executable.'
   };
@@ -967,6 +1006,7 @@ function journalAgent(setup, risk, tradeManager) {
 }
 
 export function orchestrateGoldAgents(source = {}, now = Date.now()) {
+  const tradeState = authoritativeTradeState(source, now);
   const market = marketAgent(source, now);
   const setup = setupAgent(source, market, now);
   const baseRisk = riskAgent(source, setup);
@@ -1001,6 +1041,7 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
       EXECUTION: 'Deterministic permission gate; manual MT5 remains possible when execution permission is off'
     },
     symbol: 'XAUUSD',
+    tradeState,
     mode: reflex.executionEnabled ? 'EXECUTION_PERMISSION_ON' : 'MANUAL_MT5_TELEGRAM',
     decision: {
       stage: setup.stage,
@@ -1020,6 +1061,7 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
 
 export function applyAgentExecutionGate(source = {}, now = Date.now()) {
   const stack = orchestrateGoldAgents(source, now);
+  const tradeState = stack.tradeState || authoritativeTradeState(source, now);
   if (stack.decision.executable) {
     return {
       ...source,
@@ -1027,9 +1069,25 @@ export function applyAgentExecutionGate(source = {}, now = Date.now()) {
       action: stack.decision.action,
       executable: true,
       executionMode: 'AGENT_TRADING_HUB',
+      tradeState,
       agentStack: stack,
       agentDecision: stack.decision,
       agentSchema: stack.decisionSchema
+    };
+  }
+  // A confirmed server-owned trade must remain confirmed in every API layer even when
+  // broker execution permission is off. REFLEX may gate broker execution, but it may
+  // not demote the authoritative lifecycle back to WAIT.
+  if (tradeState.active) {
+    return {
+      ...source,
+      status: String(source.status || '').toUpperCase() === 'MANAGING' ? 'MANAGING' : 'ACTIVE',
+      executable: false,
+      tradeState,
+      agentStack: stack,
+      agentDecision: stack.decision,
+      agentSchema: stack.decisionSchema,
+      reason: source.reason || 'AUTHORITATIVE TRADE STATE — confirmed server-owned plan remains active'
     };
   }
   const managing = String(source.status || '').toUpperCase() === 'MANAGING';
@@ -1038,6 +1096,7 @@ export function applyAgentExecutionGate(source = {}, now = Date.now()) {
     status: managing ? source.status : 'WAIT',
     action: managing ? source.action : 'WAIT',
     executable: false,
+    tradeState,
     agentStack: stack,
     agentDecision: stack.decision,
     agentSchema: stack.decisionSchema,
