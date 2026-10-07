@@ -1082,6 +1082,8 @@ export function applyAgentExecutionGate(source = {}, now = Date.now()) {
     return {
       ...source,
       status: String(source.status || '').toUpperCase() === 'MANAGING' ? 'MANAGING' : 'ACTIVE',
+      action: tradeState.side,
+      executionAction: 'WAIT',
       executable: false,
       tradeState,
       agentStack: stack,
