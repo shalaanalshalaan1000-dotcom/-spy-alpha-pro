@@ -223,6 +223,7 @@ test('confirmed XAU lifecycle has one authoritative state across engine agents s
  const telegramSource=fs.readFileSync(new URL('../telegram-xau-bot-v2.js',import.meta.url),'utf8');
  assert.match(enginePatch,/XAU_TRADE_STATE_V1/);
  assert.match(enginePatch,/lifecycle:'CONFIRMED',active:true,status:'ACTIVE'/);
+ assert.match(enginePatch,/side==='BUY'\?m\?\.ict\?\.m5MssEvent\?\.priorHigh:m\?\.ict\?\.m5MssEvent\?\.priorLow/);
  assert.match(agentSource,/if \(tradeState\.active\)/);
  assert.match(agentSource,/status: String\(source\.status \|\| ''\)\.toUpperCase\(\) === 'MANAGING' \? 'MANAGING' : 'ACTIVE'/);
  assert.match(agentSource,/ict\?\.m5MssEvent\?\.mss/);
