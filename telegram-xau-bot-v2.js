@@ -90,7 +90,8 @@ function cleanupRecent(now=Date.now()){
   for(const [key,at] of recentKeys.entries())if(now-at>RECENT_KEY_TTL_MS)recentKeys.delete(key);
 }
 function isConfirmedActive(s){
-  return String(s?.status||'').toUpperCase()==='ACTIVE'&&Boolean(s?.signalId)&&s?.entered===true&&s?.triggered===true&&['BUY','SELL'].includes(s?.side);
+  const status=String(s?.status||'').toUpperCase(),snapshotActive=s?.tradeState?.active===true;
+  return Boolean((snapshotActive||['ACTIVE','MANAGING','CONFIRMED'].includes(status))&&s?.signalId&&s?.entered===true&&s?.triggered===true&&['BUY','SELL'].includes(s?.side));
 }
 function tp1AlreadyGone(s,side,livePrice,tp1){
   return Boolean(s?.tp1||s?.targetHits?.[0])||reached(side,livePrice,tp1);
@@ -105,6 +106,10 @@ function fiveMinuteCloseConfirmed(s,now=Date.now()){
 function startedThisRun(s){
   const issued=issuedAtOf(s);
   return issued!=null&&issued>=BOOT_MS-BOOT_GRACE_MS;
+}
+function mirrorWindowOpen(s,now=Date.now()){
+  const issued=issuedAtOf(s);
+  return issued!=null&&issued<=now+5000&&now-issued<=RECENT_KEY_TTL_MS;
 }
 function signalAfterSendEnable(s){
   const st=telegramSendState();
@@ -785,7 +790,10 @@ async function tick(){
 
     const active=isConfirmedActive(s),side=sideOf(s),confidence=confidenceOf(s),entry=entryOf(s),sl=stopOf(s),key=signalKey(s);
     const sameLockedTrade=tradeLock.active&&tradeLock.key===key;
-    const eligibleNewTrade=!tradeLock.active&&startedThisRun(s)&&signalAfterSendEnable(s);
+    // A deployment/restart must not make Telegram miss a trade that the site has
+    // already promoted to ACTIVE. Mirror recent confirmed lifecycle state, but do
+    // not resurrect stale trades after the configured recent-signal window.
+    const eligibleNewTrade=!tradeLock.active&&mirrorWindowOpen(s,now)&&signalAfterSendEnable(s);
     const ok=canSendSignal(s,now)&&lockAllowsSignal(tradeLock,s)&&(sameLockedTrade||eligibleNewTrade);
 
     if(ok){
@@ -827,8 +835,8 @@ async function tick(){
       console.warn(`[telegram-xau-confirmed] blocked overlapping ${side} key=${key}; locked=${tradeLock.side} ${tradeLock.key}`);
       return;
     }
-    if(active&&!tradeLock.active&&!startedThisRun(s)){
-      console.warn(`[telegram-xau-confirmed] skipped pre-existing active signal key=${key}; bot will wait for a new lifecycle signal`);
+    if(active&&!tradeLock.active&&!mirrorWindowOpen(s,now)){
+      console.warn(`[telegram-xau-confirmed] skipped stale active signal key=${key}; outside mirror window`);
       return;
     }
   }catch(e){console.error('[telegram-xau-confirmed]',e?.message||e);}
@@ -840,4 +848,4 @@ if(process.env.NODE_ENV!=='test'){
   (async function commands(){await botCommandLoop();})();
 }
 
-export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeManagementMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate,sessionIctContinuationGate,sessionMomentumArm,sessionMomentumAcceptance,sessionExecutionWatchMessage};
+export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,mirrorWindowOpen,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeManagementMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate,sessionIctContinuationGate,sessionMomentumArm,sessionMomentumAcceptance,sessionExecutionWatchMessage};

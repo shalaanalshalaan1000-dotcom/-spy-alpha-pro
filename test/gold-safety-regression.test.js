@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 process.env.NODE_ENV='test';
 const {canSendSignal}=await import('../telegram-xau-bot-v3.js');
+const {mirrorWindowOpen}=await import('../telegram-xau-bot-v2.js');
 const {buildMonth5Context}=await import('../gold-confluence-model.js');
 const now=Date.now();
 const good={signalId:'test',status:'ACTIVE',entered:true,triggered:true,side:'BUY',confidence:80,price:4300,triggerPrice:4300,entry:4300,stopLoss:4298,target1:4302,target2:4303,target3:4304,target4:4305,quoteAgeMs:100,liveFeedFresh:true,updatedAt:new Date(now).toISOString(),tradeStyle:'ICT_ONLY_EXTERNAL_LIQUIDITY',ict:{legSweep:{name:'pdl',level:4297,liquidityClass:'EXTERNAL'}},agentStack:{agents:{trading:{advisoryReady:true}}}};
@@ -12,6 +13,11 @@ test('Telegram rejects invalid, stale, stopped and consumed entries',()=>{
  for(const patch of [{price:null},{entry:0,triggerPrice:0},{target2:4299},{stopLoss:0},{price:4297},{price:4302},{degraded:true},{quoteAgeMs:21000},{updatedAt:'bad'},{status:'CANDIDATE'},{signalId:null},{target1:null}])assert.equal(canSendSignal({...good,...patch},now),false,JSON.stringify(patch));
  assert.equal(canSendSignal({...good,side:'SELL',stopLoss:4302,target1:4298,target2:4297,target3:4296,target4:4295,ict:{legSweep:{name:'pdh',level:4303,liquidityClass:'EXTERNAL'}}},now),true);
  assert.equal(canSendSignal({...good,ict:{legSweep:{name:'localSellSide',level:4297,liquidityClass:'INTERNAL'}}},now),false);
+});
+
+test('Telegram mirrors a recent authoritative ACTIVE trade after worker restart but not a stale one',()=>{
+ assert.equal(mirrorWindowOpen({...good,issuedAtMs:now-60_000},now),true);
+ assert.equal(mirrorWindowOpen({...good,issuedAtMs:now-11*60_000},now),false);
 });
 const ui=fs.readFileSync(new URL('../gold-site-ui-start.js',import.meta.url),'utf8');
 const mapper=ui.split('const mapper = `')[1].split('`;')[0];
@@ -205,9 +211,28 @@ test('USD calendar risk is advisory and cannot suppress a completed gold ICT ent
  assert.match(enginePatch,/blockEntries:false,advisoryOnly:true,executionGate:false/);
  assert.match(enginePatch,/if\(!state\.signal\)maybeCreate\(model,q,now\);/);
  assert.doesNotMatch(enginePatch,/if\(!state\.signal\)\{if\(newsRisk\.blockEntries\)/);
- assert.match(enginePatch,/site-signal-noai-v70-ict-confirmation-pipeline/);
+ assert.match(enginePatch,/site-signal-noai-v71-authoritative-trade-state/);
 });
 
+
+
+test('confirmed XAU lifecycle has one authoritative state across engine agents site and Telegram',()=>{
+ const enginePatch=fs.readFileSync(new URL('../gold-site-signal-engine-v9.js',import.meta.url),'utf8');
+ const agentSource=fs.readFileSync(new URL('../gold-agent-orchestrator.js',import.meta.url),'utf8');
+ const siteSource=fs.readFileSync(new URL('../site-indicator-start.js',import.meta.url),'utf8');
+ const telegramSource=fs.readFileSync(new URL('../telegram-xau-bot-v2.js',import.meta.url),'utf8');
+ assert.match(enginePatch,/XAU_TRADE_STATE_V1/);
+ assert.match(enginePatch,/lifecycle:'CONFIRMED',active:true,status:'ACTIVE'/);
+ assert.match(agentSource,/if \(tradeState\.active\)/);
+ assert.match(agentSource,/status: String\(source\.status \|\| ''\)\.toUpperCase\(\) === 'MANAGING' \? 'MANAGING' : 'ACTIVE'/);
+ assert.match(agentSource,/ict\?\.m5MssEvent\?\.mss/);
+ assert.match(agentSource,/ict\?\.m5MssRetest\?\.confirmed/);
+ assert.match(siteSource,/CONFIRMED '\+activeSide\+' • ENTRY ACTIVE/);
+ assert.match(siteSource,/ict\?\.m5MssRetest\?\.confirmed/);
+ assert.match(siteSource,/CONFIRMED • MANUAL\/TELEGRAM/);
+ assert.match(telegramSource,/mirrorWindowOpen\(s,now\)/);
+ assert.doesNotMatch(telegramSource,/eligibleNewTrade=!tradeLock\.active&&startedThisRun\(s\)/);
+});
 
 test('stale external sweep is invalidated after closed M5 accepts beyond the swept level',()=>{
  const ictSource=fs.readFileSync(new URL('../gold-ict-swing-model.js',import.meta.url),'utf8');
