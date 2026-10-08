@@ -38,7 +38,7 @@ source=source.replace(commandLoop,"  console.log('[telegram-xau-commands] webhoo
 
 {
   const oldReturn="return t.every((v,i)=>valid(v)&&(side==='BUY'?v>(i?t[i-1]:entry):v<(i?t[i-1]:entry)));";
-  const newReturn="const authoritative=Boolean(s?.tradeState?.active===true&&String(s?.tradeState?.signalId||'')===String(s?.signalId||'')&&s?.entered===true&&s?.triggered===true);if(!authoritative)return false;/* The site has already enforced the ICT execution gate; Telegram must not rerun mutable advisory model/context gates after confirmation. */const present=t.filter(valid);if(!present.length)return false;return present.every((v,i)=>side==='BUY'?v>(i?present[i-1]:entry):v<(i?present[i-1]:entry));";
+  const newReturn="const authoritative=Boolean(s?.tradeState?.active===true&&String(s?.tradeState?.signalId||'')===String(s?.signalId||'')&&s?.tradeState?.side===s?.side&&s?.entered===true&&s?.triggered===true);if(!authoritative)return false;/* The site has already enforced the ICT execution gate; Telegram must not rerun mutable advisory model/context gates after confirmation. */const present=t.filter(valid);if(!present.length)return false;return present.every((v,i)=>side==='BUY'?v>(i?present[i-1]:entry):v<(i?present[i-1]:entry));";
   if(!source.includes(oldReturn))throw new Error('telegram v3 confluence target validation anchor missing');
   source=source.replace(oldReturn,newReturn);
 
