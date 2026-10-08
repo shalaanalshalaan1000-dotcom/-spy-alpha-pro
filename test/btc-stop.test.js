@@ -14,7 +14,7 @@ test('BUY and SELL stops terminate tracking even when price later reaches all ta
     await sendTrackedTargetHits({price:signal.target4}, send);
     await sendTrackedTargetHits({price:signal.stopLoss}, send);
     assert.equal(messages.length, 1);
-    assert.match(messages[0], /تم ضرب وقف الخسارة/);
+    assert.match(messages[0], /SIGNAL CLOSED.*SL HIT/);
   }
 });
 
@@ -36,7 +36,7 @@ test('TP1 before SL remains valid but later targets are suppressed', async () =>
   for (const price of [110, 90, 140]) await sendTrackedTargetHits({price}, send);
   assert.equal(messages.length, 2);
   assert.match(messages[0], /TP1 HIT/);
-  assert.match(messages[1], /MANAGED STOP|SL HIT/);
+  assert.match(messages[1], /PROTECTED STOP|SL HIT/);
 });
 
 test('missing or invalid prices cause neither false stops nor false targets', async () => {
@@ -50,6 +50,7 @@ test('missing or invalid prices cause neither false stops nor false targets', as
     }
     assert.equal(messages.length, 0);
     await sendTrackedTargetHits({price:signal.target4}, send);
-    assert.equal(messages.length, 4);
+    assert.equal(messages.length, 3);
+    assert.match(messages[2], /SIGNAL CLOSED.*TP2 HIT/);
   }
 });

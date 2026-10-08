@@ -4,9 +4,11 @@ const CONTRACT_SIZE = Math.max(.000001, Number(process.env.EXNESS_BTC_CONTRACT_S
 const LOT_STEP = Math.max(.001, Number(process.env.EXNESS_BTC_LOT_STEP || .01));
 const SAFE_RISK_USD = Math.max(1, Number(process.env.BTC_SAFE_RISK_USD || 5));
 const MAX_RISK_USD = Math.max(SAFE_RISK_USD, Number(process.env.BTC_MAX_RISK_USD || 10));
+// An intraday BTC entry is only actionable briefly. Existing positions can still be tracked.
+const MAX_ENTRY_AGE_MS = Math.max(60000, Math.min(1800000, Number(process.env.BTC_SNR_MAX_ENTRY_AGE_MS || 300000) || 300000));
 
 const cache = { expiresAt: 0, value: null };
-const lifecycle = { signal: null, lastTerminal: null, cooldownUntil: 0, seen: new Set() };
+const lifecycle = { signal: null, lastTerminal: null, lastClosedSignal: null, cooldownUntil: 0, seen: new Set() };
 
 const num = v => v == null || v === '' || typeof v === 'boolean' ? null : (Number.isFinite(Number(v)) ? Number(v) : null);
 const round = (v, d = 2) => {
@@ -317,6 +319,20 @@ function analyze({ M1 = [], M5 = [], M15 = [], H1 = [], H4 = [], D1 = [], ticker
     };
   }
 
+  // The M1 candle reference can lag far behind the live ticker. Never recommend
+  // an entry after TP1 has already passed, or when the reference price is stale.
+  const entryBlock = btcEntryBlockReason({
+    action: chosen.side, price, entry, stopLoss: stop, target1: targets[0].level
+  });
+  if (entryBlock) {
+    return {
+      ...base,
+      entryEligible: false,
+      staleSetup: true,
+      reason: `SNR NO ENTRY — ${entryBlock}. The completed setup is not a fresh trade.`
+    };
+  }
+
   const setupId = `BTC-SNR-${chosen.side}-${chosen.type}-${chosen.zone.id}-${m5.t}`;
   return {
     ...base,
@@ -345,39 +361,141 @@ function analyze({ M1 = [], M5 = [], M15 = [], H1 = [], H4 = [], D1 = [], ticker
 }
 
 function reached(side, price, target) {
-  if (!Number.isFinite(Number(target))) return false;
-  return side === 'BUY' ? price >= Number(target) : price <= Number(target);
+  const p = num(price), t = num(target);
+  if (p == null || t == null || p <= 0 || t <= 0) return false;
+  return side === 'BUY' ? p >= t : p <= t;
 }
 
-function lifecycleSignal(candidate, now = Date.now()) {
-  const price = Number(candidate.price);
+// Pure safety check for the displayed entry. Setup strength is not a live entry permission.
+export function btcEntryBlockReason(candidate = {}) {
+  const side = candidate.action;
+  const price = num(candidate.price), entry = num(candidate.entry);
+  const stop = num(candidate.stopLoss), tp1 = num(candidate.target1);
+  if (!['BUY', 'SELL'].includes(side) ||
+      [price, entry, stop, tp1].some(v => v == null || v <= 0)) return 'MISSING_VALID_LIVE_LEVELS';
+  if (side === 'BUY' ? !(stop < entry && entry < tp1) : !(tp1 < entry && entry < stop)) {
+    return 'INVALID_ENTRY_STOP_TARGET_GEOMETRY';
+  }
+  if (reached(side, price, tp1)) return 'TP1_ALREADY_REACHED';
+  if (side === 'BUY' ? price <= stop : price >= stop) return 'STOP_ALREADY_REACHED';
+  // A large gap between last completed M1 candle and live ticker is not an executable price.
+  const maxDrift = Math.max(20, Math.min(200, Math.abs(entry - stop) * 0.5));
+  if (Math.abs(price - entry) > maxDrift) return 'LIVE_PRICE_TOO_FAR_FROM_ENTRY';
+  return null;
+}
+
+function noNewEntry(signal, status, reason, terminalEvent) {
+  return {
+    ...signal,
+    status,
+    action: 'WAIT',
+    side: null,
+    tradeSide: signal.tradeSide || signal.action,
+    executable: false,
+    entryEligible: false,
+    confidence: 0,
+    originalSetupStrength: signal.originalSetupStrength ?? signal.confidence,
+    reason,
+    lockedTargets: true,
+    terminalEvent
+  };
+}
+
+function closeBtcSignal(signal, type, price, now) {
+  const at = new Date(now).toISOString();
+  const terminalEvent = {
+    type, side: signal.action, signalId: signal.signalId, at,
+    price: round(price), entry: signal.entry,
+    stopLoss: signal.stopLoss, target1: signal.target1, target2: signal.target2,
+    targetHits: [...(signal.targetHits || [])],
+    status: 'CLOSED', // Model signal outcome, NOT a confirmed broker-side closure.
+    brokerPositionClosed: false
+  };
+  lifecycle.lastTerminal = terminalEvent;
+  lifecycle.cooldownUntil = now + 60000;
+  lifecycle.signal = null;
+  const reason = `BTC SNR SIGNAL CLOSED — ${type}; signal ended at ${round(price)}. Not a broker trade closure. NO NEW ENTRY.`;
+  lifecycle.lastClosedSignal = {
+    ...noNewEntry(signal, 'CLOSED', reason, terminalEvent),
+    closedAt: at,
+    closedReason: type,
+    brokerPositionClosed: false
+  };
+  return lifecycle.lastClosedSignal;
+}
+
+export function lifecycleSignal(candidate, now = Date.now()) {
+  const price = num(candidate?.price);
+  const validPrice = price != null && price > 0;
+
   if (lifecycle.signal) {
     const signal = lifecycle.signal;
-    const stopHit = Number.isFinite(price) && (signal.action === 'BUY' ? price <= signal.stopLoss : price >= signal.stopLoss);
+    const alreadyHitTp1 = signal.targetHits?.[0] === true;
+    const protectiveLevel = alreadyHitTp1 ? signal.target1 : signal.stopLoss;
+    const stopHit = validPrice && num(protectiveLevel) != null &&
+      (signal.action === 'BUY' ? price <= protectiveLevel : price >= protectiveLevel);
     if (stopHit) {
-      lifecycle.lastTerminal = { type: 'SL', side: signal.action, price: round(price), at: new Date(now).toISOString(), signalId: signal.signalId };
-      lifecycle.signal = null;
-      lifecycle.cooldownUntil = now + 60000;
-    } else {
+      return closeBtcSignal(signal, alreadyHitTp1 ? 'PROTECTED_STOP' : 'SL', price, now);
+    }
+    if (validPrice) {
       signal.price = round(price);
-      signal.updatedAt = candidate.updatedAt;
-      signal.targetHits = [signal.target1, signal.target2, signal.target3, signal.target4].map(t => reached(signal.action, price, t));
-      const existing = [signal.target1, signal.target2, signal.target3, signal.target4].filter(Number.isFinite);
-      if (existing.length && signal.targetHits.slice(0, existing.length).every(Boolean)) {
-        lifecycle.lastTerminal = { type: `TP${existing.length}`, side: signal.action, price: round(price), at: new Date(now).toISOString(), signalId: signal.signalId };
-        lifecycle.signal = null;
-        lifecycle.cooldownUntil = now + 60000;
-      } else {
-        return { ...signal, status: 'ACTIVE', lockedTargets: true, terminalEvent: lifecycle.lastTerminal };
+      signal.updatedAt = candidate.updatedAt || new Date(now).toISOString();
+      const priorHits = [...signal.targetHits];
+      signal.targetHits = [signal.target1, signal.target2, signal.target3, signal.target4]
+        .map((target, i) => priorHits[i] || reached(signal.action, price, target));
+      // TP2 is the default completion point. If only TP1 exists, TP1 completes the model signal.
+      const closeAt = num(signal.target2) != null && signal.target2 > 0 ? 2 : 1;
+      if (signal.targetHits[closeAt - 1]) {
+        return closeBtcSignal(signal, `TP${closeAt}`, price, now);
+      }
+      if (!alreadyHitTp1 && signal.targetHits[0]) {
+        signal.latestMilestone = {
+          type: 'TP1', price: round(price), target: signal.target1,
+          at: new Date(now).toISOString(), signalId: signal.signalId
+        };
       }
     }
+    if (signal.targetHits[0]) {
+      return noNewEntry(signal, 'TP1_HIT',
+        `BTC SNR TP1 HIT at ${signal.target1}; entry is closed to new traders. TP2 or protective stop is next. NO NEW ENTRY.`,
+        lifecycle.lastTerminal);
+    }
+    if (now - signal.issuedAtMs >= MAX_ENTRY_AGE_MS) {
+      return closeBtcSignal(signal, 'EXPIRED', price, now);
+    }
+    return { ...signal, status: 'ACTIVE', entryEligible: true, lockedTargets: true, terminalEvent: lifecycle.lastTerminal };
   }
 
   if (now >= lifecycle.cooldownUntil && candidate.status === 'ACTIVE' && candidate.setupId && !lifecycle.seen.has(candidate.setupId)) {
+    // A stale or already-consumed target MUST NOT be issued as a fresh SELL/BUY.
+    const entryBlock = btcEntryBlockReason(candidate);
+    if (entryBlock) {
+      lifecycle.seen.add(candidate.setupId);
+      return lifecycle.lastClosedSignal
+        ? { ...lifecycle.lastClosedSignal, price: round(price), updatedAt: candidate.updatedAt }
+        : { ...candidate, status: 'WAIT', action: 'WAIT', side: null,
+            entry: null, stopLoss: null, target1: null, target2: null, target3: null, target4: null,
+            confidence: 0, executable: false, entryEligible: false,
+            reason: `BTC SNR BLOCKED — ${entryBlock}; historical setup is not a new entry.`,
+            terminalEvent: lifecycle.lastTerminal };
+    }
     lifecycle.seen.add(candidate.setupId);
     if (lifecycle.seen.size > 200) lifecycle.seen.delete(lifecycle.seen.values().next().value);
-    lifecycle.signal = { ...candidate, signalId: `BTC-SNR-${now}`, issuedAtMs: now, targetHits: [false, false, false, false], lockedTargets: true };
+    lifecycle.lastClosedSignal = null;
+    lifecycle.signal = {
+      ...candidate, signalId: `BTC-SNR-${now}`, issuedAtMs: now,
+      targetHits: [false, false, false, false],
+      lockedTargets: true, entryEligible: true, latestMilestone: null
+    };
     return { ...lifecycle.signal, terminalEvent: lifecycle.lastTerminal };
+  }
+
+  if (lifecycle.lastClosedSignal) {
+    return {
+      ...lifecycle.lastClosedSignal,
+      price: round(price),
+      updatedAt: candidate.updatedAt || new Date(now).toISOString()
+    };
   }
 
   return {
@@ -392,9 +510,20 @@ function lifecycleSignal(candidate, now = Date.now()) {
     target3: null,
     target4: null,
     signalId: null,
+    confidence: 0,
+    executable: false,
+    entryEligible: false,
     terminalEvent: lifecycle.lastTerminal,
     cooldownRemainingMs: Math.max(0, lifecycle.cooldownUntil - now)
   };
+}
+
+export function resetBtcLifecycleForTests() {
+  lifecycle.signal = null;
+  lifecycle.lastTerminal = null;
+  lifecycle.lastClosedSignal = null;
+  lifecycle.cooldownUntil = 0;
+  lifecycle.seen.clear();
 }
 
 async function freshCandidate(force = false) {
