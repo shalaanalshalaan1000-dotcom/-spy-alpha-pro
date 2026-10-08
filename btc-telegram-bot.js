@@ -141,6 +141,7 @@ function startTracking(signal, key, announcedAtMs = Date.now()) {
     strategy: 'SNR_CLASSICAL',
     confidence: Number(signal.confidence) || 0,
     announcedAtMs,
+    signalId: String(signal.signalId || ''),
     entry: Number(signal.entry),
     originalStopLoss: Number(signal.stopLoss),
     stopLoss: Number(signal.stopLoss),
@@ -152,47 +153,77 @@ function startTracking(signal, key, announcedAtMs = Date.now()) {
 }
 
 function tpHitMessage(index, target, livePrice, newStop = null) {
-  return `✅ BTCUSD — TP${index + 1} HIT / تم ضرب الهدف ${index + 1}\n`
+  return `✅ BTCUSD — TP${index + 1} HIT / تحقق الهدف ${index + 1}\n`
     + `🎯 TP${index + 1}: ${n(target)}\n`
-    + `💵 BTC: ${n(livePrice)}\n`
-    + (validNumber(newStop) ? `🔒 ارفع وقف الخسارة إلى: ${n(newStop)}` : '');
+    + `💵 السعر المرصود: ${n(livePrice)}\n`
+    + (validNumber(newStop) ? `🔒 وقف الحماية الافتراضي للإشارة: ${n(newStop)}\n` : '')
+    + '⛔ لا دخول جديد على الإشارة القديمة.';
 }
 
-function stopHitMessage(trade) {
-  const managed = Number(trade.managementStage || 0) > 0;
-  return `${managed ? '🟢 BTCUSD — MANAGED STOP / وقف حماية' : '🔴 BTCUSD — SL HIT / تم ضرب وقف الخسارة'}\n`
-    + `الاتجاه: ${trade.side}\n📍 الدخول: ${n(trade.entry)}\n`
-    + `🛑 SL الحالي: ${n(trade.stopLoss)}${managed ? ` • بعد TP${trade.managementStage}` : ''}\n💵 BTC عند الرصد: ${n(trade.stopHitPrice)}\n`
-    + (managed ? 'انتهت الصفقة على وقف مُدار بعد تحقيق هدف سابق.' : 'انتهت متابعة الصفقة — لا تُحتسب أهداف لاحقة لها.');
+function closeSignalMessage(trade, outcome, exitPrice) {
+  const tp = String(outcome).startsWith('TP');
+  const title = tp ? `✅ BTCUSD — SIGNAL CLOSED • ${outcome} HIT`
+    : outcome === 'PROTECTED_STOP' ? '🟠 BTCUSD — SIGNAL CLOSED • PROTECTED STOP'
+    : outcome === 'EXPIRED' ? '⏳ BTCUSD — SIGNAL EXPIRED • NO ENTRY'
+    : '🔴 BTCUSD — SIGNAL CLOSED • SL HIT';
+  return `${title}\n📍 Entry: ${n(trade.entry)}\n💵 Exit reference: ${n(exitPrice)}\n`
+    + `🛑 Initial SL: ${n(trade.originalStopLoss)}\n`
+    + `🏁 Outcome: ${outcome}\n`
+    + '⛔ تم إنهاء إشارة الموقع، ولا تعتبر صفقة جديدة.\n'
+    + '⚠️ هذا إغلاق للإشارة فقط، وليس تأكيد إغلاق صفقة Exness.';
 }
 
 async function sendTrackedTargetHits(signal, send = telegram) {
   if (!trackedTrade) return;
-  const livePrice = Number(signal?.price);
-  if (!trackedTrade.stopHitPrice && validNumber(signal?.price)
-      && (trackedTrade.side === 'BUY' ? livePrice <= trackedTrade.stopLoss : livePrice >= trackedTrade.stopLoss)) {
-    trackedTrade.stopHitPrice = livePrice;
-  }
-  if (trackedTrade.stopHitPrice) {
-    await send('sendMessage', { chat_id: CHAT_ID, text: stopHitMessage(trackedTrade), disable_web_page_preview: true });
-    closeBtcJournalTrade(trackedTrade, trackedTrade.managementStage > 0 ? 'MANAGED_STOP' : 'SL', trackedTrade.stopLoss);
+  const livePrice = validNumber(signal?.price) ? Number(signal.price) : null;
+  const finalEvent = signal?.terminalEvent?.signalId
+    && String(signal.terminalEvent.signalId) === trackedTrade.signalId
+      ? signal.terminalEvent : null;
+  const hitPrice = finalEvent && validNumber(finalEvent.price) ? Number(finalEvent.price) : livePrice;
+  // When API has already closed the signal, replay TP observations before its final
+  // closure notification. This avoids missing a target when the poll skips past TP1.
+  const targetClose = finalEvent && /^TP[12]$/.test(String(finalEvent.type));
+  const validHitPrice = validNumber(hitPrice);
+  const stopPrice = trackedTrade.stopLoss;
+  const hitStop = !targetClose && validNumber(livePrice)
+    && (trackedTrade.side === 'BUY' ? livePrice <= stopPrice : livePrice >= stopPrice);
+  const stopOutcome = finalEvent && ['SL','PROTECTED_STOP','EXPIRED'].includes(finalEvent.type)
+    ? finalEvent.type : hitStop ? (trackedTrade.managementStage > 0 ? 'PROTECTED_STOP' : 'SL') : null;
+
+  if (stopOutcome) {
+    const finalPrice = finalEvent && validNumber(finalEvent.price)
+      ? Number(finalEvent.price) : Number(stopPrice);
+    await send('sendMessage', { chat_id: CHAT_ID,
+      text: closeSignalMessage(trackedTrade, stopOutcome, finalPrice), disable_web_page_preview: true });
+    closeBtcJournalTrade(trackedTrade, stopOutcome, stopOutcome === 'EXPIRED' ? trackedTrade.entry : stopPrice);
     trackedTrade = null;
     return;
   }
-  if (!validNumber(signal?.price)) return;
+  if (!validHitPrice) return;
 
-  for (let i = 0; i < trackedTrade.targets.length; i += 1) {
+  const closingTargetCount = Math.min(2, trackedTrade.targets.length);
+  for (let i = 0; i < closingTargetCount; i += 1) {
     const target = trackedTrade.targets[i];
-    if (!trackedTrade.sentTargets[i] && reached(trackedTrade.side, livePrice, target)) {
+    const hit = reached(trackedTrade.side, hitPrice, target)
+      || (targetClose && finalEvent.targetHits?.[i] === true);
+    if (!trackedTrade.sentTargets[i] && hit) {
+      await send('sendMessage', { chat_id: CHAT_ID,
+        text: tpHitMessage(i, target, hitPrice, i === 0 && closingTargetCount > 1 ? target : null),
+        disable_web_page_preview: true });
+      // Record after successful send to retry on Telegram network errors.
       trackedTrade.sentTargets[i] = true;
       trackedTrade.managementStage = Math.max(trackedTrade.managementStage || 0, i + 1);
-      trackedTrade.stopLoss = Number(target);
-      await send('sendMessage', { chat_id: CHAT_ID, text: tpHitMessage(i, target, livePrice, trackedTrade.stopLoss), disable_web_page_preview: true });
+      if (i === 0) trackedTrade.stopLoss = Number(target);
     }
   }
 
-  if (trackedTrade.targets.length && trackedTrade.sentTargets.every(Boolean)) {
-    closeBtcJournalTrade(trackedTrade, `TP${trackedTrade.targets.length}`, trackedTrade.targets.at(-1));
+  if ((closingTargetCount === 1 && trackedTrade.sentTargets[0])
+    || (closingTargetCount >= 2 && trackedTrade.sentTargets[1])) {
+    const outcome = `TP${closingTargetCount}`;
+    const exit = Number(trackedTrade.targets[closingTargetCount - 1]);
+    await send('sendMessage', { chat_id: CHAT_ID,
+      text: closeSignalMessage(trackedTrade, outcome, hitPrice), disable_web_page_preview: true });
+    closeBtcJournalTrade(trackedTrade, outcome, exit);
     trackedTrade = null;
   }
 }
@@ -255,7 +286,7 @@ async function fetchSignal() {
 async function tick() {
   const signal = await fetchSignal();
   await sendTrackedTargetHits(signal);
-  const active = isConfirmed(signal);
+  const active = isConfirmed(signal) && signal.entryEligible !== false;
 
   if (!primed) {
     primed = true;
