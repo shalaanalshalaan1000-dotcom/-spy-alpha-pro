@@ -24,7 +24,7 @@ let telegramUpdateOffset=0;
 let lastSendControlEnabled=null;
 
 let ready=false;
-const sent={side:null,key:null,above:false,messageId:null,lastText:null,lastEditMs:0,announcedAtMs:0,targets:[false,false,false,false],managedStops:[false,false,false,false],managementKey:null};
+const sent={side:null,key:null,above:false,messageId:null,lastText:null,lastEditMs:0,announcedAtMs:0,targets:[false,false,false,false],managedStops:[false,false,false,false],managementKey:null,exitAdvised:false};
 const tradeLock={active:false,key:null,side:null,startedAtMs:0};
 const recentKeys=new Map();
 const sessionAlertKeys=new Set();
@@ -263,6 +263,45 @@ function sessionFailedBreakMessage(x,side,bar,st){
   const failedHighBreak=side==='HIGH',reversal=failedHighBreak?'SELL':'BUY';
   return `🧹 XAUUSD — ${x.label||x.id} FALSE BREAK / LIQUIDITY SWEEP DETECTED\n✅ M15 كسر ${failedHighBreak?'القمة':'القاع'} لكن M5 استعاد المستوى وأغلق ${failedHighBreak?'تحته':'فوقه'}.\n📍 المستوى: ${n(st.level)} • M5 close: ${n(bar.close)}\n❌ تم إلغاء خطة ${failedHighBreak?'BUY':'SELL'} breakout بالكامل.\n⏳ REVERSAL WATCH: ننتظر ${reversal} M5 structure shift/MSS ثم retest.\n🚫 لا Entry ولا SL حتى يكتمل التأكيد.`;
 }
+// Exit management is independent of the advisory AI model. A confirmed failed
+// external-session breakout is enough to warn about a *currently tracked* trade;
+// it is NOT permission to enter a new reverse trade or proof of broker execution.
+function sessionEarlyExitMessage(s,lock,delivery,{session,side,bar,level,now=Date.now()}={}){
+  if(!lock?.active||!delivery?.above||delivery?.exitAdvised||!lock.key||delivery.key!==lock.key)return null;
+  if(!isConfirmedActive(s)||s?.tradeState?.active!==true||signalKey(s)!==lock.key)return null;
+  if(terminalMatchesLock(lock,s)||s?.degraded||s?.liveFeedFresh!==true)return null;
+  const age=num(s?.quoteAgeMs),updated=Date.parse(s?.updatedAt||'');
+  if(age==null||age<0||age>20_000||!Number.isFinite(updated)||updated>now+5000||now-updated>20_000)return null;
+  if(!['HIGH','LOW'].includes(side)||!closedBarIsFresh(bar,FIVE_MIN_MS,now))return null;
+  const tradeSide=side==='HIGH'?'BUY':'SELL';
+  if(sideOf(s)!==tradeSide||lock.side!==tradeSide)return null;
+  const barCloseAt=Number(bar.t)+FIVE_MIN_MS,issued=issuedAtOf(s);
+  if(issued==null||issued>=barCloseAt||issued>now)return null;
+  const px=num(bar.close),boundary=num(level),stop=stopOf(s);
+  if(px==null||boundary==null||!valid(stop)||!stopValid(tradeSide,entryOf(s),stop))return null;
+  const rejected=tradeSide==='BUY'?px<boundary-SESSION_BREAK_BUFFER_USD:px>boundary+SESSION_BREAK_BUFFER_USD;
+  const stillBeforeStop=tradeSide==='BUY'?px>stop:px<stop;
+  const live=num(s?.price),liveBeforeStop=live!=null&&(tradeSide==='BUY'?live>stop:live<stop);
+  if(!rejected||!stillBeforeStop||!liveBeforeStop)return null;
+  return `🚨 XAUUSD — EXIT ${tradeSide} / خروج مبكر من الصفقة
+🚪 اخرج من صفقة ${tradeSide} الحالية لحماية رأس المال؛ لا تنتظر ضرب SL إذا كنت لا تزال داخلها.
+🧹 ${session?.label||session?.id||'EXTERNAL SESSION'} false break / liquidity sweep
+📍 المستوى: ${n(boundary)} • إغلاق M5: ${n(px)}
+🛑 وقف الصفقة الأصلي: ${n(stop)}
+🧠 إبطال اختراق السيولة الخارجية، مستقل عن رأي النموذج ونسبة ثقته.
+🚫 ليس دخول ${tradeSide==='BUY'?'SELL':'BUY'} ولا يعني أن الوسيط أغلق الصفقة.
+⚠️ تنبيه خروج يدوي مبكر مبني على إغلاق M5 مؤكد.`;
+}
+async function maybeSendSessionEarlyExit(s,x,side,bar,st,now=Date.now()){
+  if(!TRADE_SIGNALS_ENABLED||!telegramSendState().enabled)return false;
+  const message=sessionEarlyExitMessage(s,tradeLock,sent,{session:x,side,bar,level:st?.level,now});
+  if(!message)return false;
+  await send(withTradeId(message,s.signalId));
+  sent.exitAdvised=true;
+  sent.managementKey='STOP|SESSION_FALSE_BREAK';
+  console.log(`[telegram-xau-confirmed] early EXIT ${side==='HIGH'?'BUY':'SELL'} on M5 session false-break level=${n(st.level)} signal=${sent.key}`);
+  return true;
+}
 function sessionReversalMssMessage(x,side,bar,st){
   const buy=side==='LOW',expected=buy?'BUY':'SELL',trigger=buy?bar.high:bar.low;
   return `🔄 XAUUSD — ${x.label||x.id} ${expected} STRUCTURE SHIFT DETECTED\n✅ بعد false break ظهر M5 shift موافق للانعكاس\n📍 Session level: ${n(st.level)}\n🧭 MSS trigger: ${n(trigger)}\n📊 Advisory model: ${st.reversalModelSide||'WAIT'} • confidence ${Math.round(Number(st.reversalConfidence)||0)}% • ${st.reversalModelAligned?'aligned':'not gating'}\n🧠 ICT execution gate: external sweep + M5 MSS; model/confidence are advisory only\n⏳ WAIT FOR M5 RETEST — لا دخول قبل إعادة الاختبار.`;
@@ -399,6 +438,7 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
         const level=Number(st.level),continuationBuy=side==='HIGH';
 
         if(st.failed){
+          if(st.failedBar)await maybeSendSessionEarlyExit(s,x,side,st.failedBar,st,now);
           const reversalBuy=side==='LOW',expected=reversalBuy?'BUY':'SELL',modelSide=sessionModelSide(s),conf=confidenceOf(s),minConf=Math.max(75,Number(process.env.GOLD_TELEGRAM_MIN_CONFIDENCE||process.env.TELEGRAM_MIN_CONFIDENCE||75));
           if(!st.reversalMss){
             if(m5.t<=Number(st.failedBarT||0))continue;
@@ -449,12 +489,14 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
         }else if(failed){
           st.failed=true;
           st.failedBarT=m5.t;
+          st.failedBar={...m5};
           st.failedBarHigh=m5.high;
           st.failedBarLow=m5.low;
           st.failedAtMs=now;
           st.sweepExtreme=side==='HIGH'?Math.max(Number(st.sweepExtreme)||m5.high,m5.high):Math.min(Number(st.sweepExtreme)||m5.low,m5.low);
           sessionBreakState.set(key,st);
           await send(sessionFailedBreakMessage(x,side,m5,st));
+          await maybeSendSessionEarlyExit(s,x,side,m5,st,now);
           console.log(`[telegram-session-level] false break / reversal watch ${key} close=${n(m5.close)}`);
         }else if(!st.momentumAcceptanceArmed&&!retestTouch&&sessionMomentumArm({side:expected,level,bar:m5})){
           st.momentumAcceptanceArmed=true;
@@ -699,6 +741,7 @@ function tradeManagementMessage(s){
 🛡️ حافظ على SL / managed stop الحالي حتى يصدر تحديث جديد.`;
 }
 async function sendTradeManagement(s){
+  if(sent.exitAdvised)return false; // Never contradict an already-delivered manual EXIT with CONTINUE.
   if(!sent.above||sent.key!==signalKey(s))return false;
   const d=managementDecisionOf(s);
   if(!d)return false;
@@ -754,6 +797,7 @@ function resetSent(){
   sent.targets=[false,false,false,false];
   sent.managedStops=[false,false,false,false];
   sent.managementKey=null;
+  sent.exitAdvised=false;
 }
 async function tick(){
   try{
@@ -822,6 +866,7 @@ async function tick(){
         sent.targets=[false,false,false,false];
         sent.managedStops=[false,false,false,false];
         sent.managementKey=null;
+        sent.exitAdvised=false;
         recentKeys.set(key,now);
         console.log(`[telegram-xau-confirmed] sent+locked ${side} ${Math.round(confidence)}% entry=${n(entry)} SL=${n(sl)} key=${key} msg=${messageId||'na'}`);
       }else if(sameLockedTrade&&sent.above&&sent.key===key&&sent.messageId&&text!==sent.lastText&&now-sent.lastEditMs>=EDIT_MIN_MS){
@@ -864,4 +909,4 @@ if(process.env.NODE_ENV!=='test'){
   (async function commands(){await botCommandLoop();})();
 }
 
-export {targetMessage,canSendSignal,entryNoticeFresh,withTradeId,fiveMinuteCloseConfirmed,mirrorWindowOpen,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeManagementMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate,sessionIctContinuationGate,sessionMomentumArm,sessionMomentumAcceptance,sessionExecutionWatchMessage};
+export {targetMessage,canSendSignal,entryNoticeFresh,withTradeId,fiveMinuteCloseConfirmed,mirrorWindowOpen,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeManagementMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate,sessionIctContinuationGate,sessionMomentumArm,sessionMomentumAcceptance,sessionExecutionWatchMessage,sessionEarlyExitMessage};

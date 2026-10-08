@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 process.env.NODE_ENV='test';
 process.env.TELEGRAM_FRIDAY_PRIMARY_MAX_DISTANCE_USD='25';
 
-const {sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate,sessionIctContinuationGate,sessionMomentumArm,sessionMomentumAcceptance,sessionExecutionWatchMessage}=await import('../telegram-xau-bot-v2.js');
+const {sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate,sessionIctContinuationGate,sessionMomentumArm,sessionMomentumAcceptance,sessionExecutionWatchMessage,sessionEarlyExitMessage}=await import('../telegram-xau-bot-v2.js');
 
 const friday=Date.parse('2026-10-02T18:00:00Z');
 const thursday=Date.parse('2026-10-01T18:00:00Z');
@@ -164,4 +164,53 @@ test('active site signal never shows a pre-entry blocker',async()=>{
   const fs=await import('node:fs');
   const src=fs.readFileSync(new URL('../gold-site-ui-start.js',import.meta.url),'utf8');
   assert.match(src,/const blocker=active\?'لا يوجد مانع — الصفقة مفعلة/);
+});
+
+const earlyExitAt=Date.parse('2026-10-08T02:50:10Z');
+const earlyExitBar={t:Date.parse('2026-10-08T02:45:00Z'),open:4140.2,high:4140.5,low:4137.2,close:4137.690};
+const earlyExitTrade={
+  signalId:'XAU-1791425809185-BUY',side:'BUY',status:'ACTIVE',entered:true,triggered:true,
+  entry:4139.490,stopLoss:4132.133,price:4137.690,
+  liveFeedFresh:true,degraded:false,quoteAgeMs:1000,updatedAt:new Date(earlyExitAt-1000).toISOString(),
+  issuedAtMs:Date.parse('2026-10-08T02:20:00Z'),
+  tradeState:{active:true,signalId:'XAU-1791425809185-BUY',side:'BUY'},
+  liveModelAction:'BUY',liveModelConfidence:97
+};
+const earlyExitLock={active:true,key:earlyExitTrade.signalId,side:'BUY'};
+const earlyExitSent={above:true,key:earlyExitTrade.signalId,exitAdvised:false};
+const failedHigh={session:{id:'LONDON',label:'LONDON'},side:'HIGH',level:4139.660,bar:earlyExitBar,now:earlyExitAt};
+
+test('London failed HIGH breakout tells the locked ACTIVE BUY to exit before SL despite model BUY 97%',()=>{
+  const message=sessionEarlyExitMessage(earlyExitTrade,earlyExitLock,earlyExitSent,failedHigh);
+  assert.match(message,/EXIT BUY/);
+  assert.match(message,/اخرج من صفقة BUY/);
+  assert.match(message,/4139\.660/);
+  assert.match(message,/4137\.690/);
+  assert.match(message,/4132\.133/);
+  assert.match(message,/ليس دخول SELL/);
+  assert.doesNotMatch(message,/SELL CONFIRMED|ادخل SELL/);
+});
+
+test('early exit is never sent for unknown, closed, unannounced, stale or already advised trades',()=>{
+  assert.equal(sessionEarlyExitMessage({...earlyExitTrade,tradeState:{active:false}},earlyExitLock,earlyExitSent,failedHigh),null);
+  assert.equal(sessionEarlyExitMessage({...earlyExitTrade,entered:false},earlyExitLock,earlyExitSent,failedHigh),null);
+  assert.equal(sessionEarlyExitMessage(earlyExitTrade,{...earlyExitLock,key:'different'},earlyExitSent,failedHigh),null);
+  assert.equal(sessionEarlyExitMessage(earlyExitTrade,earlyExitLock,{...earlyExitSent,above:false},failedHigh),null);
+  assert.equal(sessionEarlyExitMessage(earlyExitTrade,earlyExitLock,{...earlyExitSent,exitAdvised:true},failedHigh),null);
+  assert.equal(sessionEarlyExitMessage({...earlyExitTrade,liveFeedFresh:false},earlyExitLock,earlyExitSent,failedHigh),null);
+  assert.equal(sessionEarlyExitMessage({...earlyExitTrade,quoteAgeMs:30000},earlyExitLock,earlyExitSent,failedHigh),null);
+  assert.equal(sessionEarlyExitMessage(earlyExitTrade,earlyExitLock,earlyExitSent,{...failedHigh,now:earlyExitAt+240000}),null);
+  assert.equal(sessionEarlyExitMessage(earlyExitTrade,earlyExitLock,earlyExitSent,{...failedHigh,bar:{...earlyExitBar,close:4139.8}}),null);
+  assert.equal(sessionEarlyExitMessage({...earlyExitTrade,price:4132.0},earlyExitLock,earlyExitSent,failedHigh),null);
+  assert.equal(sessionEarlyExitMessage(earlyExitTrade,earlyExitLock,earlyExitSent,{...failedHigh,side:'LOW'}),null);
+});
+
+test('failed LOW breakout also protects an already announced active SELL without issuing a BUY entry',()=>{
+  const sell={...earlyExitTrade,signalId:'sell-1',side:'SELL',entry:4134.0,stopLoss:4144.0,price:4137.69,tradeState:{active:true,signalId:'sell-1',side:'SELL'}};
+  const message=sessionEarlyExitMessage(sell,{active:true,key:'sell-1',side:'SELL'},{above:true,key:'sell-1',exitAdvised:false},{
+    ...failedHigh,side:'LOW',level:4135.0
+  });
+  assert.match(message,/EXIT SELL/);
+  assert.match(message,/اخرج من صفقة SELL/);
+  assert.match(message,/ليس دخول BUY/);
 });
