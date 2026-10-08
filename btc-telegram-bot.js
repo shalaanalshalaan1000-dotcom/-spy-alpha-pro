@@ -187,12 +187,15 @@ async function sendTrackedTargetHits(signal, send = telegram) {
   const stopPrice = trackedTrade.stopLoss;
   const hitStop = !targetClose && validNumber(livePrice)
     && (trackedTrade.side === 'BUY' ? livePrice <= stopPrice : livePrice >= stopPrice);
+  // Once a stop is observed, latch it until delivery succeeds. A rebound cannot erase the alert.
+  if (hitStop && !trackedTrade.stopHitPrice) trackedTrade.stopHitPrice = livePrice;
   const stopOutcome = finalEvent && ['SL','PROTECTED_STOP','EXPIRED'].includes(finalEvent.type)
-    ? finalEvent.type : hitStop ? (trackedTrade.managementStage > 0 ? 'PROTECTED_STOP' : 'SL') : null;
+    ? finalEvent.type : trackedTrade.stopHitPrice
+      ? (trackedTrade.managementStage > 0 ? 'PROTECTED_STOP' : 'SL') : null;
 
   if (stopOutcome) {
     const finalPrice = finalEvent && validNumber(finalEvent.price)
-      ? Number(finalEvent.price) : Number(stopPrice);
+      ? Number(finalEvent.price) : Number(trackedTrade.stopHitPrice || stopPrice);
     await send('sendMessage', { chat_id: CHAT_ID,
       text: closeSignalMessage(trackedTrade, stopOutcome, finalPrice), disable_web_page_preview: true });
     closeBtcJournalTrade(trackedTrade, stopOutcome, stopOutcome === 'EXPIRED' ? trackedTrade.entry : stopPrice);
