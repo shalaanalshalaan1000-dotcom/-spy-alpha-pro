@@ -27,8 +27,11 @@ test('SELL route is symmetric and does not accept a BUY contract',()=>{
 test('Telegram continuation requires full evidence and retains confidence and freshness gates',()=>{
  const trendContinuation=scan();
  const s={signalId:'trend-test',status:'ACTIVE',entered:true,triggered:true,side:'BUY',confidence:80,price:103.1,triggerPrice:103.1,entry:103.1,stopLoss:100,target1:106,target2:107,quoteAgeMs:100,liveFeedFresh:true,updatedAt:new Date(now).toISOString(),tradeStyle:'ICT_ONLY_TREND_CONTINUATION',ict:{setupType:'ICT_HTF_TREND_FVG_RETEST',trendContinuation},agentStack:{agents:{trading:{advisoryReady:true}}}};
+ s.tradeState={active:true,signalId:s.signalId,side:s.side};
  assert.equal(canSendSignal(s,now),true);
- for(const patch of [{confidence:74},{degraded:true},{ict:{setupType:s.ict.setupType}},{ict:{...s.ict,trendContinuation:{...trendContinuation,retested:false}}},{ict:{...s.ict,trendContinuation:{...trendContinuation,retestT:now+step}}}])assert.equal(canSendSignal({...s,...patch},now),false);
+ // Confirmed site trades are not re-vetoed by later advisory confidence or ICT-context changes.
+ for(const patch of [{confidence:74},{ict:{setupType:s.ict.setupType}},{ict:{...s.ict,trendContinuation:{...trendContinuation,retested:false}}},{ict:{...s.ict,trendContinuation:{...trendContinuation,retestT:now+step}}}])assert.equal(canSendSignal({...s,...patch},now),true);
+ for(const patch of [{degraded:true},{quoteAgeMs:25000},{tradeState:{active:false,signalId:s.signalId,side:s.side}}])assert.equal(canSendSignal({...s,...patch},now),false);
 });
 
 test('missing, unfinished, invalidated or noncontiguous image gaps do not block the original setup',()=>{
@@ -45,6 +48,7 @@ test('optional MSS or HTF evidence cannot veto continuation or Telegram',()=>{
  const ict={setupType:'ICT_HTF_TREND_FVG_RETEST',trendContinuation:c};
  for(const patch of [{htfFvg:null},{mss:null},{mss:{...c.mss,confirmed:false}}])assert.equal(validTrendContinuation({...ict,trendContinuation:{...c,...patch}},'BUY',now),true);
  const s={signalId:'no-images',status:'ACTIVE',entered:true,triggered:true,side:'BUY',confidence:80,price:103.1,triggerPrice:103.1,entry:103.1,stopLoss:100,target1:106,quoteAgeMs:100,liveFeedFresh:true,updatedAt:new Date(now).toISOString(),tradeStyle:'ICT_ONLY_TREND_CONTINUATION',ict:{...ict,trendContinuation:{...c,htfFvg:null,mss:null}},agentStack:{agents:{trading:{advisoryReady:true}}}};
+ s.tradeState={active:true,signalId:s.signalId,side:s.side};
  assert.equal(canSendSignal(s,now),true);
 });
 test('image support only adds a bounded score to a qualified existing setup',()=>{
