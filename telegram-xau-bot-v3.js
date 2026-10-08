@@ -15,10 +15,6 @@ const replacements = [
     "const FIVE_MIN_MS=300_000;\nconst MIN_CONFIDENCE=Math.max(75,Number(process.env.GOLD_TELEGRAM_MIN_CONFIDENCE||process.env.TELEGRAM_MIN_CONFIDENCE||75));\nconst MIN_LIVE_RR=Math.max(.50,Math.min(.75,Number(process.env.GOLD_TELEGRAM_MIN_RR||.60)));"
   ],
   [
-    "if(!isConfirmedActive(s)||!valid(p)||!valid(entry)||!stopValid(side,entry,sl))return false;",
-    "if(!isConfirmedActive(s)||confidenceOf(s)<MIN_CONFIDENCE||!valid(p)||!valid(entry)||!stopValid(side,entry,sl))return false;"
-  ],
-  [
     "if(side==='BUY'?p<=sl:p>=sl)return false;",
     "if(CONFIRM_ON_5M_CLOSE&&!fiveMinuteCloseConfirmed(s,now))return false;\n  if(tp1AlreadyGone(s,side,p,t[0]))return false;\n  const liveRisk=side==='BUY'?p-sl:sl-p,liveReward=side==='BUY'?t[0]-p:p-t[0];\n  if(!(liveRisk>0)||!(liveReward>0)||liveReward/liveRisk<MIN_LIVE_RR)return false;\n  if(side==='BUY'?p<=sl:p>=sl)return false;"
   ],
@@ -42,12 +38,12 @@ source=source.replace(commandLoop,"  console.log('[telegram-xau-commands] webhoo
 
 {
   const oldReturn="return t.every((v,i)=>valid(v)&&(side==='BUY'?v>(i?t[i-1]:entry):v<(i?t[i-1]:entry)));";
-  const newReturn="const externalSweep=s?.ict?.legSweep||s?.ict?.sweep||null,externalNames=new Set(['pdh','pdl','pwh','pwl','asiaHigh','asiaLow','londonHigh','londonLow','nyHigh','nyLow']);const externalValid=String(s?.tradeStyle||'')==='ICT_ONLY_EXTERNAL_LIQUIDITY'&&externalSweep&&externalSweep.liquidityClass==='EXTERNAL'&&externalNames.has(String(externalSweep.name||''));const trendValid=String(s?.tradeStyle||'')==='ICT_ONLY_TREND_CONTINUATION'&&validTrendContinuation(s?.ict,side,now);if(!externalValid&&!trendValid)return false;/* Once the authoritative site lifecycle has promoted a setup to ACTIVE with one signalId, advisory agents may annotate/manage it but must not veto the Telegram mirror. */const present=t.filter(valid);if(!present.length)return false;return present.every((v,i)=>side==='BUY'?v>(i?present[i-1]:entry):v<(i?present[i-1]:entry));";
+  const newReturn="const authoritative=Boolean(s?.tradeState?.active===true&&String(s?.tradeState?.signalId||'')===String(s?.signalId||'')&&s?.entered===true&&s?.triggered===true);if(!authoritative)return false;/* The site has already enforced the ICT execution gate; Telegram must not rerun mutable advisory model/context gates after confirmation. */const present=t.filter(valid);if(!present.length)return false;return present.every((v,i)=>side==='BUY'?v>(i?present[i-1]:entry):v<(i?present[i-1]:entry));";
   if(!source.includes(oldReturn))throw new Error('telegram v3 confluence target validation anchor missing');
   source=source.replace(oldReturn,newReturn);
 
   const oldTarget="return \`\${icon} XAUUSD — \${side}\\n✅ CONFIRMED\\n📊 الثقة: \${confidence}%\\n💵 الدخول: \${money(entry)}\\n🛑 SL: \${n(sl)}\\n🎯 TP1: \${n(t[0])}\\n🎯 TP2: \${n(t[1])}\\n🎯 TP3: \${n(t[2])}\\n🎯 TP4: \${n(t[3])}\${sizing.length?'\\n\\n'+sizing.join('\\n'):''}\`;";
-  const newTarget="const labels=Array.isArray(s?.targetLabels)?s.targetLabels:[];const targetLines=t.map((v,i)=>valid(v)?('🎯 TP'+(i+1)+': '+n(v)+(labels[i]?' • '+labels[i]:'')):null).filter(Boolean);const ict=s?.ict||{},sweep=ict?.legSweep||ict?.sweep||{},mtf=s?.multiTimeframe||{},reads=mtf.reads||{};const sweepName=String(sweep?.name||'EXTERNAL LIQUIDITY').toUpperCase(),sweepPrice=n(sweep?.level);const sweepLine='🧹 Swept: '+sweepName+(valid(sweepPrice)?' @ '+n(sweepPrice):'');const htfLine='🧭 HTF: W1 '+(reads.W1?.side||'—')+' • D1 '+(reads.D1?.side||'—')+' • H4 '+(reads.H4?.side||'—');return icon+' XAUUSD — '+side+'\\n✅ ICT EXTERNAL SETUP CONFIRMED\\n📊 الثقة: '+confidence+'%\\n💵 الدخول: '+money(entry)+'\\n🛑 SL: '+n(sl)+'\\n'+targetLines.join('\\n')+'\\n\\n🧠 ICT ONLY — EXTERNAL LIQUIDITY\\n'+sweepLine+'\\n'+htfLine+'\\n🔁 '+(ict?.contextSequence||'EXTERNAL LIQUIDITY → MSS/DISPLACEMENT → FVG/OB')+(sizing.length?'\\n\\n'+sizing.join('\\n'):'');";
+  const newTarget="const labels=Array.isArray(s?.targetLabels)?s.targetLabels:[];const targetLines=t.map((v,i)=>valid(v)?('🎯 TP'+(i+1)+': '+n(v)+(labels[i]?' • '+labels[i]:'')):null).filter(Boolean);const ict=s?.ict||{},sweep=ict?.legSweep||ict?.sweep||{},mtf=s?.multiTimeframe||{},reads=mtf.reads||{};const sweepName=String(sweep?.name||'EXTERNAL LIQUIDITY').toUpperCase(),sweepPrice=n(sweep?.level);const sweepLine='🧹 Swept: '+sweepName+(valid(sweepPrice)?' @ '+n(sweepPrice):'');const htfLine='🧭 HTF: W1 '+(reads.W1?.side||'—')+' • D1 '+(reads.D1?.side||'—')+' • H4 '+(reads.H4?.side||'—');return icon+' XAUUSD — '+side+'\\n✅ ICT EXTERNAL SETUP CONFIRMED\\n🆔 '+s.signalId+'\\n📊 الثقة: '+confidence+'%\\n💵 الدخول: '+money(entry)+'\\n🛑 SL: '+n(sl)+'\\n'+targetLines.join('\\n')+'\\n\\n🧠 ICT ONLY — EXTERNAL LIQUIDITY\\n'+sweepLine+'\\n'+htfLine+'\\n🔁 '+(ict?.contextSequence||'EXTERNAL LIQUIDITY → MSS/DISPLACEMENT → FVG/OB')+(sizing.length?'\\n\\n'+sizing.join('\\n'):'');";
   if(!source.includes(oldTarget))throw new Error('telegram v3 target message anchor missing');
   source=source.replace(oldTarget,newTarget);
 
