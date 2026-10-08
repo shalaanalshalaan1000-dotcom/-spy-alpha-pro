@@ -8,6 +8,8 @@ const CHAT_ID=String(process.env.TELEGRAM_CHAT_ID||'').trim();
 const POLL_MS=Math.max(1200,Number(process.env.TELEGRAM_POLL_MS||1500));
 const EDIT_MIN_MS=Math.max(3000,Number(process.env.TELEGRAM_EDIT_MIN_MS||5000));
 const RECENT_KEY_TTL_MS=Math.max(60_000,Number(process.env.TELEGRAM_RECENT_SIGNAL_TTL_MS||600_000));
+// Do not advertise an entry minutes after the site filled its original ICT setup.
+const ENTRY_ALERT_MAX_DELAY_MS=Math.max(5000,Math.min(120000,Number(process.env.TELEGRAM_ENTRY_ALERT_MAX_DELAY_MS||60000)));
 const CONFIRM_ON_5M_CLOSE=String(process.env.TELEGRAM_CONFIRM_ON_5M_CLOSE||'true').toLowerCase()!=='false';
 const FIVE_MIN_MS=300_000;
 const BOOT_MS=Date.now();
@@ -110,6 +112,11 @@ function startedThisRun(s){
 function mirrorWindowOpen(s,now=Date.now()){
   const issued=issuedAtOf(s);
   return issued!=null&&issued<=now+5000&&now-issued<=RECENT_KEY_TTL_MS;
+}
+function entryNoticeFresh(s,now=Date.now()){
+  const issued=issuedAtOf(s);
+  return issued!=null && issued<=now+5000 && now-issued<=ENTRY_ALERT_MAX_DELAY_MS
+    && !s?.tp1 && !(Array.isArray(s?.targetHits)&&s.targetHits.some(Boolean));
 }
 function signalAfterSendEnable(s){
   const st=telegramSendState();
@@ -655,6 +662,9 @@ function targetMessage(s){
   const side=sideOf(s),confidence=Math.round(confidenceOf(s)),icon=side==='BUY'?'🟢':'🔴',entry=entryOf(s),sl=stopOf(s),t=targetsOf(s),sizing=lotSizingLines(entry,sl);
   return `${icon} XAUUSD — ${side}\n✅ CONFIRMED\n📊 الثقة: ${confidence}%\n💵 الدخول: ${money(entry)}\n🛑 SL: ${n(sl)}\n🎯 TP1: ${n(t[0])}\n🎯 TP2: ${n(t[1])}\n🎯 TP3: ${n(t[2])}\n🎯 TP4: ${n(t[3])}${sizing.length?'\n\n'+sizing.join('\n'):''}`;
 }
+function withTradeId(message,signalId){
+  return message && signalId ? `${message}\n🆔 ${signalId}` : message;
+}
 function tpHitMessage(i,target){
   return `✅ XAUUSD — TP${i+1} HIT / تم ضرب الهدف ${i+1}\n🎯 TP${i+1}: ${n(target)}`;
 }
@@ -696,7 +706,7 @@ async function sendTradeManagement(s){
   if(sent.managementKey===key)return false;
   const message=tradeManagementMessage(s);
   if(!message)return false;
-  await send(message);
+  await send(withTradeId(message,s.signalId));
   sent.managementKey=key;
   console.log(`[telegram-xau-confirmed] trade-management ${key} confidence=${Math.round(Number(d.confidence)||0)} signal=${sent.key}`);
   return true;
@@ -722,12 +732,12 @@ async function sendTargetHits(s,{includeTp4=true}={}){
     const provenAfterAlert=hitAt!=null&&hitAt>=sent.announcedAtMs;
     const hitProven=Boolean(hits[i]&&provenAfterAlert);
     if(hitProven&&!sent.targets[i]&&valid(targets[i])){
-      await send(tpHitMessage(i,targets[i]));
+      await send(withTradeId(tpHitMessage(i,targets[i]),sent.key));
       sent.targets[i]=true;
       console.log(`[telegram-xau-confirmed] TP${i+1} hit key=${sent.key} target=${n(targets[i])}`);
     }
     if(i<3&&hitProven&&valid(managed)&&!sent.managedStops[i]){
-      await send(managedStopMessage(i,managed));
+      await send(withTradeId(managedStopMessage(i,managed),sent.key));
       sent.managedStops[i]=true;
       console.log(`[telegram-xau-confirmed] TP${i+1} managed-stop=${n(managed)} key=${sent.key}`);
     }
@@ -778,10 +788,11 @@ async function tick(){
     cleanupRecent(now);
 
     if(terminalMatchesLock(tradeLock,s)){
+      if(!sent.above||sent.key!==tradeLock.key){resetSent();clearTradeLock();return;}
       const terminal=s.terminalEvent;
       await sendTargetHits(terminal,{includeTp4:false});
       const closeText=terminalMessage(terminal);
-      if(closeText)await send(closeText);
+      if(closeText)await send(withTradeId(closeText,terminal.signalId));
       console.log(`[telegram-xau-confirmed] trade lock released ${tradeLock.side} key=${tradeLock.key} outcome=${terminal?.outcome||terminal?.result||'CLOSED'}`);
       resetSent();
       clearTradeLock();
@@ -793,7 +804,7 @@ async function tick(){
     // A deployment/restart must not make Telegram miss a trade that the site has
     // already promoted to ACTIVE. Mirror recent confirmed lifecycle state, but do
     // not resurrect stale trades after the configured recent-signal window.
-    const eligibleNewTrade=!tradeLock.active&&mirrorWindowOpen(s,now)&&signalAfterSendEnable(s);
+    const eligibleNewTrade=!tradeLock.active&&mirrorWindowOpen(s,now)&&entryNoticeFresh(s,now)&&signalAfterSendEnable(s);
     const ok=canSendSignal(s,now)&&lockAllowsSignal(tradeLock,s)&&(sameLockedTrade||eligibleNewTrade);
 
     if(ok){
@@ -835,24 +846,13 @@ async function tick(){
       console.warn(`[telegram-xau-confirmed] blocked overlapping ${side} key=${key}; locked=${tradeLock.side} ${tradeLock.key}`);
       return;
     }
-    if(active&&!tradeLock.active&&!mirrorWindowOpen(s,now)){
-      // Adopt the restored server lifecycle without replaying a stale entry alert.
-      // This keeps TP/SL and management notifications attached after a worker/deploy restart.
-      setTradeLock(s,now);
-      sent.above=true;
-      sent.side=side;
-      sent.key=key;
-      sent.messageId=null;
-      sent.lastText=targetMessage(s);
-      sent.lastEditMs=now;
-      sent.announcedAtMs=now;
-      sent.targets=[false,false,false,false];
-      sent.managedStops=[false,false,false,false];
-      sent.managementKey=null;
-      recentKeys.set(key,now);
-      console.log(`[telegram-xau-confirmed] adopted restored active trade without replaying entry key=${key}`);
-      await sendTargetHits(s);
-      await sendTradeManagement(s);
+    if(active&&!tradeLock.active&&!eligibleNewTrade){
+      // A restored or already-consumed trade was not announced to this chat.
+      // Never forge a delivery receipt: TP/SL/management must follow a successfully sent entry.
+      if(!recentKeys.has(key)){
+        recentKeys.set(key,now);
+        console.warn(`[telegram-xau-confirmed] suppressed orphan lifecycle alerts: entry not delivered key=${key} ageMs=${now-(issuedAtOf(s)||now)}`);
+      }
       return;
     }
   }catch(e){console.error('[telegram-xau-confirmed]',e?.message||e);}
@@ -864,4 +864,4 @@ if(process.env.NODE_ENV!=='test'){
   (async function commands(){await botCommandLoop();})();
 }
 
-export {targetMessage,canSendSignal,fiveMinuteCloseConfirmed,mirrorWindowOpen,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeManagementMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate,sessionIctContinuationGate,sessionMomentumArm,sessionMomentumAcceptance,sessionExecutionWatchMessage};
+export {targetMessage,canSendSignal,entryNoticeFresh,withTradeId,fiveMinuteCloseConfirmed,mirrorWindowOpen,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeManagementMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate,sessionIctContinuationGate,sessionMomentumArm,sessionMomentumAcceptance,sessionExecutionWatchMessage};
