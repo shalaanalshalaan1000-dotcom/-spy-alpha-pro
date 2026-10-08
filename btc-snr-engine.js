@@ -8,7 +8,7 @@ const MAX_RISK_USD = Math.max(SAFE_RISK_USD, Number(process.env.BTC_MAX_RISK_USD
 const MAX_ENTRY_AGE_MS = Math.max(60000, Math.min(1800000, Number(process.env.BTC_SNR_MAX_ENTRY_AGE_MS || 300000) || 300000));
 
 const cache = { expiresAt: 0, value: null };
-const lifecycle = { signal: null, lastTerminal: null, cooldownUntil: 0, seen: new Set() };
+const lifecycle = { signal: null, lastTerminal: null, lastClosedSignal: null, cooldownUntil: 0, seen: new Set() };
 
 const num = v => v == null || v === '' || typeof v === 'boolean' ? null : (Number.isFinite(Number(v)) ? Number(v) : null);
 const round = (v, d = 2) => {
@@ -390,53 +390,80 @@ function noNewEntry(signal, status, reason, terminalEvent) {
     status,
     action: 'WAIT',
     side: null,
-    tradeSide: signal.action,
+    tradeSide: signal.tradeSide || signal.action,
     executable: false,
     entryEligible: false,
     confidence: 0,
-    originalSetupStrength: signal.confidence,
+    originalSetupStrength: signal.originalSetupStrength ?? signal.confidence,
     reason,
     lockedTargets: true,
     terminalEvent
   };
 }
 
+function closeBtcSignal(signal, type, price, now) {
+  const at = new Date(now).toISOString();
+  const terminalEvent = {
+    type, side: signal.action, signalId: signal.signalId, at,
+    price: round(price), entry: signal.entry,
+    stopLoss: signal.stopLoss, target1: signal.target1, target2: signal.target2,
+    targetHits: [...(signal.targetHits || [])],
+    status: 'CLOSED', // Model signal outcome, NOT a confirmed broker-side closure.
+    brokerPositionClosed: false
+  };
+  lifecycle.lastTerminal = terminalEvent;
+  lifecycle.cooldownUntil = now + 60000;
+  lifecycle.signal = null;
+  const reason = `BTC SNR SIGNAL CLOSED — ${type}; signal ended at ${round(price)}. Not a broker trade closure. NO NEW ENTRY.`;
+  lifecycle.lastClosedSignal = {
+    ...noNewEntry(signal, 'CLOSED', reason, terminalEvent),
+    closedAt: at,
+    closedReason: type,
+    brokerPositionClosed: false
+  };
+  return lifecycle.lastClosedSignal;
+}
+
 export function lifecycleSignal(candidate, now = Date.now()) {
   const price = num(candidate?.price);
+  const validPrice = price != null && price > 0;
+
   if (lifecycle.signal) {
     const signal = lifecycle.signal;
-    const validPrice = price != null && price > 0;
-    const stopHit = validPrice && (signal.action === 'BUY' ? price <= signal.stopLoss : price >= signal.stopLoss);
+    const alreadyHitTp1 = signal.targetHits?.[0] === true;
+    const protectiveLevel = alreadyHitTp1 ? signal.target1 : signal.stopLoss;
+    const stopHit = validPrice && num(protectiveLevel) != null &&
+      (signal.action === 'BUY' ? price <= protectiveLevel : price >= protectiveLevel);
     if (stopHit) {
-      lifecycle.lastTerminal = { type: 'SL', side: signal.action, price: round(price), at: new Date(now).toISOString(), signalId: signal.signalId };
-      lifecycle.signal = null;
-      lifecycle.cooldownUntil = now + 60000;
-    } else {
-      if (validPrice) {
-        signal.price = round(price);
-        signal.updatedAt = candidate.updatedAt;
-        // Latch previously reached objectives so rebounds never reactivate an old entry.
-        signal.targetHits = [signal.target1, signal.target2, signal.target3, signal.target4]
-          .map((target, i) => signal.targetHits?.[i] === true || reached(signal.action, price, target));
+      return closeBtcSignal(signal, alreadyHitTp1 ? 'PROTECTED_STOP' : 'SL', price, now);
+    }
+    if (validPrice) {
+      signal.price = round(price);
+      signal.updatedAt = candidate.updatedAt || new Date(now).toISOString();
+      const priorHits = [...signal.targetHits];
+      signal.targetHits = [signal.target1, signal.target2, signal.target3, signal.target4]
+        .map((target, i) => priorHits[i] || reached(signal.action, price, target));
+      // TP2 is the default completion point. If only TP1 exists, TP1 completes the model signal.
+      const closeAt = num(signal.target2) != null && signal.target2 > 0 ? 2 : 1;
+      if (signal.targetHits[closeAt - 1]) {
+        return closeBtcSignal(signal, `TP${closeAt}`, price, now);
       }
-      const existing = [signal.target1, signal.target2, signal.target3, signal.target4].filter(v => num(v) != null && num(v) > 0);
-      if (existing.length && signal.targetHits.slice(0, existing.length).every(Boolean)) {
-        lifecycle.lastTerminal = { type: `TP${existing.length}`, side: signal.action, price: round(price), at: new Date(now).toISOString(), signalId: signal.signalId };
-        lifecycle.signal = null;
-        lifecycle.cooldownUntil = now + 60000;
-      } else if (signal.targetHits.some(Boolean)) {
-        const firstHit = signal.targetHits.findIndex(Boolean) + 1;
-        return noNewEntry(signal, 'TARGET_REACHED',
-          `BTC TP${firstHit} (or later) has been reached — historical setup only. NO NEW ENTRY. Existing position monitoring may continue.`,
-          lifecycle.lastTerminal);
-      } else if (now - signal.issuedAtMs >= MAX_ENTRY_AGE_MS) {
-        return noNewEntry(signal, 'EXPIRED',
-          'BTC SNR entry window expired — NO NEW ENTRY. Old levels are for reference only.',
-          lifecycle.lastTerminal);
-      } else {
-        return { ...signal, status: 'ACTIVE', entryEligible: true, lockedTargets: true, terminalEvent: lifecycle.lastTerminal };
+      if (!alreadyHitTp1 && signal.targetHits[0]) {
+        signal.latestMilestone = {
+          type: 'TP1', price: round(price), target: signal.target1,
+          at: new Date(now).toISOString(), signalId: signal.signalId
+        };
       }
     }
+    if (signal.targetHits[0]) {
+      return noNewEntry(signal, 'TP1_HIT',
+        `BTC SNR TP1 HIT at ${signal.target1}; entry is closed to new traders. TP2 or protective stop is next. NO NEW ENTRY.`,
+        lifecycle.lastTerminal);
+    }
+    if (now - signal.issuedAtMs >= MAX_ENTRY_AGE_MS) {
+      return closeBtcSignal(signal, 'EXPIRED', price, now);
+    }
+    return { ...signal, status: 'ACTIVE', entryEligible: true, lockedTargets: true, terminalEvent: lifecycle.lastTerminal };
   }
 
   if (now >= lifecycle.cooldownUntil && candidate.status === 'ACTIVE' && candidate.setupId && !lifecycle.seen.has(candidate.setupId)) {
@@ -444,18 +471,31 @@ export function lifecycleSignal(candidate, now = Date.now()) {
     const entryBlock = btcEntryBlockReason(candidate);
     if (entryBlock) {
       lifecycle.seen.add(candidate.setupId);
-      return {
-        ...candidate, status: 'WAIT', action: 'WAIT', side: null,
-        entry: null, stopLoss: null, target1: null, target2: null, target3: null, target4: null,
-        confidence: 0, executable: false, entryEligible: false,
-        reason: `BTC SNR BLOCKED — ${entryBlock}; historical setup is not a new entry.`,
-        terminalEvent: lifecycle.lastTerminal
-      };
+      return lifecycle.lastClosedSignal
+        ? { ...lifecycle.lastClosedSignal, price: round(price), updatedAt: candidate.updatedAt }
+        : { ...candidate, status: 'WAIT', action: 'WAIT', side: null,
+            entry: null, stopLoss: null, target1: null, target2: null, target3: null, target4: null,
+            confidence: 0, executable: false, entryEligible: false,
+            reason: `BTC SNR BLOCKED — ${entryBlock}; historical setup is not a new entry.`,
+            terminalEvent: lifecycle.lastTerminal };
     }
     lifecycle.seen.add(candidate.setupId);
     if (lifecycle.seen.size > 200) lifecycle.seen.delete(lifecycle.seen.values().next().value);
-    lifecycle.signal = { ...candidate, signalId: `BTC-SNR-${now}`, issuedAtMs: now, targetHits: [false, false, false, false], lockedTargets: true, entryEligible: true };
+    lifecycle.lastClosedSignal = null;
+    lifecycle.signal = {
+      ...candidate, signalId: `BTC-SNR-${now}`, issuedAtMs: now,
+      targetHits: [false, false, false, false],
+      lockedTargets: true, entryEligible: true, latestMilestone: null
+    };
     return { ...lifecycle.signal, terminalEvent: lifecycle.lastTerminal };
+  }
+
+  if (lifecycle.lastClosedSignal) {
+    return {
+      ...lifecycle.lastClosedSignal,
+      price: round(price),
+      updatedAt: candidate.updatedAt || new Date(now).toISOString()
+    };
   }
 
   return {
@@ -481,6 +521,7 @@ export function lifecycleSignal(candidate, now = Date.now()) {
 export function resetBtcLifecycleForTests() {
   lifecycle.signal = null;
   lifecycle.lastTerminal = null;
+  lifecycle.lastClosedSignal = null;
   lifecycle.cooldownUntil = 0;
   lifecycle.seen.clear();
 }
