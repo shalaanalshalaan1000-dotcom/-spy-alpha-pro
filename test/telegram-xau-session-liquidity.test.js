@@ -184,9 +184,9 @@ test('London failed HIGH breakout tells the locked ACTIVE BUY to exit before SL 
   const message=sessionEarlyExitMessage(earlyExitTrade,earlyExitLock,earlyExitSent,failedHigh);
   assert.match(message,/EXIT BUY/);
   assert.match(message,/اخرج من صفقة BUY/);
-  assert.match(message,/4139\\.660/);
-  assert.match(message,/4137\\.690/);
-  assert.match(message,/4132\\.133/);
+  assert.match(message,/4139\.660/);
+  assert.match(message,/4137\.690/);
+  assert.match(message,/4132\.133/);
   assert.match(message,/ليس دخول SELL/);
   assert.doesNotMatch(message,/SELL CONFIRMED|ادخل SELL/);
 });
