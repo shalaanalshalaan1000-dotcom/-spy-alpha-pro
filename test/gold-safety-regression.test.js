@@ -8,11 +8,14 @@ const {mirrorWindowOpen}=await import('../telegram-xau-bot-v2.js');
 const {buildMonth5Context}=await import('../gold-confluence-model.js');
 const now=Date.now();
 const good={signalId:'test',status:'ACTIVE',entered:true,triggered:true,side:'BUY',confidence:80,price:4300,triggerPrice:4300,entry:4300,stopLoss:4298,target1:4302,target2:4303,target3:4304,target4:4305,quoteAgeMs:100,liveFeedFresh:true,updatedAt:new Date(now).toISOString(),tradeStyle:'ICT_ONLY_EXTERNAL_LIQUIDITY',ict:{legSweep:{name:'pdl',level:4297,liquidityClass:'EXTERNAL'}},agentStack:{agents:{trading:{advisoryReady:true}}}};
+good.tradeState={active:true,signalId:'test',side:'BUY',sweptName:'pdl'};
 test('Telegram rejects invalid, stale, stopped and consumed entries',()=>{
  assert.equal(canSendSignal(good,now),true);
  for(const patch of [{price:null},{entry:0,triggerPrice:0},{target2:4299},{stopLoss:0},{price:4297},{price:4302},{degraded:true},{quoteAgeMs:21000},{updatedAt:'bad'},{status:'CANDIDATE'},{signalId:null},{target1:null}])assert.equal(canSendSignal({...good,...patch},now),false,JSON.stringify(patch));
- assert.equal(canSendSignal({...good,side:'SELL',stopLoss:4302,target1:4298,target2:4297,target3:4296,target4:4295,ict:{legSweep:{name:'pdh',level:4303,liquidityClass:'EXTERNAL'}}},now),true);
- assert.equal(canSendSignal({...good,ict:{legSweep:{name:'localSellSide',level:4297,liquidityClass:'INTERNAL'}}},now),false);
+ assert.equal(canSendSignal({...good,side:'SELL',stopLoss:4302,target1:4298,target2:4297,target3:4296,target4:4295,tradeState:{...good.tradeState,side:'SELL',sweptName:'pdh'},ict:{legSweep:{name:'pdh',level:4303,liquidityClass:'EXTERNAL'}}},now),true);
+ // An authoritative ACTIVE snapshot remains valid if mutable ICT context later changes.
+ assert.equal(canSendSignal({...good,ict:{legSweep:{name:'localSellSide',level:4297,liquidityClass:'INTERNAL'}}},now),true);
+ assert.equal(canSendSignal({...good,tradeState:{...good.tradeState,side:'SELL'}},now),false);
 });
 
 test('Telegram mirrors a recent authoritative ACTIVE trade after worker restart but not a stale one',()=>{
@@ -88,7 +91,7 @@ test('confluence wrapper and Telegram require the external ICT contract',()=>{
  assert.match(confluenceSource,/ICT_ONLY_EXTERNAL_LIQUIDITY/);
  assert.match(confluenceSource,/externalSweepValid/);
  assert.match(confluenceSource,/analyzeIctModel\(samples,rawPrice,now,higherTimeframes\)/);
- assert.match(telegramV3,/ICT_ONLY_EXTERNAL_LIQUIDITY/);
+ assert.match(telegramV3,/s\?\.tradeState\?\.active===true/);
  assert.match(telegramV3,/validTrendContinuation/);
 });
 
@@ -273,7 +276,8 @@ test('authoritative ACTIVE trade state survives worker restart and Render deploy
  assert.match(enginePatch,/PREVIOUS_DEPLOYMENT/);
  assert.match(enginePatch,/clearPersistedActiveTradeState/);
  assert.match(enginePatch,/bootGoldEngine/);
- assert.match(telegramSource,/adopted restored active trade without replaying entry/);
+ assert.doesNotMatch(telegramSource,/adopted restored active trade without replaying entry/);
+ assert.match(telegramSource,/suppressed orphan lifecycle alerts: entry not delivered/);
  assert.match(telegramSource,/await sendTargetHits\(s\)/);
  assert.match(telegramSource,/await sendTradeManagement\(s\)/);
 });
