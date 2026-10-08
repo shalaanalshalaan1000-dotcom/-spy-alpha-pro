@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { clockParts } from './runtime-memory-policy.js';
 import { telegramSendState, telegramSendingEnabled } from './telegram-send-control.js';
+import { goldEntryWindow } from './gold-session-entry-policy.js';
 
 const AUTO_URL=process.env.TELEGRAM_SIGNAL_URL||'http://127.0.0.1:3002/api/auto-trade/signal?observe=1';
 const BOT_TOKEN=String(process.env.TELEGRAM_BOT_TOKEN||'').trim();
@@ -848,7 +849,10 @@ async function tick(){
     // A deployment/restart must not make Telegram miss a trade that the site has
     // already promoted to ACTIVE. Mirror recent confirmed lifecycle state, but do
     // not resurrect stale trades after the configured recent-signal window.
-    const eligibleNewTrade=!tradeLock.active&&mirrorWindowOpen(s,now)&&entryNoticeFresh(s,now)&&signalAfterSendEnable(s);
+    // Asian/off-session analysis must never become a fresh Telegram BUY/SELL.
+    // Apply the session check both to the entry issue time and to delivery time.
+    // Locked trades still receive TP/SL and STOP/CONTINUE management off-hours.
+    const eligibleNewTrade=!tradeLock.active&&goldEntryWindow(now).allowed&&goldEntryWindow(issuedAtOf(s)??now).allowed&&mirrorWindowOpen(s,now)&&entryNoticeFresh(s,now)&&signalAfterSendEnable(s);
     const ok=canSendSignal(s,now)&&lockAllowsSignal(tradeLock,s)&&(sameLockedTrade||eligibleNewTrade);
 
     if(ok){

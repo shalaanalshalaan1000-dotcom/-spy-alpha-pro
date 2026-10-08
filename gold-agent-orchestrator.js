@@ -1,6 +1,7 @@
 // Reuse ICU state across polling calls; formatting options remain identical.
 const RIYADH_WEEKDAY_FORMATTER=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Riyadh',weekday:'short'});
 import { analyzeGoldSnr } from './gold-snr-advisory.js';
+import { goldEntryWindow } from './gold-session-entry-policy.js';
 
 const toNum = value => value != null && value !== '' && typeof value !== 'boolean' && Number.isFinite(Number(value)) ? Number(value) : null;
 const round = (value, digits = 2) => {
@@ -1062,6 +1063,25 @@ export function orchestrateGoldAgents(source = {}, now = Date.now()) {
 export function applyAgentExecutionGate(source = {}, now = Date.now()) {
   const stack = orchestrateGoldAgents(source, now);
   const tradeState = stack.tradeState || authoritativeTradeState(source, now);
+  const entryWindow = goldEntryWindow(now);
+  // Keep confirmed trade lifecycle and management intact around the clock;
+  // block ONLY new trade promotion and manual BUY/SELL prompts off-session.
+  if(!tradeState.active&&!entryWindow.allowed){
+    return {
+      ...source,
+      status:'WAIT',
+      action:'WAIT',
+      manualAction:'WAIT',
+      executable:false,
+      executionAction:'WAIT',
+      sessionMode:'READ_ONLY',
+      tradeState,
+      agentStack:stack,
+      agentDecision:{...stack.decision,ready:false,executable:false,action:'WAIT',manualAction:'WAIT',reason:entryWindow.reason},
+      agentSchema:stack.decisionSchema,
+      reason:entryWindow.reason
+    };
+  }
   if (stack.decision.executable) {
     return {
       ...source,

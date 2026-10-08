@@ -379,5 +379,15 @@ source=source.replace("const BUILD='site-signal-noai-v69-core-retest-entry';","c
   if(!source.includes(allocation))throw new Error('memory patch: marketClock anchor missing');
   source="import { clockParts } from './runtime-memory-policy.js';\n"+source.replace(allocation,'clockParts(ms,timeZone)');
 }
+// Final entry permission guard: Asian/Tokyo levels remain readable, but only
+// a London or New York window may turn an ICT candidate into an ACTIVE trade.
+// Manage existing ACTIVE trades normally; this applies only to maybeCreate.
+{
+  const maybeAnchor=" const openSession=refreshOpeningSession(now);\n state.lastEntryGuard=null;";
+  if(!source.includes(maybeAnchor))throw new Error('xau session policy: maybeCreate insertion anchor missing');
+  source="import { goldEntryWindow } from './gold-session-entry-policy.js';\n"+source;
+  source=source.replace(maybeAnchor,maybeAnchor+"\n const entryWindow=goldEntryWindow(now);\n if(!entryWindow.allowed){state.lastEntryGuard={atMs:now,reason:entryWindow.reason,session:entryWindow.session,marketMode:'READ_ONLY'};return;}");
+}
+
 fs.writeFileSync(runtimeUrl, source, 'utf8');
 await import(`${runtimeUrl.href}?v=${Date.now()}`);
