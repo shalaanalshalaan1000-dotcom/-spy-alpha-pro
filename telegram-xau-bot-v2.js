@@ -93,7 +93,7 @@ function cleanupRecent(now=Date.now()){
 }
 function isConfirmedActive(s){
   const status=String(s?.status||'').toUpperCase(),snapshotActive=s?.tradeState?.active===true;
-  return Boolean((snapshotActive||['ACTIVE','MANAGING','CONFIRMED'].includes(status))&&s?.signalId&&s?.entered===true&&s?.triggered===true&&['BUY','SELL'].includes(s?.side));
+  return Boolean(['ACTIVE','MANAGING','CONFIRMED'].includes(status)&&s?.signalId&&s?.entered===true&&s?.triggered===true&&['BUY','SELL'].includes(s?.side));
 }
 function tp1AlreadyGone(s,side,livePrice,tp1){
   return Boolean(s?.tp1||s?.targetHits?.[0])||reached(side,livePrice,tp1);
