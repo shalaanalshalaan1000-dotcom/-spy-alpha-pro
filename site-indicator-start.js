@@ -218,7 +218,7 @@ function injectIndicator(html) {
    const ad=s.agentDecision||{},ags=s.agents||{},risk=ags.risk||{},tm=ags.tradeManager||{};
    document.getElementById('siteAgentStage').textContent=(ad.stage||'WAIT')+' • '+(ad.side||'WAIT');
    document.getElementById('siteRiskAgent').textContent=risk.recommendedLot!=null?('Lot '+Number(risk.recommendedLot).toFixed(2)+' • Risk USD '+Number(risk.estimatedRiskUsd||0).toFixed(2)):(risk.allowed?'READY':'WAIT');
-   const md=tm.managementDecision||{},mdConf=Number.isFinite(Number(md.confidence))?Math.round(Number(md.confidence))+'%':'—';document.getElementById('siteTradeManager').textContent=md.action==='STOP'?('⛔ STOP • '+mdConf):md.action==='CONTINUE'?('✅ CONTINUE • '+mdConf):((tm.action||'OBSERVE')+' • HOLD PLAN')+(tm.suggestedProtection?' • MOVE SL TO BE':'');
+   const md=tm.managementDecision||{},mdConf=Number.isFinite(Number(md.confidence))?Math.round(Number(md.confidence))+'%':'—';document.getElementById('siteTradeManager').textContent=md.action==='STOP'?(md.earlyExit?('🚨 EXIT NOW • '+(md.reversalSide||'REVERSAL')+' • ICT M5 CONFIRMED'):('⛔ STOP • '+mdConf)):md.action==='CONTINUE'?('✅ CONTINUE • '+mdConf):((tm.action||'OBSERVE')+' • HOLD PLAN')+(tm.suggestedProtection?' • MOVE SL TO BE':'');
    document.getElementById('siteAgentMode').textContent=s.agentMode||'OBSERVE_ONLY';
    const brain=ags.brain||{},reflex=ags.reflex||{},schema=s.decisionSchema||{};
    document.getElementById('siteBrain').textContent=(brain.direction||'NEUTRAL')+' • '+(brain.regime||'TRANSITION')+' • Q'+(brain.setupQuality??0);

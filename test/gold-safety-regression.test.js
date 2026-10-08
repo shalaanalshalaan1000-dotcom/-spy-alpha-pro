@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 process.env.NODE_ENV='test';
 const {canSendSignal}=await import('../telegram-xau-bot-v3.js');
-const {mirrorWindowOpen}=await import('../telegram-xau-bot-v2.js');
+const {mirrorWindowOpen,tradeManagementMessage}=await import('../telegram-xau-bot-v2.js');
 const {buildMonth5Context}=await import('../gold-confluence-model.js');
 const now=Date.now();
 const good={signalId:'test',status:'ACTIVE',entered:true,triggered:true,side:'BUY',confidence:80,price:4300,triggerPrice:4300,entry:4300,stopLoss:4298,target1:4302,target2:4303,target3:4304,target4:4305,quoteAgeMs:100,liveFeedFresh:true,updatedAt:new Date(now).toISOString(),tradeStyle:'ICT_ONLY_EXTERNAL_LIQUIDITY',ict:{legSweep:{name:'pdl',level:4297,liquidityClass:'EXTERNAL'}},agentStack:{agents:{trading:{advisoryReady:true}}}};
@@ -16,6 +16,29 @@ test('Telegram rejects invalid, stale, stopped and consumed entries',()=>{
  // An authoritative ACTIVE snapshot remains valid if mutable ICT context later changes.
  assert.equal(canSendSignal({...good,ict:{legSweep:{name:'localSellSide',level:4297,liquidityClass:'INTERNAL'}}},now),true);
  assert.equal(canSendSignal({...good,tradeState:{...good.tradeState,side:'SELL'}},now),false);
+});
+
+test('Telegram publishes EXIT NOW for confirmed opposite ICT reversal before SL',()=>{
+ const s={
+   ...good,
+   price:4299.4,
+   agentStack:{agents:{tradeManager:{managementDecision:{
+     action:'STOP',confirmed:true,manualAction:'EXIT_TRADE',earlyExit:true,
+     exitTrigger:'OPPOSITE_ICT_EXTERNAL_SWEEP_M5_MSS_RETEST',
+     reversalSide:'SELL',confidence:76,structureState:'INVALIDATED',
+     reversalSweep:{name:'pdh',level:4304},
+     reversalMss:{mss:true,priorLow:4299},
+     reversalRetest:{confirmed:true,level:4299,t:now},
+     reason:'Opposite ICT reversal confirmed'
+   }}}}
+ };
+ const msg=tradeManagementMessage(s);
+ assert.match(msg,/EXIT TRADE NOW/);
+ assert.match(msg,/قبل انتظار SL/);
+ assert.match(msg,/External Sweep/);
+ assert.match(msg,/M5 MSS/);
+ assert.match(msg,/Retest\/Hold/);
+ assert.match(msg,/لا يرسل أمر MT5 تلقائيًا/);
 });
 
 test('Telegram mirrors a recent authoritative ACTIVE trade after worker restart but not a stale one',()=>{
@@ -262,6 +285,13 @@ test('stale TradingView feed cannot demote an already confirmed XAU trade to WAI
  assert.match(uiSource,/state:active\?\(side==='BUY'\?'UP':'DOWN'\):stale\?'STALE'/);
  assert.match(uiSource,/feedPaused:Boolean\(active&&stale\)/);
  assert.match(uiSource,/ENTRY ACTIVE • DATA PAUSED/);
+});
+
+test('gold site exposes explicit EXIT NOW state for early reversal',()=>{
+ const siteSource=fs.readFileSync(new URL('../site-indicator-start.js',import.meta.url),'utf8');
+ assert.match(siteSource,/EXIT NOW/);
+ assert.match(siteSource,/md\.earlyExit/);
+ assert.match(siteSource,/ICT M5 CONFIRMED/);
 });
 
 test('authoritative ACTIVE trade state survives worker restart and Render deploy handoff',()=>{

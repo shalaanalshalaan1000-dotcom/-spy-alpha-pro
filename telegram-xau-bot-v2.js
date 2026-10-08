@@ -725,13 +725,18 @@ function tradeManagementMessage(s){
   const side=sideOf(s)||'TRADE',confidence=Math.round(Number(d.confidence)||0),live=n(s?.price),modelSide=String(d.modelSide||side);
   const structure=String(d.structureState||'UNKNOWN').toUpperCase(),m5=String(d.m5Side||'—');
   if(d.action==='STOP'){
-    return `⛔ XAUUSD — STOP / EXIT TRADE
-🚪 اخرج من صفقة ${side}
-🧱 M5/ICT structure: ${structure} • M5 ${m5}
-📊 Advisory model: ${modelSide} • ${confidence}%
+    const sweep=d.reversalSweep||{},mss=d.reversalMss||{},retest=d.reversalRetest||{};
+    const reversalLine=d.earlyExit
+      ? `🔄 انعكاس ICT مؤكد إلى ${d.reversalSide||modelSide}: External Sweep ${sweep.name?String(sweep.name).toUpperCase():''} ${valid(sweep.level)?n(sweep.level):''} → M5 MSS → Retest/Hold ${valid(retest.level)?n(retest.level):''}`
+      : '🛑 السعر وصل إلى وقف الخسارة.';
+    return `🚨 XAUUSD — EXIT TRADE NOW
+🚪 اخرج يدويًا من صفقة ${side}${d.earlyExit?' قبل انتظار SL':''}
+${reversalLine}
 💵 السعر الآن: ${live}
-🧠 ${d.reason||'تم تأكيد إبطال البنية على M5.'}
-⚠️ هذا قرار إدارة للصفقة الحالية، وليس إشارة دخول عكسية.`;
+🧱 Trade structure: ${structure}
+📊 Model confidence: ${confidence}% • advisory only
+🧠 ${d.reason||'تم تأكيد انعكاس بنيوي ضد الصفقة.'}
+⚠️ هذا تنبيه خروج للصفقة الحالية فقط — لا يفتح صفقة عكسية ولا يرسل أمر MT5 تلقائيًا.`;
   }
   return `✅ XAUUSD — CONTINUE TRADE
 📌 استمر في صفقة ${side}
@@ -746,7 +751,7 @@ async function sendTradeManagement(s){
   if(!sent.above||sent.key!==signalKey(s))return false;
   const d=managementDecisionOf(s);
   if(!d)return false;
-  const key=`${d.action}|${d.modelSide||''}`;
+  const key=`${d.action}|${d.exitTrigger||''}|${d.reversalSide||d.modelSide||''}|${d.reversalRetest?.t||''}`;
   if(sent.managementKey===key)return false;
   const message=tradeManagementMessage(s);
   if(!message)return false;

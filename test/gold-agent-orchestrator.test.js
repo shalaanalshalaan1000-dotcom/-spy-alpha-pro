@@ -349,32 +349,54 @@ test('trade manager requires ICT/M5 structure for CONTINUE and structure flip fo
   assert.equal(stack.agents.tradeManager.managementDecision.candidateAction,'HOLD_PLAN');
   assert.equal(stack.agents.tradeManager.managementDecision.structureState,'WEAKENING');
 
-  const weakOpposite={...aligned,liveModelAction:'SELL',liveModelConfidence:79};
+  const weakOpposite={...aligned,liveModelAction:'SELL',liveModelConfidence:91};
   resetGoldAgentMemory();
   stack=orchestrateGoldAgents(weakOpposite,t+7000);
   assert.equal(stack.agents.tradeManager.managementDecision.action,'HOLD_PLAN');
   assert.equal(stack.agents.tradeManager.managementDecision.candidateAction,'HOLD_PLAN');
 
-  const oppositeWithoutM5Flip={...aligned,liveModelAction:'SELL',liveModelConfidence:91};
-  resetGoldAgentMemory();
-  stack=orchestrateGoldAgents(oppositeWithoutM5Flip,t+8000);
-  assert.equal(stack.agents.tradeManager.managementDecision.action,'HOLD_PLAN');
-  assert.equal(stack.agents.tradeManager.managementDecision.candidateAction,'HOLD_PLAN');
-
-  const opposite={
-    ...oppositeWithoutM5Flip,
+  const oppositeMssOnly={
+    ...aligned,
+    liveModelAction:'SELL',
+    liveModelConfidence:95,
+    ict:{
+      coreIctEntryReady:false,
+      hasSweep:true,
+      legSweep:{name:'pdh',level:4304,liquidityClass:'EXTERNAL'},
+      m5MssEvent:{mss:true,priorLow:4299,t:t+7000},
+      m5MssRetest:{confirmed:false,level:4299,t:null}
+    },
     multiTimeframe:{...aligned.multiTimeframe,reads:{...aligned.multiTimeframe.reads,M5:{side:'SELL'}}}
   };
   resetGoldAgentMemory();
-  stack=orchestrateGoldAgents(opposite,t+9000);
+  stack=orchestrateGoldAgents(oppositeMssOnly,t+8000);
+  assert.equal(stack.agents.tradeManager.managementDecision.action,'HOLD_PLAN');
+  assert.equal(stack.agents.tradeManager.managementDecision.candidateAction,'HOLD_PLAN');
+  assert.equal(stack.agents.tradeManager.managementDecision.structureInvalidated,false);
+
+  const oppositeCoreReversal={
+    ...oppositeMssOnly,
+    liveModelConfidence:76,
+    ict:{
+      ...oppositeMssOnly.ict,
+      coreIctEntryReady:true,
+      m5MssRetest:{confirmed:true,level:4299,t:t+8500}
+    }
+  };
+  resetGoldAgentMemory();
+  stack=orchestrateGoldAgents(oppositeCoreReversal,t+9000);
   assert.equal(stack.agents.tradeManager.managementDecision.action,'HOLD_PLAN');
   assert.equal(stack.agents.tradeManager.managementDecision.candidateAction,'STOP');
   assert.equal(stack.agents.tradeManager.managementDecision.structureState,'INVALIDATED');
+  assert.equal(stack.agents.tradeManager.managementDecision.earlyExit,true);
+  assert.equal(stack.agents.tradeManager.managementDecision.exitTrigger,'OPPOSITE_ICT_EXTERNAL_SWEEP_M5_MSS_RETEST');
+  assert.equal(stack.agents.tradeManager.managementDecision.reversalSide,'SELL');
 
-  stack=orchestrateGoldAgents(opposite,t+14001);
+  stack=orchestrateGoldAgents(oppositeCoreReversal,t+14001);
   assert.equal(stack.agents.tradeManager.managementDecision.action,'STOP');
   assert.equal(stack.agents.tradeManager.managementDecision.manualAction,'EXIT_TRADE');
   assert.equal(stack.agents.tradeManager.managementDecision.confirmed,true);
+  assert.equal(stack.agents.tradeManager.managementDecision.earlyExit,true);
 });
 
 
