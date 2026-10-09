@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { sessionHuntMss } from './gold-liquidity-hunt.js';
 import { clockParts } from './runtime-memory-policy.js';
 import { telegramSendState, telegramSendingEnabled } from './telegram-send-control.js';
 import { goldEntryWindow } from './gold-session-entry-policy.js';
@@ -443,12 +444,13 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
           const reversalBuy=side==='LOW',expected=reversalBuy?'BUY':'SELL',modelSide=sessionModelSide(s),conf=confidenceOf(s),minConf=Math.max(75,Number(process.env.GOLD_TELEGRAM_MIN_CONFIDENCE||process.env.TELEGRAM_MIN_CONFIDENCE||75));
           if(!st.reversalMss){
             if(m5.t<=Number(st.failedBarT||0))continue;
-            const structureShift=reversalBuy?m5.close>Number(st.failedBarHigh)+SESSION_BREAK_BUFFER_USD:m5.close<Number(st.failedBarLow)-SESSION_BREAK_BUFFER_USD;
+            const huntMss=sessionHuntMss(s,expected,st.level,Number(st.failedBarT||0),m5.t);
+            const structureShift=Boolean(huntMss);
             const advisoryAligned=modelSide===expected&&conf>=minConf;
             if(sessionIctReversalGate({phase:'MSS',structureShift})){
               st.reversalMss=true;
-              st.reversalMssBarT=m5.t;
-              st.reversalTrigger=reversalBuy?m5.high:m5.low;
+              st.reversalMssBarT=huntMss.t;
+              st.reversalTrigger=Number(huntMss.level);
               st.reversalConfidence=conf;
               st.reversalModelSide=modelSide;
               st.reversalModelAligned=advisoryAligned;
@@ -460,8 +462,10 @@ async function maybeSendSessionLevelAlerts(s,now=Date.now()){
           }
           if(st.reversalSent||m5.t<=Number(st.reversalMssBarT||0))continue;
           const trigger=Number(st.reversalTrigger);
-          const retestTouch=reversalBuy?m5.low<=trigger+SESSION_RETEST_TOLERANCE_USD:m5.high>=trigger-SESSION_RETEST_TOLERANCE_USD;
-          const held=reversalBuy?m5.close>trigger:m5.close<trigger;
+          const retestTouch=m5.low<=trigger+SESSION_RETEST_TOLERANCE_USD&&m5.high>=trigger-SESSION_RETEST_TOLERANCE_USD;
+          const coreRetest=s?.ict?.m5MssRetest||s?.confluence?.ict?.m5MssRetest;
+          const matchingMss=sessionHuntMss(s,expected,st.level,Number(st.failedBarT||0),m5.t);
+          const held=Boolean(matchingMss?.t===st.reversalMssBarT&&coreRetest?.confirmed&&coreRetest.t===m5.t&&Math.abs(Number(coreRetest.level)-trigger)<.01&&(reversalBuy?m5.close>trigger:m5.close<trigger));
           if(sessionIctReversalGate({phase:'RETEST',retestTouch,held})){
             st.reversalConfidence=conf;
             st.reversalModelSide=modelSide;

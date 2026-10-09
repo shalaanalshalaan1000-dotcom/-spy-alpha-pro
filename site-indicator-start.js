@@ -8,7 +8,7 @@ import { withGoldTimeframeAlignment } from './gold-timeframe-alignment.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_INNER_PORT || 3100);
-const BUILD_TAG = 'site-indicator-v26-authoritative-trade-state';
+const BUILD_TAG = 'site-indicator-v27-liquidity-hunt';
 
 const app = spawn(process.execPath, ['gold-unified-start.js'], {
   env: { ...process.env, PORT: String(INNER_PORT) },
