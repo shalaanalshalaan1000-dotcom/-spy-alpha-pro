@@ -168,15 +168,11 @@ test('timeframe agreement supports confidence but never gates a valid ICT setup'
  assert.match(confluenceSource,/Timeframe agreement can add confidence only; disagreement never vetoes/);
 });
 
-test('site keeps existing ICT confidence contract and supports closed-session M5 momentum acceptance',()=>{
+test('liquidity hunt requires structural MSS retest and cannot bypass it with momentum',()=>{
  const enginePatch=fs.readFileSync(new URL('../gold-site-signal-engine-v9.js',import.meta.url),'utf8');
- assert.match(enginePatch,/function sessionContinuationMomentumAccepted/);
- assert.match(enginePatch,/status\|\|''\)\.toUpperCase\(\)==='CLOSED'/);
- assert.match(enginePatch,/prev\.close<=level\+\.10&&first\.close>level\+\.25/);
- assert.match(enginePatch,/prev\.close>=level-\.10&&first\.close<level-\.25/);
- assert.match(enginePatch,/second\.low>level:second\.high<level/);
- assert.match(enginePatch,/M5_MOMENTUM_ACCEPTANCE/);
- assert.match(enginePatch,/!momentumAccepted&&!coreRetestAccepted/);
+ assert.match(enginePatch,/const momentumAcceptance=false/);
+ assert.match(enginePatch,/if\(!coreRetestAccepted\)/);
+ assert.match(enginePatch,/structureConfirmed!==true/);
  assert.match(enginePatch,/Number\(m\.confidence\)<MIN_CONFIDENCE/);
 });
 
