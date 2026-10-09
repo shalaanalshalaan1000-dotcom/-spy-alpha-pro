@@ -201,6 +201,30 @@ function scoreSetup(zone, confirmations) {
   return Math.min(100, Math.round(score));
 }
 
+export function btcSnrConfirmation({zone,m5,m1,m15,prev15,side,type,retestTol=0,breakBuf=0}) {
+  if(!zone||!m5||!m1||!['BUY','SELL'].includes(side))return false;
+  // M1 timing must follow the completed M5 reaction, not precede or overlap it.
+  if(!Number.isFinite(m5.t)||!Number.isFinite(m1.t)||m1.t<m5.t+300000)return false;
+  const buy=side==='BUY',shape=barShape(m5);
+  const m1Held=buy?m1.close>m1.open:m1.close<m1.open;
+  const touched=m5.low<=zone.high+retestTol&&m5.high>=zone.low-retestTol;
+  if(!shape||!touched||!m1Held)return false;
+  if(type==='SNR_REJECTION') {
+    return buy
+      ?zone.kind==='SUPPORT'&&shape.lowerReject&&m5.close>zone.high&&m1.close>zone.high
+      :zone.kind==='RESISTANCE'&&shape.upperReject&&m5.close<zone.low&&m1.close<zone.low;
+  }
+  if(type!=='SNR_BREAKOUT_RETEST'||!m15||!prev15||m5.t<m15.t+900000)return false;
+  // A retest is a separate later candle whose range actually reaches the broken zone edge.
+  return buy
+    ?zone.kind==='RESISTANCE'&&prev15.close<=zone.high&&m15.close>zone.high+breakBuf&&m5.low<=zone.high+retestTol&&m5.high>=zone.high-retestTol&&m5.close>zone.high&&m1.close>zone.high
+    :zone.kind==='SUPPORT'&&prev15.close>=zone.low&&m15.close<zone.low-breakBuf&&m5.high>=zone.low-retestTol&&m5.low<=zone.low+retestTol&&m5.close<zone.low&&m1.close<zone.low;
+}
+
+export function btcStructuralStop(zone,m5,side,buffer){
+  return side==='BUY'?Math.min(zone.low,m5.low)-buffer:Math.max(zone.high,m5.high)+buffer;
+}
+
 function analyze({ M1 = [], M5 = [], M15 = [], H1 = [], H4 = [], D1 = [], ticker = {} }) {
   const price = num(ticker?.price) ?? num(M1.at(-1)?.close) ?? num(M5.at(-1)?.close);
   const m15Atr = atr(M15) || atr(H1) || (price ? price * 0.001 : 100);
@@ -217,6 +241,9 @@ function analyze({ M1 = [], M5 = [], M15 = [], H1 = [], H4 = [], D1 = [], ticker
     executionMode: 'SIGNALS_ONLY',
     strategy: 'SNR_CLASSICAL',
     tradeStyle: 'SNR_ONLY',
+    signalVersion: 'BTC_SNR_V2_CONFIRMED',
+    priceSource: 'COINBASE_BTC_USD',
+    confidenceIsProbability: false,
     confidence: 0,
     price: round(price),
     entry: null,
@@ -241,7 +268,6 @@ function analyze({ M1 = [], M5 = [], M15 = [], H1 = [], H4 = [], D1 = [], ticker
   if (price == null || M5.length < 3 || M15.length < 3 || M1.length < 2 || zones.length < 2) return base;
 
   const m5 = M5.at(-1), m1 = M1.at(-1), m15 = M15.at(-1), prev15 = M15.at(-2);
-  const m5Shape = barShape(m5);
   const retestTol = Math.max(18, Math.min(120, m5Atr * 0.35));
   const breakBuf = Math.max(12, Math.min(90, m15Atr * 0.15));
   const maxZoneDistance = Math.max(120, Math.min(650, m15Atr * 2.2));
@@ -250,15 +276,13 @@ function analyze({ M1 = [], M5 = [], M15 = [], H1 = [], H4 = [], D1 = [], ticker
   for (const zone of zones) {
     if (Math.abs(zone.mid - price) > maxZoneDistance && Math.abs(zone.mid - m15.close) > maxZoneDistance) continue;
 
-    const touched = m5.low <= zone.high + retestTol && m5.high >= zone.low - retestTol;
-
-    if (zone.kind === 'SUPPORT' && touched && m5.close > zone.mid && (m5Shape?.bullish || m5Shape?.lowerReject)) {
+    if (btcSnrConfirmation({zone,m5,m1,side:'BUY',type:'SNR_REJECTION',retestTol})) {
       const confirms = ['M5_REJECTION'];
       if (m1.close >= m1.open && m1.close > zone.mid) confirms.push('M1_CONFIRM');
       const score = scoreSetup(zone, confirms);
       setups.push({ side: 'BUY', type: 'SNR_REJECTION', zone, confirms, score, entry: m1.close });
     }
-    if (zone.kind === 'RESISTANCE' && touched && m5.close < zone.mid && (m5Shape?.bearish || m5Shape?.upperReject)) {
+    if (btcSnrConfirmation({zone,m5,m1,side:'SELL',type:'SNR_REJECTION',retestTol})) {
       const confirms = ['M5_REJECTION'];
       if (m1.close <= m1.open && m1.close < zone.mid) confirms.push('M1_CONFIRM');
       const score = scoreSetup(zone, confirms);
@@ -267,7 +291,7 @@ function analyze({ M1 = [], M5 = [], M15 = [], H1 = [], H4 = [], D1 = [], ticker
 
     const brokeUp = prev15.close <= zone.high && m15.close > zone.high + breakBuf;
     if (zone.kind === 'RESISTANCE' && brokeUp) {
-      const retested = m5.low <= zone.high + retestTol && m5.close > zone.high;
+      const retested = btcSnrConfirmation({zone,m5,m1,m15,prev15,side:'BUY',type:'SNR_BREAKOUT_RETEST',retestTol,breakBuf});
       if (retested) {
         const confirms = ['M15_BREAK', 'M5_RETEST_HOLD'];
         if (m1.close >= m1.open && m1.close > zone.high) confirms.push('M1_CONFIRM');
@@ -278,7 +302,7 @@ function analyze({ M1 = [], M5 = [], M15 = [], H1 = [], H4 = [], D1 = [], ticker
 
     const brokeDown = prev15.close >= zone.low && m15.close < zone.low - breakBuf;
     if (zone.kind === 'SUPPORT' && brokeDown) {
-      const retested = m5.high >= zone.low - retestTol && m5.close < zone.low;
+      const retested = btcSnrConfirmation({zone,m5,m1,m15,prev15,side:'SELL',type:'SNR_BREAKOUT_RETEST',retestTol,breakBuf});
       if (retested) {
         const confirms = ['M15_BREAK', 'M5_RETEST_HOLD'];
         if (m1.close <= m1.open && m1.close < zone.low) confirms.push('M1_CONFIRM');
@@ -301,8 +325,8 @@ function analyze({ M1 = [], M5 = [], M15 = [], H1 = [], H4 = [], D1 = [], ticker
   }
 
   const buffer = Math.max(18, Math.min(140, m5Atr * 0.28));
-  const stop = chosen.side === 'BUY' ? chosen.zone.low - buffer : chosen.zone.high + buffer;
-  const entry = chosen.entry;
+  const stop = btcStructuralStop(chosen.zone,m5,chosen.side,buffer);
+  const entry = price;
   const risk = Math.abs(entry - stop);
   if (!(risk > 0)) return base;
 
@@ -322,7 +346,7 @@ function analyze({ M1 = [], M5 = [], M15 = [], H1 = [], H4 = [], D1 = [], ticker
   // The M1 candle reference can lag far behind the live ticker. Never recommend
   // an entry after TP1 has already passed, or when the reference price is stale.
   const entryBlock = btcEntryBlockReason({
-    action: chosen.side, price, entry, stopLoss: stop, target1: targets[0].level
+    action: chosen.side, price, entry:chosen.entry, stopLoss: stop, target1: targets[0].level
   });
   if (entryBlock) {
     return {
@@ -340,6 +364,9 @@ function analyze({ M1 = [], M5 = [], M15 = [], H1 = [], H4 = [], D1 = [], ticker
     action: chosen.side,
     side: chosen.side,
     confidence: chosen.score,
+    setupStrength: chosen.score,
+    confidenceIsProbability: false,
+    referenceEntry: round(chosen.entry),
     entry: round(entry),
     stopLoss: round(stop),
     target1: targets[0]?.level ?? null,
@@ -461,7 +488,9 @@ export function lifecycleSignal(candidate, now = Date.now()) {
         lifecycle.lastTerminal);
     }
     if (now - signal.issuedAtMs >= MAX_ENTRY_AGE_MS) {
-      return closeBtcSignal(signal, 'EXPIRED', price, now);
+      return {...noNewEntry(signal,'MANAGING',
+        'BTC SNR ENTRY WINDOW ENDED — no new entry; the existing signal remains tracked until TP/SL.',
+        lifecycle.lastTerminal),trackingActive:true,entryWindowExpired:true};
     }
     return { ...signal, status: 'ACTIVE', entryEligible: true, lockedTargets: true, terminalEvent: lifecycle.lastTerminal };
   }

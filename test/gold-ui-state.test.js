@@ -16,6 +16,13 @@ test('active snapshot overrides a newly waiting context and unavailable confluen
  assert.match(p.setupSteps,new RegExp(new Date(now-300000).toISOString().replaceAll('.','\\.')));
  assert.doesNotMatch(p.setupSteps,/Structure 0/);
 });
+test('a saved legacy gold trade is visibly distinguished from the new liquidity-hunt model',()=>{
+ const old=context.goldSignalReading({...active,strategy:'ICT_EXTERNAL_SWEEP_M5_MSS_RETEST'}).plan;
+ assert.equal(old.legacyPlan,true);assert.match(old.scenarioLabel,/خطة سابقة/);
+ assert.match(old.missingCondition,/الإشارات التالية/);assert.equal(old.entry,4189);
+ const current=context.goldSignalReading({...active,strategy:'ICT_LIQUIDITY_HUNT_M5_MSS_RETEST'}).plan;
+ assert.equal(current.legacyPlan,false);assert.match(current.scenarioLabel,/اصطياد سيولة مؤكد/);
+});
 test('trade evidence from another signal is never presented as matching active evidence',()=>{
  const p=context.goldSignalReading({...active,tradeState:{...active.tradeState,signalId:'OTHER'}}).plan;
  assert.doesNotMatch(p.setupSteps,/pdh ✓/);
