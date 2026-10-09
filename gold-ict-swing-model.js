@@ -343,7 +343,7 @@ function inverseFvgAfterSweep(bars,side,sweep){
   }
   return null;
 }
-const EXTERNAL_LIQUIDITY_KEYS=new Set(['pdh','pdl','pwh','pwl','h4SwingHigh','h4SwingLow','h1SwingHigh','h1SwingLow','m15SwingHigh','m15SwingLow','asiaHigh','asiaLow','londonHigh','londonLow','nyHigh','nyLow']);
+const EXTERNAL_LIQUIDITY_KEYS=new Set(['pdh','pdl','pwh','pwl','asiaHigh','asiaLow','londonHigh','londonLow','nyHigh','nyLow']);
 const EXTERNAL_SWEEP_TTL_MS=Math.max(2*60*60_000,Math.min(18*60*60_000,Number(process.env.GOLD_EXTERNAL_SWEEP_TTL_MS||12*60*60_000)));
 function externalLiquidityEntries(levels={}){
   return Object.entries(levels).filter(([key,value])=>EXTERNAL_LIQUIDITY_KEYS.has(key)&&Number.isFinite(value));
@@ -562,9 +562,6 @@ function choosePoi(side,fvg,ob,range){
 function targetPlan(side,entry,stop,levels,m1,m5,m15,h1,h4,atr1,atr5){
   const risk=Math.abs(entry-stop); if(!(risk>0))return null;
   const pools=[
-    {label:'H4_SWING_HIGH',price:levels.h4SwingHigh,tf:'H4'},{label:'H4_SWING_LOW',price:levels.h4SwingLow,tf:'H4'},
-    {label:'H1_SWING_HIGH',price:levels.h1SwingHigh,tf:'H1'},{label:'H1_SWING_LOW',price:levels.h1SwingLow,tf:'H1'},
-    {label:'M15_SWING_HIGH',price:levels.m15SwingHigh,tf:'M15'},{label:'M15_SWING_LOW',price:levels.m15SwingLow,tf:'M15'},
     {label:'PWH',price:levels.pwh,tf:'W1'},{label:'PWL',price:levels.pwl,tf:'W1'},
     {label:'PDH',price:levels.pdh,tf:'D1'},{label:'PDL',price:levels.pdl,tf:'D1'},
     {label:'ASIA_HIGH',price:levels.asiaHigh,tf:'SESSION'},{label:'ASIA_LOW',price:levels.asiaLow,tf:'SESSION'},
