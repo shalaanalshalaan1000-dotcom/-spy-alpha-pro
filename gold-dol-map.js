@@ -17,8 +17,7 @@ export function buildGoldDolMap(source={},now=Date.now()){
   const ict=source?.ict||source?.liquidityContext||{};
   const levels=ict?.levels||{};
   const price=finitePrice(source?.entry??source?.price);
-  const rawSide=String(source?.side||source?.candidateAction||source?.action||'').toUpperCase();
-  const side=['BUY','SELL'].includes(rawSide)?rawSide:'WAIT';
+  const side=[source?.side,source?.candidateAction,source?.action].map(x=>String(x||'').toUpperCase()).find(x=>['BUY','SELL'].includes(x))||'WAIT';
   const drawSide=side==='BUY'?'BSL':side==='SELL'?'SSL':'WAIT';
   const records=SOURCES.flatMap(([timeframe,label,key,liquiditySide,rank])=>{
     const value=finitePrice(levels[key]);
