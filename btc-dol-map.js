@@ -36,14 +36,11 @@ function completedPreviousWeek(daily,now){
     if(!weekly.has(key))weekly.set(key,[]);
     weekly.get(key).push(bar);
   }
-  const keys=[...weekly.keys()].sort((a,b)=>b-a);
-  for(const start of keys){
-    const rows=weekly.get(start);
-    const dates=new Set(rows.map(x=>x.t));
-    if(rows.length!==7 || Array.from({length:7},(_,i)=>start+i*DAY).some(t=>!dates.has(t)))continue;
-    return {start,high:Math.max(...rows.map(x=>Number(x.high))),low:Math.min(...rows.map(x=>Number(x.low)))};
-  }
-  return null;
+  // Never silently substitute an older week when the immediately prior week is incomplete.
+  const start=thisWeek-7*DAY,rows=weekly.get(start)||[];
+  const dates=new Set(rows.map(x=>x.t));
+  if(rows.length!==7 || Array.from({length:7},(_,i)=>start+i*DAY).some(t=>!dates.has(t)))return null;
+  return {start,high:Math.max(...rows.map(x=>Number(x.high))),low:Math.min(...rows.map(x=>Number(x.low)))};
 }
 const distinct=rows=>rows.filter((x,i,a)=>a.findIndex(y=>Math.abs(y.level-x.level)<=0.01)===i);
 export function projectBtcDolSide(map,side='WAIT',price=map?.price){
