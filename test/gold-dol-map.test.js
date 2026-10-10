@@ -33,6 +33,8 @@ test('no named sources or direction means WAIT, never fabricate a TP',()=>{
   const unknown=buildGoldDolMap({price:4300,action:'WAIT',ict:{levels:{pdh:4400}}});
   assert.deepEqual(unknown.targetPreview,[]);
   assert.equal(unknown.drawSide,'WAIT');
+  const pending=buildGoldDolMap({price:4300,side:'WAIT',candidateAction:'BUY',ict:{levels:{pdh:4400}}});
+  assert.equal(pending.nearest?.label,'PDH');
   assert.equal(buildGoldDolMap({}).dataStatus,'NO_NAMED_LIQUIDITY_LEVELS');
 });
 
