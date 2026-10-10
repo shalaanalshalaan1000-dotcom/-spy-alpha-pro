@@ -2,6 +2,7 @@
 const RIYADH_WEEKDAY_FORMATTER=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Riyadh',weekday:'short'});
 import { analyzeGoldSnr } from './gold-snr-advisory.js';
 import { goldEntryWindow } from './gold-session-entry-policy.js';
+import { buildGoldDolMap } from './gold-dol-map.js';
 
 const toNum = value => value != null && value !== '' && typeof value !== 'boolean' && Number.isFinite(Number(value)) ? Number(value) : null;
 const round = (value, digits = 2) => {
@@ -481,68 +482,32 @@ function amdSessionAgent(source = {}, session = {}, market = {}, setup = {}, now
 
 function liquidityDecisionAgent(source = {}, setup = {}, now = Date.now()) {
   const ict = ictStateOf(source);
-  const levels = ict?.levels || source?.liquidityContext?.levels || {};
+  const dol = buildGoldDolMap(source, now);
   const side = validSide(setup?.side) || sourceSide(source);
-  const entry = toNum(source.entry ?? source.price);
   const drawSide = side === 'BUY' ? 'BSL' : side === 'SELL' ? 'SSL' : 'WAIT';
-  const rows = [];
-  const add = (timeframe, liquiditySide, label, value) => {
-    const level = toNum(value);
-    if (level == null) return;
-    rows.push({
-      timeframe,
-      liquiditySide,
-      label,
-      level: round(level,3),
-      distance: entry == null ? null : round(Math.abs(level-entry),2),
-      hierarchy: timeframe === 'H4' ? 1 : timeframe === 'H1' ? 2 : 3
-    });
-  };
-  add('H4','BSL','H4_SWING_HIGH',levels.h4SwingHigh);
-  add('H4','SSL','H4_SWING_LOW',levels.h4SwingLow);
-  add('H1','BSL','H1_SWING_HIGH',levels.h1SwingHigh);
-  add('H1','SSL','H1_SWING_LOW',levels.h1SwingLow);
-  add('M15','BSL','M15_SWING_HIGH',levels.m15SwingHigh);
-  add('M15','SSL','M15_SWING_LOW',levels.m15SwingLow);
-
-  const directional = rows.filter(x =>
-    drawSide !== 'WAIT' &&
-    x.liquiditySide === drawSide &&
-    entry != null &&
-    (drawSide === 'BSL' ? x.level > entry : x.level < entry)
-  );
-  const nearest = [...directional].sort((a,b)=>(a.distance??Infinity)-(b.distance??Infinity)||a.hierarchy-b.hierarchy)[0] || null;
-  const primary = [...directional]
-    .sort((a,b)=>a.hierarchy-b.hierarchy||(b.distance??0)-(a.distance??0))
-    .find(x=>!nearest||Math.abs(x.level-nearest.level)>0.10) || nearest || null;
-
   const sweep = ict?.legSweep || ict?.sweep || null;
   const sweepName = String(sweep?.name || '');
   const sweptLiquiditySide = /high|pdh|pwh/i.test(sweepName) ? 'BSL' : /low|pdl|pwl/i.test(sweepName) ? 'SSL' : null;
   const m5Structure = Boolean(ict?.dm5?.mss || ict?.shift5 || ict?.hasShift || ict?.mss);
   const m5Displacement = Boolean(ict?.dm5?.displacement || ict?.hasDisplacement || ict?.displacement);
-  const m5Retest = Boolean(ict?.hasIfvgRetest || ict?.retest || ict?.inverseFvg?.retested);
+  const m5Retest = Boolean(ict?.m5MssRetest?.confirmed);
   const m5Confirmed = Boolean(m5Structure && m5Displacement && m5Retest);
-
   return {
     name:'LIQUIDITY_DECISION_AGENT',
-    mode:'HIERARCHY_DECISION_ONLY',
-    hierarchy:['H4','H1','M15'],
+    mode:'HTF_EXTERNAL_POOL_DECISION_ONLY',
+    hierarchy:['W1','D1','H4','H1','M15'],
     executionTimeframe:'M5',
-    side:side||'WAIT',
-    drawSide,
-    map:rows,
-    sweptLiquiditySide,
-    sweptLevel:round(sweep?.level,3),
-    secondaryLiquidity:nearest,
-    primaryLiquidity:primary,
+    side:side||'WAIT',drawSide,
+    map:dol.levels,
+    contextualSwings:dol.levels.filter(x=>!x.targetEligible),
+    sweptLiquiditySide,sweptLevel:round(sweep?.level,3),
+    secondaryLiquidity:dol.nearest,
+    primaryLiquidity:dol.primary,
     m5Confirmation:{required:true,structure:m5Structure,displacement:m5Displacement,retest:m5Retest,confirmed:m5Confirmed},
     recommendation:drawSide==='BSL'?'DRAW_TO_BUYSIDE_LIQUIDITY':drawSide==='SSL'?'DRAW_TO_SELLSIDE_LIQUIDITY':'WAIT_FOR_DIRECTION',
-    canCreateSignal:false,
-    canExecute:false,
-    canOverrideIctGate:false,
+    canCreateSignal:false,canExecute:false,canOverrideIctGate:false,
     updatedAt:new Date(now).toISOString(),
-    rule:'Map liquidity top-down on H4 -> H1 -> M15. M5 is execution confirmation only. This agent advises every other agent but never opens a trade.'
+    rule:'W1/D1 and named session levels may be external targets; raw H4/H1/M15 swings are context only unless separately validated. M15 directs context; M5 is the unchanged execution gate.'
   };
 }
 
@@ -574,90 +539,38 @@ function dailyOpportunityAgent(source = {}, now = Date.now()) {
 }
 
 function drawOnLiquidityAgent(source = {}, setup = {}, session = {}, liquidityDecision = {}, now = Date.now()) {
-  const side = validSide(setup?.side) || sourceSide(source);
-  const entry = toNum(source.entry ?? source.price);
+  const dol = buildGoldDolMap(source, now);
   const ict = ictStateOf(source);
-  const levels = ict?.levels || source?.liquidityContext?.levels || {};
-  const sessionRoot = source?.sessionLevels?.sessions || session?.data?.sessions || {};
-  const candidates = [];
-
-  const priorityOf = label => {
-    const x=String(label||'').toUpperCase();
-    if (/H4.*SWING/.test(x)) return 0;
-    if (/H1.*SWING/.test(x)) return 1;
-    if (/M15.*SWING/.test(x)) return 2;
-    if (/^PW[HL]$/.test(x)) return 0;
-    if (/^PD[HL]$/.test(x)) return 1;
-    if (/ASIA|TOKYO|LONDON|NEW[_ ]?YORK|NY[_ ]?AM/.test(x)) return 3;
-    return 4;
-  };
-  const add = (label, value, liquidityClass='EXTERNAL', sourceName='ICT') => {
-    const level=toNum(value);
-    if (!side || entry == null || level == null) return;
-    if (side==='BUY' ? level<=entry : level>=entry) return;
-    if (candidates.some(x => Math.abs(x.level-level) <= 0.10)) return;
-    candidates.push({
-      label:String(label||'EXTERNAL_LIQUIDITY').toUpperCase(),
-      level:round(level,3),
-      distance:round(Math.abs(level-entry),2),
-      liquidityClass,
-      source:sourceName,
-      priority:priorityOf(label)
-    });
-  };
-
-  add('PWH',levels.pwh); add('PWL',levels.pwl);
-  add('PDH',levels.pdh); add('PDL',levels.pdl);
-  add('H4_SWING_HIGH',levels.h4SwingHigh); add('H4_SWING_LOW',levels.h4SwingLow);
-  add('H1_SWING_HIGH',levels.h1SwingHigh); add('H1_SWING_LOW',levels.h1SwingLow);
-  add('M15_SWING_HIGH',levels.m15SwingHigh); add('M15_SWING_LOW',levels.m15SwingLow);
-  add('ASIA_HIGH',levels.asiaHigh); add('ASIA_LOW',levels.asiaLow);
-  add('LONDON_HIGH',levels.londonHigh); add('LONDON_LOW',levels.londonLow);
-  add('NY_AM_HIGH',levels.nyHigh); add('NY_AM_LOW',levels.nyLow);
-
-  for (const row of Object.values(sessionRoot || {})) {
-    add((row?.label||row?.id||'SESSION')+'_HIGH',row?.high,'EXTERNAL','SESSION_LEVELS');
-    add((row?.label||row?.id||'SESSION')+'_LOW',row?.low,'EXTERNAL','SESSION_LEVELS');
-  }
-
-  const providedLabels=Array.isArray(source?.targetLabels)?source.targetLabels:[];
-  [1,2,3,4].forEach((i,idx)=>add(providedLabels[idx]||('TARGET_'+i),source?.['target'+i],'EXTERNAL','MODEL_TARGET'));
-
-  const byDistance=[...candidates].sort((a,b)=>a.distance-b.distance||a.priority-b.priority);
-  const secondary=liquidityDecision?.secondaryLiquidity||byDistance[0]||null;
-  const byStrategic=[...candidates].sort((a,b)=>a.priority-b.priority||b.distance-a.distance);
-  const primary=liquidityDecision?.primaryLiquidity||byStrategic.find(x=>!secondary||Math.abs(x.level-secondary.level)>0.10)||secondary||null;
-  const secondaryDistinct=secondary&&primary&&Math.abs(secondary.level-primary.level)<=0.10?null:secondary;
-  const friday=RIYADH_WEEKDAY_FORMATTER.format(new Date(now))==='Fri';
+  const side = validSide(setup?.side) || sourceSide(source);
+  const secondary = dol.nearest;
+  const primary = dol.primary;
+  const friday = RIYADH_WEEKDAY_FORMATTER.format(new Date(now))==='Fri';
   const fridayPrimaryMaxDistance=Math.max(1,toNum(process.env.TELEGRAM_FRIDAY_PRIMARY_MAX_DISTANCE_USD)??25);
   const primaryPractical=Boolean(primary && (!friday || primary.distance<=fridayPrimaryMaxDistance));
-
   const references=[];
   const pushReference=(type,value)=>{
     const v=toNum(value);
-    if(v!=null) references.push({type,level:round(v,3)});
+    if(v!=null)references.push({type,level:round(v,3)});
   };
   pushReference('ORIGIN_FVG_MID',ict?.originFvg?.mid);
   pushReference('INVERSE_FVG_MID',ict?.inverseFvg?.mid);
   pushReference('NWOG_MID',source?.nwog?.mid ?? source?.liquidityContext?.nwog?.mid);
-
   return {
     name:'DRAW_ON_LIQUIDITY_AGENT',
     mode:'OBJECTIVES_ONLY',
     liquidityHierarchyAgent:liquidityDecision?.name||null,
-    drawSide:liquidityDecision?.drawSide||null,
-    side:side||'WAIT',
-    entry:round(entry,3),
-    secondaryLiquidity:secondaryDistinct,
+    drawSide:dol.drawSide,side:side||'WAIT',
+    entry:round(toNum(source.entry ?? source.price),3),
+    secondaryLiquidity:secondary,
     primaryLiquidity:primary,
-    primaryPractical,
-    friday,
+    primaryPractical,friday,
     fridayPrimaryMaxDistanceUsd:round(fridayPrimaryMaxDistance,0),
-    candidates:byDistance.slice(0,8),
+    candidates:dol.objectives.slice(0,8),
+    contextSwings:dol.levels.filter(x=>!x.targetEligible),
+    targetPreview:dol.targetPreview,
     references,
-    canCreateSignal:false,
-    canOverrideIctGate:false,
-    rule:'Secondary is the nearest valid external objective; Primary is the higher-priority strategic external draw. FVG/NWOG are references only and never create a trade.'
+    canCreateSignal:false,canOverrideIctGate:false,
+    rule:'TP previews must be sourced from named external W1/D1/session levels only; H1/H4/M15 pivots are context until proven external. This agent never changes active targets or opens a trade.'
   };
 }
 
