@@ -388,5 +388,17 @@ source=source.replace("const BUILD='site-signal-noai-v69-core-retest-entry';","c
   source=source.replace(maybeAnchor,maybeAnchor+"\n const entryWindow=goldEntryWindow(now);\n if(!entryWindow.allowed){state.lastEntryGuard={atMs:now,reason:entryWindow.reason,session:entryWindow.session,marketMode:'READ_ONLY'};return;}");
 }
 
+// Conservative gold activity/late-session gate. This only blocks NEW entries,
+// never trade management or exits for an existing active signal.
+{
+ const lateAnchor=" if(!entryWindow.allowed){state.lastEntryGuard={atMs:now,reason:entryWindow.reason,session:entryWindow.session,marketMode:'READ_ONLY'};return;}";
+ if(!source.includes(lateAnchor))throw new Error('gold activity guard: session anchor missing');
+ source="import { assessGoldLiquidity } from './gold-liquidity-window.js';\n"+source;
+ source=source.replace(lateAnchor,lateAnchor+"\n const activityGate=assessGoldLiquidity({samples:state.samples,now,quote:q});\n if(!activityGate.allowNewEntry){state.lastEntryGuard={atMs:now,reason:activityGate.reason,session:activityGate.session,marketMode:'THIN_ACTIVITY_READ_ONLY',goldLiquidity:activityGate};return;}");
+ const modelPayload="const base={...model,source:'GOLD_ALPHA_SITE'";
+ if(!source.includes(modelPayload))throw new Error('gold activity guard: API base anchor missing');
+ source=source.replace(modelPayload,"const base={...model,goldLiquidity:assessGoldLiquidity({samples:state.samples,now,quote:q}),source:'GOLD_ALPHA_SITE'");
+}
+
 fs.writeFileSync(runtimeUrl, source, 'utf8');
 await import(`${runtimeUrl.href}?v=${Date.now()}`);
