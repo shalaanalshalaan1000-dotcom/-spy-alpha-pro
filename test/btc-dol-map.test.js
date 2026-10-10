@@ -19,7 +19,7 @@ test('BTC previous full Monday-Sunday UTC week and prior complete day are extern
   assert.equal(d.byTimeframe.D1.find(x=>x.label==='PDH').level,1040);
   assert.equal(d.byTimeframe.D1.find(x=>x.label==='PDL').level,980);
   assert.deepEqual(d.timeframeHierarchy,['W1','D1','H4','H1','M15','M5']);
-  assert.equal(d.executionStrategy,'SNR_ONLY');
+  assert.equal(d.executionStrategy,'ICT_ONLY_EXTERNAL_LIQUIDITY');
 });
 
 test('BUY and SELL maps independently draw to correct side without opening a BTC signal',()=>{
@@ -55,22 +55,22 @@ test('H4/H1 confirmed pivots remain unverified context and never enter external 
   assert.equal(projectBtcDolSide(d,'BUY',1000).targetPreview.every(x=>['W1','D1'].includes(x.timeframe)),true);
 });
 
-test('M15 is context only, BTC SNR M5/M1 confirmation unchanged and NO ICT MSS imposed',()=>{
+test('M15 is context only, BTC ICT M5/M1 confirmation unchanged and NO ICT MSS imposed',()=>{
   const M15=[{t:now-2700000,close:1000,high:1010,low:990},{t:now-1800000,close:1005,high:1015,low:995},{t:now-900000,close:1010,high:1020,low:1000}];
   const d=map({M15});
   assert.equal(d.m15.direction,'BUY');
-  assert.equal(d.m5.mssRequired,false);
-  assert.match(d.m5.confirmation,/SNR_REJECTION_OR_RETEST_PLUS_M1_CONFIRM/);
-  const engine=readFileSync(new URL('../btc-snr-engine.js',import.meta.url),'utf8');
+  assert.equal(d.m5.mssRequired,true);
+  assert.match(d.m5.confirmation,/M5_MSS_DISPLACEMENT_PLUS_LATER_M5_RETEST_HOLD/);
+  const engine=readFileSync(new URL('../btc-ict-engine.js',import.meta.url),'utf8');
   const ui=readFileSync(new URL('../render-start.js',import.meta.url),'utf8');
-  assert.match(engine,/tradeStyle: 'SNR_ONLY'/);
-  assert.match(engine,/const managed = lifecycleSignal\(candidate\)/);
+  assert.match(engine,/tradeStyle:'ICT_ONLY_EXTERNAL_LIQUIDITY'/);
+  assert.match(engine,/lifecycleSignal\(candidate\)/);
   assert.match(ui,/btcDolW1/);
   assert.match(ui,/btcDolTargets/);
   assert.doesNotMatch(engine,/Laura/);
 });
 
-test('incomplete DOL data must not invent targets and map must not mutate existing SNR plan',()=>{
+test('incomplete DOL data must not invent targets and map must not mutate existing ICT plan',()=>{
   const original={entry:1000,stopLoss:970,target1:1045,target2:1055,side:'BUY'};
   const copy=JSON.stringify(original);
   const empty=buildBtcDolMap({price:1000,now});

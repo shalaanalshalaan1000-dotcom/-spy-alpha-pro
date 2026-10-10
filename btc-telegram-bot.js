@@ -61,7 +61,7 @@ function isConfirmed(signal) {
     signal &&
     signal.status === 'ACTIVE' &&
     ['BUY', 'SELL'].includes(signal.action) &&
-    signal.strategy === 'SNR_CLASSICAL' &&
+    signal.strategy === 'ICT_LIQUIDITY_HUNT_M5_MSS_RETEST' &&
     [signal.entry, signal.stopLoss, signal.target1].every(validNumber)
   );
 }
@@ -108,7 +108,7 @@ function closeBtcJournalTrade(trade, outcome, exitPrice, closedAtMs = Date.now()
     setupId: trade.key,
     side: trade.side,
     action: trade.side,
-    strategy: 'SNR_CLASSICAL',
+    strategy: 'ICT_LIQUIDITY_HUNT_M5_MSS_RETEST',
     confidence: Number(trade.confidence) || 0,
     entry,
     originalStopLoss,
@@ -138,7 +138,7 @@ function startTracking(signal, key, announcedAtMs = Date.now()) {
   trackedTrade = {
     key,
     side: signal.action,
-    strategy: 'SNR_CLASSICAL',
+    strategy: 'ICT_LIQUIDITY_HUNT_M5_MSS_RETEST',
     confidence: Number(signal.confidence) || 0,
     announcedAtMs,
     signalId: String(signal.signalId || ''),
@@ -246,39 +246,32 @@ async function telegram(method, body) {
 }
 
 function message(signal) {
-  const icon = signal.action === 'BUY' ? '🟢' : '🔴';
-  const snr = signal.snr || {};
-  const labels = Array.isArray(signal.targetLabels) ? signal.targetLabels : [];
-  const triggers = Array.isArray(signal.priceAction?.triggers) ? signal.priceAction.triggers.join(' + ') : '—';
-  const stamp = new Intl.DateTimeFormat('ar-SA', {
-    timeZone: 'Asia/Riyadh', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
-  }).format(new Date());
-  const sizing = lotSizingLines(signal.entry, signal.stopLoss);
-  const targetLines = [signal.target1, signal.target2, signal.target3, signal.target4]
-    .map((target, i) => validNumber(target) ? `🎯 TP${i + 1}: ${n(target)} • ${labels[i] || 'S/R zone'}` : null)
-    .filter(Boolean)
-    .join('\n');
-
-  return `${icon} 🟣 BTCUSD — SNR ONLY ${signal.action}\n`
-    + `🧠 Strategy: SNR_CLASSICAL\n`
-    + `📊 Setup strength: ${Math.round(Number(signal.confidence) || 0)}/100\n`
-    + `🧱 Setup: ${snr.setupType || 'SNR'}\n`
-    + `🟢 Support: ${n(snr.nearestSupport?.mid)}\n`
-    + `🔴 Resistance: ${n(snr.nearestResistance?.mid)}\n`
-    + `⚡ Confirmation: ${triggers || '—'}\n`
-    + `💵 Price: ${n(signal.price)}\n`
-    + `📍 Entry: ${n(signal.entry)}\n`
-    + `🛑 SL: ${n(signal.stopLoss)}\n`
-    + `${targetLines}\n\n`
-    + `${sizing.join('\n')}\n`
-    + `⏱️ SNR only: support/resistance zone → rejection OR breakout/retest → M1 confirmation\n`
-    + `🕒 ${stamp} بتوقيت السعودية\n`
-    + `⚪ إشارات فقط — لا تداول آلي`;
+ const icon=signal.action==='BUY'?'🟢':'🔴',ict=signal.ict||{},sweep=ict.legSweep||{},
+   mss=ict.m5MssEvent||{},retest=ict.m5MssRetest||{};
+ const labels=Array.isArray(signal.targetLabels)?signal.targetLabels:[];
+ const stamp=new Intl.DateTimeFormat('ar-SA',{timeZone:'Asia/Riyadh',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true}).format(new Date());
+ const sizing=lotSizingLines(signal.entry,signal.stopLoss);
+ const targetLines=[signal.target1,signal.target2,signal.target3,signal.target4]
+   .map((t,i)=>validNumber(t)?'🎯 TP'+(i+1)+': '+n(t)+' • '+(labels[i]||'EXTERNAL_LIQUIDITY'):null)
+   .filter(Boolean).join('\n');
+ return `${icon} 🟣 BTCUSD — PURE ICT ${signal.action}\n`
+  + '🧠 Strategy: ICT_EXTERNAL_LIQUIDITY_M5_MSS_RETEST\n'
+  + '✅ External sweep: '+String(sweep.name||'—')+' @ '+n(sweep.level)+'\n'
+  + '🔄 M5 MSS / Displacement: '+(mss.confirmed?'CONFIRMED':'WAIT')+' @ '+n(mss.level)+'\n'
+  + '🔁 M5 Retest/Hold: '+(retest.confirmed?'CONFIRMED':'WAIT')+'\n'
+  + '📊 Setup quality (not win probability): '+Math.round(Number(signal.confidence)||0)+'/100\n'
+  + '💵 Price: '+n(signal.price)+'\n'
+  + '📍 Entry: '+n(signal.entry)+'\n'
+  + '🛑 Structural SL: '+n(signal.stopLoss)+'\n'
+  + targetLines+'\n\n'+sizing.join('\n')+'\n'
+  + '⏱️ External Sweep → closed M5 displaced MSS → later M5 Retest/Hold; only external liquidity targets\n'
+  + '🕒 '+stamp+' بتوقيت السعودية\n'
+  + '⚪ إشارات فقط — لا تداول آلي';
 }
 
 async function fetchSignal() {
   const response = await fetch(SIGNAL_URL, {
-    headers: { accept: 'application/json', 'user-agent': 'Gold-Alpha-BTC-Telegram-SNR/1.0' },
+    headers: { accept: 'application/json', 'user-agent': 'Gold-Alpha-BTC-Telegram-ICT/1.0' },
     cache: 'no-store',
     signal: AbortSignal.timeout(8000)
   });
@@ -311,14 +304,14 @@ async function tick() {
       lastSentKey = key;
       lastSentAt = now;
       startTracking(signal, key, now);
-      console.log(`[btc-telegram] sent+tracking ${signal.action} ${signal.confidence}% strategy=SNR_CLASSICAL key=${key}`);
+      console.log(`[btc-telegram] sent+tracking ${signal.action} ${signal.confidence}% strategy=ICT_LIQUIDITY_HUNT_M5_MSS_RETEST key=${key}`);
     }
   }
 
   previousActive = true;
 }
 
-console.log(`[btc-telegram] ${BOT_TOKEN && CHAT_ID ? 'enabled' : 'disabled: token/chat id missing'}; source=${SIGNAL_URL}; mode=snr-only`);
+console.log(`[btc-telegram] ${BOT_TOKEN && CHAT_ID ? 'enabled' : 'disabled: token/chat id missing'}; source=${SIGNAL_URL}; mode=ict-only`);
 
 if (process.env.NODE_ENV !== 'test' && BOT_TOKEN && CHAT_ID) {
   (async function loop() {
