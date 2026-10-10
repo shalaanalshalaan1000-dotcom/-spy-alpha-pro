@@ -1,3 +1,5 @@
+import { buildBtcDolMap, projectBtcDolSide } from './btc-dol-map.js';
+
 const CACHE_MS = Math.max(5000, Math.min(30000, Number(process.env.BTC_CACHE_MS || 12000) || 12000));
 const MIN_STRENGTH = Math.max(60, Math.min(95, Number(process.env.BTC_SNR_MIN_STRENGTH || 72) || 72));
 const CONTRACT_SIZE = Math.max(.000001, Number(process.env.EXNESS_BTC_CONTRACT_SIZE || 1));
@@ -241,6 +243,7 @@ function analyze({ M1 = [], M5 = [], M15 = [], H1 = [], H4 = [], D1 = [], ticker
     executionMode: 'SIGNALS_ONLY',
     strategy: 'SNR_CLASSICAL',
     tradeStyle: 'SNR_ONLY',
+    dol: buildBtcDolMap({M5,M15,H1,H4,D1,price,now:Date.now()}),
     signalVersion: 'BTC_SNR_V2_CONFIRMED',
     priceSource: 'COINBASE_BTC_USD',
     confidenceIsProbability: false,
@@ -573,7 +576,11 @@ async function freshCandidate(force = false) {
 }
 
 export async function getBtcSignal(force = false) {
-  return lifecycleSignal(await freshCandidate(force));
+  const candidate = await freshCandidate(force);
+  const managed = lifecycleSignal(candidate);
+  // The DOL map is always refreshed from the latest completed market bars,
+  // but existing SNR signal entry/SL/TP and lifecycle remain immutable.
+  return {...managed,dol:projectBtcDolSide(candidate.dol,managed.side||managed.action,managed.price)};
 }
 
 export function analyzeBtcSnr(input) {
