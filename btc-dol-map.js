@@ -1,4 +1,4 @@
-// Read-only BTC ICT Draw on Liquidity (DOL) map alongside SNR_ONLY execution.
+// Read-only BTC ICT Draw on Liquidity (DOL) map alongside ICT_ONLY_EXTERNAL_LIQUIDITY execution.
 // Coinbase BTC-USD OHLC uses UTC calendar days. Crypto trades 24/7; a weekly
 // reference requires seven complete daily candles from the prior UTC week.
 const DAY=86400000;
@@ -81,13 +81,13 @@ export function buildBtcDolMap({M5=[],M15=[],H1=[],H4=[],D1=[],price=null,side='
     recent15[2].close<recent15[1].close&&recent15[1].close<recent15[0].close?'SELL':'NEUTRAL';
   const base={
     model:'BTC_ICT_MULTI_TIMEFRAME_DOL_V1',symbol:'BTCUSD',advisoryOnly:true,
-    executionStrategy:'SNR_ONLY',canOpenTrade:false,canBlockSnr:false,canOverrideSnrGate:false,canChangeActiveTargets:false,
+    executionStrategy:'ICT_ONLY_EXTERNAL_LIQUIDITY',canOpenTrade:false,canBlockIct:false,canOverrideIctGate:false,canChangeActiveTargets:false,
     timeframeHierarchy:['W1','D1','H4','H1','M15','M5'],levels,
     byTimeframe:Object.fromEntries(['W1','D1','H4','H1'].map(tf=>[tf,levels.filter(x=>x.timeframe===tf)])),
     m15:{role:'CONTEXT_ONLY',direction:dir15},
-    m5:{role:'SNR_REJECTION_OR_BREAKOUT_RETEST',completedBars:five.length,confirmation:'SNR_REJECTION_OR_RETEST_PLUS_M1_CONFIRM',mssRequired:false},
+    m5:{role:'EXTERNAL_SWEEP_M5_MSS_RETEST',completedBars:five.length,confirmation:'M5_MSS_DISPLACEMENT_PLUS_LATER_M5_RETEST_HOLD',mssRequired:true},
     status:levels.some(x=>x.targetEligible)?'PARTIAL_OR_AVAILABLE':'NO_CONFIRMED_EXTERNAL_REFERENCES',
-    note:'DOL maps verified previous full UTC week/day only. H4/H1 pivots are context, not automatically external targets. BTC entries and trade TP/SL remain SNR_ONLY; DOL previews never rewrite active plans.',
+    note:'DOL maps verified previous full UTC week/day only. H4/H1 pivots are context, not automatically external targets. BTC entries require external sweep then confirmed M5 MSS/retest; active trade TP/SL remains immutable.',
     updatedAt:new Date(now).toISOString()
   };
   return projectBtcDolSide(base,side,price);
