@@ -26,9 +26,9 @@ test('Only complete external sweep + chronological displaced M5 MSS + later M5 r
 });
 test('MSS and retest cannot predate sweep or occur inside the same closed candle',()=>{
  const bars=candles();
- const missingRetest=bars.map((x,i)=>i===14?{...x,low:1039,close:1040}:x);
+ const missingRetest=bars.map((x,i)=>i>=14?{...x,low:1045,close:1048,high:1055}:x);
  assert.deepEqual(detectBtcIctSequence({M5:missingRetest,externalLevels:[pool],atr5:6,now}),[]);
- const noDisplacement=bars.map((x,i)=>i===13?{...x,open:1034,close:1038}:x);
+ const noDisplacement=bars.map((x,i)=>i===13?{...x,open:1037,close:1038}:x);
  assert.deepEqual(detectBtcIctSequence({M5:noDisplacement,externalLevels:[pool],atr5:6,now}),[]);
 });
 test('No named external levels or missing fresh quote always means WAIT',()=>{
