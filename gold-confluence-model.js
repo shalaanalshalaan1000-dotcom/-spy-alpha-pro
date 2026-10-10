@@ -3,6 +3,7 @@ import {buildMonth3Sponsorship} from './ict-month3-sponsorship.js';
 import { analyzeGoldSignal as analyzeClassicModel } from './gold-signal-model.js';
 import { analyzeGoldSignal as analyzeIctModel } from './gold-ict-swing-model.js';
 import { detectImportantCandles } from './important-candles.js';
+import { analyzeGoldChartPatterns } from './gold-chart-patterns.js';
 
 const n=v=>v!=null&&v!==''&&typeof v!=='boolean'&&Number.isFinite(Number(v))?Number(v):null;
 const round=(v,d=3)=>Number.isFinite(Number(v))?Number(Number(v).toFixed(d)):null;
@@ -155,6 +156,9 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const price=n(rawPrice),classic=analyzeClassicModel(samples,rawPrice,now),ict=analyzeIctModel(samples,rawPrice,now,higherTimeframes);
   const m1all=minuteBars(samples),m1=closed(m1all,1,now),m5=closed(aggregate(m1all,5),5,now),m15=closed(aggregate(m1all,15),15,now),h1=closed(aggregate(m1all,60),60,now),h4=closed(aggregate(m1all,240),240,now);
   const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'MULTI_MODEL_CONFLUENCE',tradeStyle:'MULTI_MODEL_CONFLUENCE',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',sampleCount:samples.length,modelTimeframes:{macro:'MN1/W1/D2/D1',context:'H4/H1/M15',setup:'M5 multi-model confluence',timing:'M1'},confluence:null,importantCandles:null,technicalRead:ict?.technicalRead||null,priceAction:ict?.priceAction||null,liquidityContext:ict?.ict||null,ict:ict?.ict||null,month5Context:null,updatedAt:new Date(now).toISOString(),reason:'Building multi-model context'};
+  // M15 classical formations are strictly advisory. They do not affect the ICT entry gate,
+  // side, confidence, stop, or external-liquidity targets.
+  base.chartPatterns=analyzeGoldChartPatterns({m15,m5});
   if(price==null||m1.length<45||m5.length<24||m15.length<16||h1.length<6)return base;
 
   const bars={m1,m5,m15,h1,h4};const topDown=buildTopDownContext(bars,higherTimeframes);base.multiTimeframe=topDown;base.topDownReady=topDown.ready;
@@ -216,6 +220,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
     ictMonth3:month3Sponsorship,
     multiTimeframe:topDown,
     month5Context,
+    chartPatterns:base.chartPatterns,
     contextBias:ictSide,
     reason:(trendContinuationValid?`ICT ONLY — H4/H1 trend → M5 displacement → FVG → closed M5 retest; optional image support +${imageSupport.bonus}/100; ${ict?.reason||''}`:`ICT ONLY — external ${String(externalSweep?.name||'').toUpperCase()} liquidity event → M5 MSS → retest/hold; FVG/OB/iFVG/BOS are support only; ${ict?.reason||'setup confirmed'}`)+` | TF SUPPORT ONLY: +${timeframeAgreement.confidenceBonus}/6 • aligned ${timeframeAgreement.alignedFrames.join(',')||'none'}${timeframeAgreement.opposedFrames.length?' • opposed '+timeframeAgreement.opposedFrames.join(',')+' (not vetoed)':''} | M3 SUPPORT ONLY: ${month3Sponsorship.confirmations}/4 sponsorship evidence | M6 SUPPORT ONLY: ${month6Support.aligned}/4 HTF aligned • PD ${month6Support.pdLocation}${month6Support.pdPreferred?' preferred':''}${month6Support.htfConflict?' • W1/D1 conflict noted, not vetoed':''}`
   };const importantM5=detectImportantCandles(m5,{timeframe:'5m',lookback:30}),importantM15=detectImportantCandles(m15,{timeframe:'15m',lookback:24}),importantM1=detectImportantCandles(m1,{timeframe:'1m',lookback:30});base.importantCandles={primary:importantM5.primary||importantM15.primary||importantM1.primary,m5:importantM5,m15:importantM15,m1:importantM1,closedOnly:true};const atr1=atr(m1,14)||.5,atr5=atr(m5,14)||1.5,dir1h=structureDir(h1),dir15=structureDir(m15),dir5=structureDir(m5),tech=ict?.technicalRead||{},ind=tech?.indicators||{},fib=fibonacciLocation(h1,price),candle=candleBias(m5),breakout=breakoutBias(m5,price,atr5),sweepBuy=recentSweep(m5,'BUY')||recentSweep(m1,'BUY'),sweepSell=recentSweep(m5,'SELL')||recentSweep(m1,'SELL'),heatmap=liquidityHeatmap(m1,price,atr1);
