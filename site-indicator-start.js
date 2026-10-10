@@ -6,6 +6,7 @@ import { orchestrateGoldAgents, applyAgentExecutionGate } from './gold-agent-orc
 import { buildTomorrowOutlook } from './gold-tomorrow-outlook.js';
 import { withGoldTimeframeAlignment } from './gold-timeframe-alignment.js';
 import { buildGoldDolMap } from './gold-dol-map.js';
+import { assessGoldLiquidity } from './gold-liquidity-window.js';
 
 const PORT = Number(process.env.PORT || 3000);
 const INNER_PORT = Number(process.env.GOLD_ALPHA_INNER_PORT || 3100);
@@ -105,7 +106,8 @@ function mapIndicator(source = {}) {
     tradeState: activeTrade ? {...tradeState,active:true,side:authoritativeSide||tradeState?.side||source.side||null} : tradeState,
     timeframeAlignment: alignment,
     dol: buildGoldDolMap(source),
-    goldLiquidity: source.goldLiquidity || null,
+    // Keep the clock-based next liquidity session visible while price feed is stale/closed.
+    goldLiquidity: source.goldLiquidity || assessGoldLiquidity({samples:[],now:Date.now(),quote:{provider:source.provider}}),
     scenarioPlan,
     tradeStyle: source.tradeStyle || source.strategy || 'MULTI_MODEL_CONFLUENCE',
     newsRisk,
