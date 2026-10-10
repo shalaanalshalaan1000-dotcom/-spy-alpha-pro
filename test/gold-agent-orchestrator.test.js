@@ -202,7 +202,7 @@ test('all specialist agents feed the trading agent and Telegram brief', () => {
   assert.equal(stack.agents.drawOnLiquidity.name,'DRAW_ON_LIQUIDITY_AGENT');
   assert.equal(stack.agents.drawOnLiquidity.canCreateSignal,false);
   assert.equal(stack.agents.drawOnLiquidity.canOverrideIctGate,false);
-  assert.equal(trading.feed.drawOnLiquidity,'MAPPED');
+  assert.equal(trading.feed.drawOnLiquidity,'WAIT'); // no named external reference in base fixture
   assert.equal(trading.feed.research,'CLEAR');
   assert.equal(trading.feed.finalCheck,'PASS');
   assert.equal(stack.agents.market.context.month6Support?.mode,'SUPPORT_ONLY');
@@ -250,7 +250,7 @@ test('draw-on-liquidity maps nearest Secondary and strategic Primary without aut
 });
 
 
-test('liquidity decision agent maps H4 H1 M15 and reserves M5 for confirmation', () => {
+test('liquidity decision agent excludes raw H4 H1 M15 pivots from external objectives and reserves M5 for confirmation', () => {
   configure();
   process.env.AGENT_EXECUTION_ENABLED='false';
   resetGoldAgentMemory();
@@ -261,25 +261,29 @@ test('liquidity decision agent maps H4 H1 M15 and reserves M5 for confirmation',
       levels:{
         h4SwingHigh:4350,h4SwingLow:4250,
         h1SwingHigh:4330,h1SwingLow:4270,
-        m15SwingHigh:4310,m15SwingLow:4290
+        m15SwingHigh:4310,m15SwingLow:4290,
+        pwh:4370,pdh:4320,asiaHigh:4315
       },
       legSweep:{name:'m15SwingLow',level:4290,liquidityClass:'EXTERNAL'},
       hasShift:true,
       hasDisplacement:true,
       retest:true,
+      m5MssRetest:{confirmed:true},
       dm5:{mss:true,displacement:true}
     }
   };
   const stack=orchestrateGoldAgents(source);
   const l=stack.agents.liquidityDecision;
   assert.equal(l.name,'LIQUIDITY_DECISION_AGENT');
-  assert.deepEqual(l.hierarchy,['H4','H1','M15']);
+  assert.deepEqual(l.hierarchy,['W1','D1','H4','H1','M15']);
   assert.equal(l.executionTimeframe,'M5');
   assert.equal(l.drawSide,'BSL');
-  assert.equal(l.secondaryLiquidity?.label,'M15_SWING_HIGH');
-  assert.equal(l.secondaryLiquidity?.level,4310);
-  assert.equal(l.primaryLiquidity?.label,'H4_SWING_HIGH');
-  assert.equal(l.primaryLiquidity?.level,4350);
+  assert.equal(l.secondaryLiquidity?.label,'ASIA_HIGH');
+  assert.equal(l.secondaryLiquidity?.level,4315);
+  assert.equal(l.primaryLiquidity?.label,'PWH');
+  assert.equal(l.primaryLiquidity?.level,4370);
+  assert.equal(l.contextualSwings.some(x=>x.label==='M15_SWING_HIGH'&&!x.targetEligible),true);
+  assert.equal(l.contextualSwings.some(x=>x.label==='H4_SWING_HIGH'&&!x.targetEligible),true);
   assert.equal(l.m5Confirmation.confirmed,true);
   assert.equal(l.canCreateSignal,false);
   assert.equal(l.canExecute,false);
