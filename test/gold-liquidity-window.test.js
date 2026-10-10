@@ -54,4 +54,5 @@ test('Gold worker gates new entry (not existing manage) and API exposes measured
  assert.match(worker,/goldLiquidity:assessGoldLiquidity/);
  assert.match(ui,/goldNextLiquidityTime/);
  assert.match(ui,/goldLiquidityGate/);
+ assert.match(ui,/source\.goldLiquidity \|\| assessGoldLiquidity/);
 });
