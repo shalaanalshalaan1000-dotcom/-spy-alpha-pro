@@ -18,7 +18,7 @@ test('BTC previous full Monday-Sunday UTC week and prior complete day are extern
   assert.equal(d.byTimeframe.W1.find(x=>x.label==='PWL').level,908);
   assert.equal(d.byTimeframe.D1.find(x=>x.label==='PDH').level,1040);
   assert.equal(d.byTimeframe.D1.find(x=>x.label==='PDL').level,980);
-  assert.deepEqual(d.timeframeHierarchy,['W1','D1','H4','H1','M15','M5']);
+  assert.deepEqual(d.timeframeHierarchy,['W1','D1','SESSION','H4','H1','M15','M5']);
   assert.equal(d.executionStrategy,'ICT_ONLY_EXTERNAL_LIQUIDITY');
 });
 
