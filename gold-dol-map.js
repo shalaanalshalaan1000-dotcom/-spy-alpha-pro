@@ -3,6 +3,7 @@
 // A raw H1/H4/M15 pivot is NOT automatically external to its parent dealing range.
 const finitePrice=v=>v!==null&&v!==undefined&&v!==''&&typeof v!=='boolean'&&Number.isFinite(Number(v))&&Number(v)>0?Number(v):null;
 const round=(v,d=3)=>v==null?null:Number(v.toFixed(d));
+import { goldEntryWindow } from './gold-session-entry-policy.js';
 const SOURCES=[
   ['W1','PWH','pwh','BSL',0],['W1','PWL','pwl','SSL',0],
   ['D1','PDH','pdh','BSL',1],['D1','PDL','pdl','SSL',1],
@@ -17,7 +18,9 @@ export function buildGoldDolMap(source={},now=Date.now()){
   const ict=source?.ict||source?.liquidityContext||{};
   const levels=ict?.levels||{};
   const price=finitePrice(source?.entry??source?.price);
-  const side=[source?.side,source?.candidateAction,source?.action].map(x=>String(x||'').toUpperCase()).find(x=>['BUY','SELL'].includes(x))||'WAIT';
+  const tradeSide=String(source?.tradeState?.side||'').toUpperCase();
+  const side=[source?.tradeState?.active===true?tradeSide:null,source?.candidateAction,source?.side].map(x=>String(x||'').toUpperCase()).find(x=>['BUY','SELL'].includes(x))||'WAIT';
+  const entryWindow=goldEntryWindow(now);
   const drawSide=side==='BUY'?'BSL':side==='SELL'?'SSL':'WAIT';
   const records=SOURCES.flatMap(([timeframe,label,key,liquiditySide,rank])=>{
     const value=finitePrice(levels[key]);
@@ -40,6 +43,9 @@ export function buildGoldDolMap(source={},now=Date.now()){
   const m15Direction=ict?.dir15===1?'BUY':ict?.dir15===-1?'SELL':'NEUTRAL';
   const m5Mss=Boolean(ict?.m5MssEvent?.mss||ict?.sequence5?.firstMss);
   const m5Retest=Boolean(ict?.m5MssRetest?.confirmed);
+  const setupChecksPassed=Boolean(ict?.coreIctEntryReady&&m5Mss&&m5Retest&&ict?.legSweep?.liquidityClass==='EXTERNAL');
+  const m15Aligned=m15Direction==='NEUTRAL'||side==='WAIT'||m15Direction===side;
+  const entryEligible=Boolean(entryWindow.allowed&&setupChecksPassed&&m15Aligned&&side!=='WAIT');
   return {
     model:'ICT_MULTI_TIMEFRAME_DOL_V1',
     advisoryOnly:true,canCreateSignal:false,canOverrideIctGate:false,canChangeActiveTargets:false,
@@ -49,8 +55,9 @@ export function buildGoldDolMap(source={},now=Date.now()){
     targetPreview:objectives.slice(0,4).map((x,i)=>({target:'TP'+(i+1),label:x.label,price:x.price,timeframe:x.timeframe,liquiditySide:x.liquiditySide})),
     byTimeframe:Object.fromEntries(['W1','D1','H4','H1','M15'].map(tf=>[tf,records.filter(x=>x.timeframe===tf)])),
     m15:{timeframe:'M15',direction:m15Direction,role:'CONTEXT_ONLY'},
-    m5:{timeframe:'M5',externalSweep:Boolean(ict?.legSweep?.liquidityClass==='EXTERNAL'),mss:m5Mss,retestHold:m5Retest,confirmed:Boolean(ict?.coreIctEntryReady&&m5Mss&&m5Retest)},
+    m5:{timeframe:'M5',externalSweep:Boolean(ict?.legSweep?.liquidityClass==='EXTERNAL'),mss:m5Mss,retestHold:m5Retest,setupChecksPassed,confirmed:entryEligible,entryEligible,session:entryWindow.session,sessionEntryAllowed:entryWindow.allowed,sessionReason:entryWindow.reason,m15Aligned},
     dataStatus:records.length?'PARTIAL_OR_AVAILABLE':'NO_NAMED_LIQUIDITY_LEVELS',
+    entryGate:{allowed:entryEligible,session:entryWindow.session,sessionAllowed:entryWindow.allowed,m15Direction,m15Aligned,setupChecksPassed,reason:!entryWindow.allowed?entryWindow.reason:!m15Aligned?'M15_CONTEXT_CONFLICT':!setupChecksPassed?'ICT_SEQUENCE_NOT_FULLY_CONFIRMED':'ICT_ENTRY_GATES_PASSED'},
     note:'Only named previous-day/week and session pools are eligible objectives. H1/H4/M15 swing levels are context unless independently proven external. This map never changes existing trade TP/SL or the external sweep + M5 MSS + M5 retest/hold gate.',
     updatedAt:new Date(now).toISOString()
   };
