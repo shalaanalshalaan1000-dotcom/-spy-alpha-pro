@@ -42,6 +42,19 @@ export function buildGoldDolMap(source={},now=Date.now()){
     .map(x=>({...x,distance:round(Math.abs(x.level-price),2)}));
   const strategic=[...objectives].sort((a,b)=>a.rank-b.rank||b.distance-a.distance);
   const primary=strategic.find(x=>!objectives[0]||Math.abs(x.level-objectives[0].level)>.10)||objectives[0]||null;
+  // Liquidity map: named prior-period/session pools are external references;
+  // H4/H1/M15 pivots remain internal candidates only when they sit inside a known dealing range.
+  const range=ict?.dealingRange||ict?.rangeContext||ict?.range||{};
+  const rangeHigh=finitePrice(range.high??range.rangeHigh??range.highPrice??ict?.dealingRangeHigh);
+  const rangeLow=finitePrice(range.low??range.rangeLow??range.lowPrice??ict?.dealingRangeLow);
+  const validRange=rangeHigh!=null&&rangeLow!=null&&rangeHigh>rangeLow;
+  const externalPools=records.filter(x=>x.liquidityClass==='EXTERNAL_NAMED_POOL');
+  const swingPools=records.filter(x=>x.liquidityClass==='UNVERIFIED_SWING');
+  const internalPools=validRange?swingPools.filter(x=>x.level>rangeLow&&x.level<rangeHigh).map(x=>({...x,liquidityClass:'INTERNAL_RANGE_LIQUIDITY',targetEligible:false,evidence:'SWING_INSIDE_KNOWN_DEALING_RANGE'})):[];
+  const unclassifiedSwings=validRange?swingPools.filter(x=>x.level<=rangeLow||x.level>=rangeHigh):swingPools;
+  const explicitSweep=ict?.legSweep||ict?.liquiditySweep||ict?.sweep||null;
+  const sweepConfirmed=Boolean(explicitSweep&&(explicitSweep.liquidityClass==='EXTERNAL'||explicitSweep.external===true||explicitSweep.confirmed===true));
+  const sweepSide=String(explicitSweep?.side||explicitSweep?.direction||explicitSweep?.liquiditySide||'UNKNOWN').toUpperCase();
   const m5Mss=Boolean(ict?.m5MssEvent?.mss||ict?.sequence5?.firstMss);
   const m5Retest=Boolean(ict?.m5MssRetest?.confirmed);
   const setupChecksPassed=Boolean(ict?.coreIctEntryReady&&m5Mss&&m5Retest&&ict?.legSweep?.liquidityClass==='EXTERNAL');
@@ -52,6 +65,15 @@ export function buildGoldDolMap(source={},now=Date.now()){
     price:round(price),side,drawSide,
     timeframeHierarchy:['W1','D1','H4','H1','M15','M5'],
     levels:records,objectives,nearest:objectives[0]||null,primary,
+    liquidityMap:{
+      model:'ICT_INTERNAL_EXTERNAL_LIQUIDITY_V1',advisoryOnly:true,canCreateSignal:false,
+      dealingRange:validRange?{high:round(rangeHigh),low:round(rangeLow),source:'ICT_RANGE_CONTEXT'}:null,
+      external:{count:externalPools.length,pools:externalPools,eligibleObjectives:objectives},
+      internal:{count:internalPools.length,pools:internalPools,rangeKnown:validRange,reason:validRange?'SWINGS_INSIDE_DEALING_RANGE':'DEALING_RANGE_UNAVAILABLE'},
+      unclassifiedSwings:{count:unclassifiedSwings.length,pools:unclassifiedSwings},
+      sweep:{confirmed:sweepConfirmed,side:sweepSide,source:explicitSweep?'ICT_SOURCE':'NO_SWEEP_EVIDENCE'},
+      sequence:{externalSweep:sweepConfirmed,mss:Boolean(ict?.m5MssEvent?.mss||ict?.sequence5?.firstMss),displacement:Boolean(ict?.m5Displacement?.confirmed||ict?.displacement?.confirmed||ict?.sequence5?.displacement),retestHold:Boolean(ict?.m5MssRetest?.confirmed),entryRequiresExistingIctGate:true}
+    },
     targetPreview:objectives.slice(0,4).map((x,i)=>({target:'TP'+(i+1),label:x.label,price:x.price,timeframe:x.timeframe,liquiditySide:x.liquiditySide})),
     byTimeframe:Object.fromEntries(['W1','D1','H4','H1','M15'].map(tf=>[tf,records.filter(x=>x.timeframe===tf)])),
     m15:{timeframe:'M15',direction:m15Direction,role:'CONTEXT_ONLY'},
