@@ -53,7 +53,7 @@ export function buildGoldDolMap(source={},now=Date.now()){
   const internalPools=validRange?swingPools.filter(x=>x.level>rangeLow&&x.level<rangeHigh).map(x=>({...x,liquidityClass:'INTERNAL_RANGE_LIQUIDITY',targetEligible:false,evidence:'SWING_INSIDE_KNOWN_DEALING_RANGE'})):[];
   const unclassifiedSwings=validRange?swingPools.filter(x=>x.level<=rangeLow||x.level>=rangeHigh):swingPools;
   const explicitSweep=ict?.legSweep||ict?.liquiditySweep||ict?.sweep||null;
-  const sweepConfirmed=Boolean(explicitSweep&&(explicitSweep.liquidityClass==='EXTERNAL'||explicitSweep.external===true||explicitSweep.confirmed===true));
+  const sweepConfirmed=Boolean(explicitSweep&&(explicitSweep.liquidityClass==='EXTERNAL'||explicitSweep.external===true));
   const sweepSide=String(explicitSweep?.side||explicitSweep?.direction||explicitSweep?.liquiditySide||'UNKNOWN').toUpperCase();
   const m5Mss=Boolean(ict?.m5MssEvent?.mss||ict?.sequence5?.firstMss);
   const m5Retest=Boolean(ict?.m5MssRetest?.confirmed);
