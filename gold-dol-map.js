@@ -21,7 +21,9 @@ export function buildGoldDolMap(source={},now=Date.now()){
   const tradeSide=String(source?.tradeState?.side||'').toUpperCase();
   const side=[source?.tradeState?.active===true?tradeSide:null,source?.candidateAction,source?.side].map(x=>String(x||'').toUpperCase()).find(x=>['BUY','SELL'].includes(x))||'WAIT';
   const entryWindow=goldEntryWindow(now);
-  const drawSide=side==='BUY'?'BSL':side==='SELL'?'SSL':'WAIT';
+  const m15Direction=ict?.dir15===1?'BUY':ict?.dir15===-1?'SELL':'NEUTRAL';
+  const m15Aligned=m15Direction==='NEUTRAL'||side==='WAIT'||m15Direction===side;
+  const drawSide=!m15Aligned?'WAIT':side==='BUY'?'BSL':side==='SELL'?'SSL':'WAIT';
   const records=SOURCES.flatMap(([timeframe,label,key,liquiditySide,rank])=>{
     const value=finitePrice(levels[key]);
     if(value==null)return [];
@@ -40,11 +42,9 @@ export function buildGoldDolMap(source={},now=Date.now()){
     .map(x=>({...x,distance:round(Math.abs(x.level-price),2)}));
   const strategic=[...objectives].sort((a,b)=>a.rank-b.rank||b.distance-a.distance);
   const primary=strategic.find(x=>!objectives[0]||Math.abs(x.level-objectives[0].level)>.10)||objectives[0]||null;
-  const m15Direction=ict?.dir15===1?'BUY':ict?.dir15===-1?'SELL':'NEUTRAL';
   const m5Mss=Boolean(ict?.m5MssEvent?.mss||ict?.sequence5?.firstMss);
   const m5Retest=Boolean(ict?.m5MssRetest?.confirmed);
   const setupChecksPassed=Boolean(ict?.coreIctEntryReady&&m5Mss&&m5Retest&&ict?.legSweep?.liquidityClass==='EXTERNAL');
-  const m15Aligned=m15Direction==='NEUTRAL'||side==='WAIT'||m15Direction===side;
   const entryEligible=Boolean(entryWindow.allowed&&setupChecksPassed&&m15Aligned&&side!=='WAIT');
   return {
     model:'ICT_MULTI_TIMEFRAME_DOL_V1',
