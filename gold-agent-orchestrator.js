@@ -995,6 +995,23 @@ export function applyAgentExecutionGate(source = {}, now = Date.now()) {
       reason:entryWindow.reason
     };
   }
+  // A fresh entry must not contradict the M15 directional context. M15 remains context-only;
+  // it cannot create a trade, but an explicit opposite bias blocks promotion until alignment.
+  if (!tradeState.active) {
+    const ict = source?.ict || source?.liquidityContext || {};
+    const candidateSide = validSide(source.candidateAction) || validSide(source.side) || validSide(stack.decision.action);
+    const m15Direction = ict?.dir15 === 1 ? 'BUY' : ict?.dir15 === -1 ? 'SELL' : null;
+    if (candidateSide && m15Direction && candidateSide !== m15Direction) {
+      return {
+        ...source,
+        status: 'WAIT', action: 'WAIT', manualAction: 'WAIT', executable: false,
+        executionAction: 'WAIT', sessionMode: 'READ_ONLY', tradeState, agentStack: stack,
+        agentDecision: { ...stack.decision, ready: false, executable: false, action: 'WAIT', manualAction: 'WAIT', reason: 'M15_CONTEXT_CONFLICT: candidate direction opposes M15; wait for alignment or a new confirmed ICT setup' },
+        agentSchema: stack.decisionSchema,
+        reason: 'M15_CONTEXT_CONFLICT: candidate direction opposes M15; no new entry promoted'
+      };
+    }
+  }
   if (stack.decision.executable) {
     return {
       ...source,
