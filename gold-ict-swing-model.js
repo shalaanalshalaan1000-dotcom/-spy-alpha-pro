@@ -702,7 +702,14 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const sequence5=sweepState?.seq5??null;
   const sequence1=sweepState?.seq1??null;
   const m5MssEvent=sequence5?.firstMss??null;
-  const m5MssRetest=m5RetestAfterMss(m5,side,m5MssEvent,atr5,legSweep?.extreme);
+  const m5Retest=m5RetestAfterMss(m5,side,m5MssEvent,atr5,legSweep?.extreme);
+  // Keep M5 as the structural trigger, but allow a completed M1 retest after the M5 MSS candle closes.
+  // This avoids missing a valid entry when price retests/holds intrabar without waiting for another full M5 close.
+  // A confirmed M5 invalidation remains authoritative and cannot be bypassed by the M1 fallback.
+  const m1RetestFallback=!m5Retest?.confirmed&&!m5Retest?.invalidated&&m5MssEvent
+    ?(()=>{const eventT=Number(m5MssEvent.closeT??(Number(m5MssEvent.t)+300000));if(!Number.isFinite(eventT))return null;const result=m5RetestAfterMss(m1,side,{...m5MssEvent,t:eventT},atr1,legSweep?.extreme);return result?.confirmed?{...result,sourceTf:'M1_AFTER_M5_MSS'}:result;})()
+    :null;
+  const m5MssRetest=m5Retest?.confirmed?{...m5Retest,sourceTf:'M5'}:m5Retest?.invalidated?m5Retest:m1RetestFallback;
   const coreIctEntryReady=Boolean(hasSweep&&m5MssEvent&&m5MssRetest?.confirmed);
   const shift5=sequence5?.firstAny??null;
   const shift1=sequence1?.firstAny??null;
