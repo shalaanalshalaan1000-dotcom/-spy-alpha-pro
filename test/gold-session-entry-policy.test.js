@@ -17,6 +17,12 @@ test('London and New York unlock entries on local clocks, including DST',()=>{
   assert.equal(isGoldEntryAllowed(at('2026-10-08T06:59:00Z')),false);
   assert.equal(isGoldEntryAllowed(at('2026-12-08T07:59:00Z')),false);
 });
+test('ICT London/NY morning window catches NY pre-open setups but still blocks late-session entries',()=>{
+  assert.equal(goldEntryWindow(at('2026-10-14T11:57:00Z')).allowed,true);
+  assert.equal(goldEntryWindow(at('2026-10-14T11:57:00Z')).session,'NEW_YORK');
+  assert.equal(goldEntryWindow(at('2026-10-14T15:31:00Z')).allowed,false);
+});
+
 test('After London/New York and weekends are read-only',()=>{
   for(const v of ['2026-10-08T20:30:00Z','2026-10-10T13:00:00Z','2026-10-11T13:00:00Z']){
     assert.equal(isGoldEntryAllowed(at(v)),false,v);
@@ -29,5 +35,7 @@ test('Entry policy is enforced by engine, API agent gate, and Telegram new-entry
   const telegram=fs.readFileSync(new URL('../telegram-xau-bot-v2.js',import.meta.url),'utf8');
   assert.match(engine,/if\(!entryWindow.allowed\).*return;/);
   assert.match(agent,/if\(!tradeState.active&&!entryWindow.allowed\)/);
+  assert.ok(engine.includes('function validCandidatePlan(m,now=Date.now())') && engine.includes('freshRetest'));
+  assert.ok(engine.includes('now-lockRetest>15*60_000'));
   assert.match(telegram,/goldEntryWindow\(issuedAtOf\(s\)\?\?now\)\.allowed/);
 });
