@@ -1,10 +1,11 @@
 // XAUUSD entry policy: Asian/Tokyo market is observation-only.
-// High-participation entry windows only: London 08:00–11:30 local and NY 08:15–11:30 local.
+// Broadened ICT morning windows: London 07:00–12:00 local and NY 07:00–11:30 local.
+// Late-session and weekend entries remain blocked; all clocks are DST-aware.
 // These are conservative trade-entry cutoffs, not claims about official exchange closure.
 // All clocks use native market time zones so daylight saving is handled automatically.
 const WINDOWS=[
-  {id:'LONDON',timeZone:'Europe/London',start:8*60,end:11*60+30},
-  {id:'NEW_YORK',timeZone:'America/New_York',start:8*60+15,end:11*60+30}
+  {id:'LONDON',timeZone:'Europe/London',start:7*60,end:12*60},
+  {id:'NEW_YORK',timeZone:'America/New_York',start:7*60,end:11*60+30}
 ];
 function localClock(at,timeZone){
   const parts=new Intl.DateTimeFormat('en-GB',{timeZone,weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(at));
