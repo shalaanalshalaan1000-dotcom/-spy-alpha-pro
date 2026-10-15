@@ -709,7 +709,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
     ?(()=>{const eventT=Number(m5MssEvent.closeT??(Number(m5MssEvent.t)+300000));if(!Number.isFinite(eventT))return null;const result=m5RetestAfterMss(m1,side,{...m5MssEvent,t:eventT},atr1,legSweep?.extreme);return result?.confirmed?{...result,sourceTf:'M1_AFTER_M5_MSS'}:result;})()
     :null;
   const m5MssRetest=m5Retest?.confirmed?{...m5Retest,sourceTf:'M5'}:m5Retest?.invalidated?m5Retest:m1RetestFallback;
-  const coreIctEntryReady=Boolean(hasSweep&&sequence1?.firstMss&&sequence1?.firstDisplacement);
+  const coreIctEntryReady=Boolean(hasSweep&&sequence1?.firstMss);
   const shift5=sequence5?.firstAny??null;
   const shift1=sequence1?.firstAny??null;
   const shift15=hasSweep?shiftAfter(m15,side,legSweep.t,atr15):null;
@@ -770,7 +770,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const waitReason=!hasSweep
     ?'ICT WAIT: external liquidity sweep required; then closed M1 MSS + displacement and FVG retest.'
     :!coreIctEntryReady
-      ?`ICT ARMED: ${String(legSweep?.name||'external liquidity').toUpperCase()} sweep retained; waiting for closed M1 MSS + displacement.`
+      ?`ICT ARMED: ${String(legSweep?.name||'external liquidity').toUpperCase()} sweep retained; waiting for closed M1 MSS.`
       :`ICT ARMED: M1 MSS + displacement confirmed; waiting for price to retest the M1 FVG.`;
 
   if(!executionReady)return{...base,status:'WAIT',candidateAction:side,confidence:0,contextBias:side,oneMinuteConfirmed,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,contextAligned,biasAligned,setupAligned,setupVotes,setupReady,fvg15,sweep15,dm15,fvg5,sweep5,dm5,bos5,fvg1,sweep1,dm1,bos1,bos15,legSweep,sequence1,sequence5,m5MssEvent,m5MssRetest,coreIctEntryReady,shift1,shift5,shift15,firstMssEvent,firstDisplacementEvent,firstTriggerEvent,triggerConfirmed,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),hasSweep,hasShift,hasDisplacement,hasBos,contextSequence,executionStage,sweepAgeMinutes,sweepExpiresAt,externalSweepTtlMinutes:Math.round(EXTERNAL_SWEEP_TTL_MS/60_000)},reason:waitReason+' FVG/OB/iFVG/BOS and timeframe agreement are confluence only.'};
