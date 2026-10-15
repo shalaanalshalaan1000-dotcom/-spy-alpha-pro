@@ -755,7 +755,8 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const directContinuation=coreIctEntryReady;
   const trendContinuation=null;
   const selectedFvg=reversalPoiFvg??null; // Only a post-MSS FVG (or confirmed post-sweep iFVG) may define entry; never reuse a stale pre-shift gap.
-  const m1FvgRetest=Boolean(coreIctEntryReady&&selectedFvg&&m1.some(b=>b.t>selectedFvg.t&&b.low<=selectedFvg.high&&b.high>=selectedFvg.low&&(side==='BUY'?b.close>=selectedFvg.mid:b.close<=selectedFvg.mid)));
+  // Wick-touch entry: a post-MSS M1 candle qualifies when its high-low range overlaps the FVG zone; close back beyond the midpoint is NOT required.
+  const m1FvgRetest=Boolean(coreIctEntryReady&&selectedFvg&&m1.some(b=>b.t>selectedFvg.t&&b.low<=selectedFvg.high&&b.high>=selectedFvg.low));
   const executionReady=m1FvgRetest;
   const contextSequence=executionReady
     ?'EXTERNAL_LIQUIDITY_SWEEP -> CLOSED_M1_MSS+DISPLACEMENT -> M1_FVG_RETEST'
