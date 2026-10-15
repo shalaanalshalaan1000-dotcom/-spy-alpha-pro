@@ -734,7 +734,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   // H1/M15 and killzones remain context only; they do not veto the entry trigger.
   const sequenceShiftT=triggerConfirmed&&firstTriggerEvent?(firstTriggerEvent.closeT??firstTriggerEvent.t):null;
   const hasBos=Boolean((bos5.broken&&(!legSweep||bos5.t>=legSweep.t))||(bos1.broken&&(!legSweep||bos1.t>=legSweep.t)));
-  const reversalAnchor=sequenceShiftT;
+  const reversalAnchor=sequence1?.firstMss?.closeT??sequence1?.firstMss?.t??sequenceShiftT;
   const continuationAnchor=[bos5,bos1].filter(x=>x?.broken).sort((a,b)=>a.t-b.t)[0]?.t??null;
   const contShift1=continuationAnchor!=null?shiftAfter(m1,side,continuationAnchor,atr1):null;
   const contShift5=continuationAnchor!=null?shiftAfter(m5,side,continuationAnchor,atr5):null;
