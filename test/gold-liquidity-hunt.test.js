@@ -74,7 +74,7 @@ test('full ICT and confluence engines wait for retest, then produce the same ext
     const x=analyze(samples,99.5,now,ht);
     assert.equal(x.status,'CANDIDATE');assert.equal(x.candidateAction,'SELL');
     assert.equal(x.ict.legSweep.name,'pdh');assert.equal(x.ict.m5MssEvent.level,100);
-    assert.equal(x.ict.m5MssRetest.confirmed,true);assert.equal(x.ict.m5MssRetest.level,100);
+    assert.equal(x.ict.m5MssRetest.confirmed,true);assert.equal(x.ict.m5MssRetest.level,100);assert.equal(x.ict.m5MssRetest.sourceTf,'M1_AFTER_M5_MSS');
     assert.equal(x.targetLabels[0],'PDL');assert.equal(x.targetLabels[1],'PWL');
   }
 });
