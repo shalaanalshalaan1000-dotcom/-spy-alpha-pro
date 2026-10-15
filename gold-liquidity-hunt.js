@@ -1,6 +1,11 @@
 // Operational interpretation of liquidity sweep -> protected swing break -> retest.
 // CHoCH without displacement is observation; it never authorizes an entry.
 const validSide = side => ['BUY', 'SELL'].includes(side);
+// Keep displacement meaningful while avoiding an unnecessarily high fixed floor on quieter gold sessions.
+const MSS_DISPLACEMENT_ATR_MULTIPLE = 0.35;
+const MSS_DISPLACEMENT_MIN_BODY = 0.30;
+// A valid retest may arrive after a slow pullback; cap the window to avoid stale setups.
+const MAX_RETEST_BARS = 18;
 export function liquidityHuntSequence(bars, side, sweepCloseT, atrValue, spanMs=300000) {
   const blank={firstAny:null,firstMss:null,firstDisplacement:null,complete:false,completeAt:null,protectedSwing:null};
   if(!validSide(side)||!Number.isFinite(sweepCloseT))return blank;
@@ -19,7 +24,7 @@ export function liquidityHuntSequence(bars, side, sweepCloseT, atrValue, spanMs=
   for(const b of rows.filter(b=>b.t>=sweepCloseT)){
     const range=Math.max(.0001,b.high-b.low),body=Math.abs(b.close-b.open);
     const directional=side==='BUY'?b.close>b.open:b.close<b.open;
-    const displacement=directional&&body>=Math.max((atrValue||1)*.45,.45)&&
+    const displacement=directional&&body>=Math.max((atrValue||1)*MSS_DISPLACEMENT_ATR_MULTIPLE,MSS_DISPLACEMENT_MIN_BODY)&&
       (side==='BUY'?b.close>=b.low+range*.72:b.close<=b.high-range*.72);
     const through=side==='BUY'?b.close>level:b.close<level;
     const choch=through&&!broken;
@@ -52,7 +57,7 @@ export function liquidityHuntRetest(bars,side,event,atrValue,sweepExtreme=null){
     if(side==='BUY'?b.close<level-tolerance:b.close>level+tolerance)return {...blank,invalidated:true};
     const touch=b.low<=level+tolerance&&b.high>=level-tolerance;
     const held=side==='BUY'?b.close>level:b.close<level;
-    if(!confirmed&&i<12&&touch&&held)confirmed={confirmed:true,level,t:b.t,open:b.open,high:b.high,low:b.low,close:b.close,tolerance};
+    if(!confirmed&&i<MAX_RETEST_BARS&&touch&&held)confirmed={confirmed:true,level,t:b.t,open:b.open,high:b.high,low:b.low,close:b.close,tolerance};
   }
   return confirmed||blank;
 }

@@ -74,7 +74,7 @@ test('full ICT and confluence engines wait for retest, then produce the same ext
     const x=analyze(samples,99.5,now,ht);
     assert.equal(x.status,'CANDIDATE');assert.equal(x.candidateAction,'SELL');
     assert.equal(x.ict.legSweep.name,'pdh');assert.equal(x.ict.m5MssEvent.level,100);
-    assert.equal(x.ict.m5MssRetest.confirmed,true);assert.equal(x.ict.m5MssRetest.level,100);
+    assert.equal(x.ict.m5MssRetest.confirmed,true);assert.equal(x.ict.m5MssRetest.level,100);assert.equal(x.ict.m5MssRetest.sourceTf,'M1_AFTER_M5_MSS');
     assert.equal(x.targetLabels[0],'PDL');assert.equal(x.targetLabels[1],'PWL');
   }
 });
@@ -82,4 +82,27 @@ test('a retest invalidated on a subsequent bar cannot be replayed',()=>{
   const seq=sellSequence([...lead,breakBar]);
   const x=liquidityHuntRetest([retest,bar(8,99,102,98,101),{...retest,t:9*span}], 'SELL',seq.firstMss,1,111);
   assert.equal(x.confirmed,false);assert.equal(x.invalidated,true);
+});
+
+test('valid retest can arrive after a slower pullback within the bounded 18-bar window',()=>{
+  const event={mss:true,side:'BUY',level:100,t:0};
+  const bars=Array.from({length:13},(_,i)=>{
+    const t=(i+1)*span;
+    return i<12
+      ? {t,open:100.7,high:101.1,low:100.5,close:100.8}
+      : {t,open:100.7,high:100.6,low:99.9,close:100.2};
+  });
+  const result=liquidityHuntRetest(bars,'BUY',event,1,99);
+  assert.equal(result.confirmed,true);
+  assert.equal(result.t,13*span);
+});
+test('retest window extension does not permit a leg invalidated by the sweep extreme',()=>{
+  const event={mss:true,side:'BUY',level:100,t:0};
+  const bars=[
+    {t:span,open:100.4,high:100.8,low:98.8,close:100.2},
+    {t:2*span,open:100.2,high:100.5,low:99.8,close:100.3}
+  ];
+  const result=liquidityHuntRetest(bars,'BUY',event,1,99);
+  assert.equal(result.confirmed,false);
+  assert.equal(result.invalidated,true);
 });
