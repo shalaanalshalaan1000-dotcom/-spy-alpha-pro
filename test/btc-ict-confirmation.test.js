@@ -33,7 +33,8 @@ test('MSS and retest cannot predate sweep or occur inside the same closed candle
 });
 test('No named external levels or missing fresh quote always means WAIT',()=>{
  const bars=candles();
- const m5=Array.from({length:18},(_,i)=>({t:now-18*300000+i*300000,open:1000,high:1008,low:995,close:1001}));\n const empty=analyzeBtcIct({M1:bars,M5:m5,ticker:{price:1036,time:new Date(now-1000).toISOString()},now});
+ const m5=Array.from({length:18},(_,i)=>({t:now-18*300000+i*300000,open:1000,high:1008,low:995,close:1001}));
+ const empty=analyzeBtcIct({M1:bars,M5:m5,ticker:{price:1036,time:new Date(now-1000).toISOString()},now});
  assert.equal(empty.status,'WAIT');
  const stale=analyzeBtcIct({M1:bars,M5:m5,ticker:{price:1036,time:new Date(now-120000).toISOString()},now});
  assert.equal(stale.status,'WAIT');
