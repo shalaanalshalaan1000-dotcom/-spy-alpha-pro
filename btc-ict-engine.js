@@ -143,7 +143,7 @@ export function detectBtcIctSequence({M1=[],externalLevels=[],now=Date.now(),atr
  return found.sort((a,b)=>b.retestAt-a.retestAt||b.mssAt-a.mssAt);
 }
 export function analyzeBtcIct({M1=[],M5=[],M15=[],H1=[],H4=[],D1=[],ticker={},now=Date.now()}={}){
- const price=num(ticker.price),closed5=M5.filter(b=>b&&Number.isFinite(b.t)&&b.t+300000<=now&&Number.isFinite(b.close)).sort((a,b)=>a.t-b.t);
+ const price=num(ticker.price),closed1=M1.filter(b=>validM1(b,now)).sort((a,b)=>a.t-b.t),closed5=M5.filter(b=>b&&Number.isFinite(b.t)&&b.t+300000<=now&&Number.isFinite(b.close)).sort((a,b)=>a.t-b.t);
  const dol=buildBtcDolMap({M5:closed5,M15,H1,H4,D1,price,now});
  const qt=Date.parse(ticker.time||''),quoteFresh=Number.isFinite(qt)&&qt<=now+30000&&now-qt<=90000;
  const last=closed1.at(-1),oneFresh=last&&now-(last.t+60000)<=180000;
