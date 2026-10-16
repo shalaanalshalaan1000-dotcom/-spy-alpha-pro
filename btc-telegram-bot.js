@@ -247,7 +247,7 @@ async function telegram(method, body) {
 
 function message(signal) {
  const icon=signal.action==='BUY'?'🟢':'🔴',ict=signal.ict||{},sweep=ict.legSweep||{},
-   mss=ict.m5MssEvent||{},retest=ict.m5MssRetest||{};
+   mss=ict.m1MssEvent||{},retest=ict.m1MssRetest||{};
  const labels=Array.isArray(signal.targetLabels)?signal.targetLabels:[];
  const stamp=new Intl.DateTimeFormat('ar-SA',{timeZone:'Asia/Riyadh',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true}).format(new Date());
  const sizing=lotSizingLines(signal.entry,signal.stopLoss);
@@ -255,16 +255,16 @@ function message(signal) {
    .map((t,i)=>validNumber(t)?'🎯 TP'+(i+1)+': '+n(t)+' • '+(labels[i]||'EXTERNAL_LIQUIDITY'):null)
    .filter(Boolean).join('\n');
  return `${icon} 🟣 BTCUSD — PURE ICT ${signal.action}\n`
-  + '🧠 Strategy: ICT_EXTERNAL_LIQUIDITY_M5_MSS_RETEST\n'
+  + '🧠 Strategy: ICT_EXTERNAL_LIQUIDITY_M1_MSS_RETEST\n'
   + '✅ External sweep: '+String(sweep.name||'—')+' @ '+n(sweep.level)+'\n'
-  + '🔄 M5 MSS / Displacement: '+(mss.confirmed?'CONFIRMED':'WAIT')+' @ '+n(mss.level)+'\n'
-  + '🔁 M5 Retest/Hold: '+(retest.confirmed?'CONFIRMED':'WAIT')+'\n'
+  + '🔄 M1 MSS / Displacement: '+(mss.confirmed?'CONFIRMED':'WAIT')+' @ '+n(mss.level)+'\n'
+  + '🔁 M1 Retest/Hold: '+(retest.confirmed?'CONFIRMED':'WAIT')+'\n'
   + '📊 Setup quality (not win probability): '+Math.round(Number(signal.confidence)||0)+'/100\n'
   + '💵 Price: '+n(signal.price)+'\n'
   + '📍 Entry: '+n(signal.entry)+'\n'
   + '🛑 Structural SL: '+n(signal.stopLoss)+'\n'
   + targetLines+'\n\n'+sizing.join('\n')+'\n'
-  + '⏱️ External Sweep → closed M5 displaced MSS → later M5 Retest/Hold; only external liquidity targets\n'
+  + '⏱️ External Sweep → closed M5 displaced MSS → later M1 Retest/Hold; only external liquidity targets\n'
   + '🕒 '+stamp+' بتوقيت السعودية\n'
   + '⚪ إشارات فقط — لا تداول آلي';
 }
