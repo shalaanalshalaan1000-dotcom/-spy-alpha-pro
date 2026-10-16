@@ -813,7 +813,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const referenceEntry=useDirectContinuation?entry:(originPoi?.mid??entry),totalPath=mainTarget==null?null:Math.abs(mainTarget-referenceEntry),travelled=Math.abs(price-referenceEntry),pathConsumed=totalPath>0?travelled/totalPath:0;
   const insidePoi=price>=entryLow&&price<=entryHigh;
   const phase=executionReady?'M1_MSS_CHOCH_CONFIRMED':coreIctEntryReady?'M1_MSS_CONFIRMED':ictPhase({hasSweep,firstShift,originFvg:fvg,price,entryLow,entryHigh,hasBos,target:mainTarget});
-  const configuredMaxPath=Number(process.env.GOLD_MAX_PATH_CONSUMED_FOR_ENTRY),maxPathConsumedForEntry=Number.isFinite(configuredMaxPath)?clamp(configuredMaxPath,.50,.90):.80;
+  const configuredMaxPath=Number(process.env.GOLD_MAX_PATH_CONSUMED_FOR_ENTRY),maxPathConsumedForEntry=Number.isFinite(configuredMaxPath)?clamp(configuredMaxPath,.50,.90):.90;
   if(useDirectContinuation&&pathConsumed>=maxPathConsumedForEntry)return{...base,status:'WAIT',candidateAction:side,contextBias:side,ict:{dir4,dir1,dir15,levels,session,phase,contextSequence,legSweep,sequence1,sequence5,firstShift,orderBlock,poi,rangeContext,mainLiquidity:plan.mainLiquidity,pathConsumed:round(pathConsumed,2),maxPathConsumedForEntry:round(maxPathConsumedForEntry,2),directContinuation:true},reason:'ICT NO CHASE: continuation confirmed but '+Math.round(maxPathConsumedForEntry*100)+'% or more of the path to external liquidity is already consumed'};
   const lateMove=!useDirectContinuation&&pathConsumed>=.75&&!insidePoi;
   if(lateMove)return{...base,status:'WAIT',candidateAction:side,contextBias:side,ict:{dir4,dir1,dir15,levels,session,phase,contextSequence,legSweep,sequence1,sequence5,firstShift,orderBlock,poi,rangeContext,mainLiquidity:plan.mainLiquidity,pathConsumed:round(pathConsumed,2)},reason:'ICT NO CHASE: more than half of the path to external liquidity is already consumed; wait for a fresh liquidity event / new dealing range'};
@@ -824,7 +824,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   if(hasIfvgRetest)confidence+=6;
   if(htfLiquiditySweep)confidence+=4;
   if(directContinuation)confidence+=2;
-  // Confidence is driven primarily by the M5 execution sequence. M15/H1 are context bonuses only.
+  // Confidence is driven by the M1 execution sequence. M15/H1 are context bonuses only.
   if(sweep5)confidence+=12;
   if(dm5.mss)confidence+=10;
   if(dm5.displacement)confidence+=10;
