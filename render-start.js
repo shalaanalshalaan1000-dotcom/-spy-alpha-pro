@@ -84,7 +84,7 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify(payload));
     } catch (error) {
       res.writeHead(200, {'content-type':'application/json; charset=utf-8','cache-control':'no-store'});
-      return res.end(JSON.stringify({symbol:'BTCUSD',status:'WAIT',action:'WAIT',executable:false,executionMode:'SIGNALS_ONLY',confidence:0,strategy:'ICT_LIQUIDITY_HUNT_M5_MSS_RETEST',reason:`BTC data unavailable: ${String(error?.message || error)}`,updatedAt:new Date().toISOString()}));
+      return res.end(JSON.stringify({symbol:'BTCUSD',status:'WAIT',action:'WAIT',executable:false,executionMode:'SIGNALS_ONLY',confidence:0,strategy:'ICT_LIQUIDITY_HUNT_M1_MSS_RETEST',reason:`BTC data unavailable: ${String(error?.message || error)}`,updatedAt:new Date().toISOString()}));
     }
   }
 
