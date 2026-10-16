@@ -61,7 +61,7 @@ function isConfirmed(signal) {
     signal &&
     signal.status === 'ACTIVE' &&
     ['BUY', 'SELL'].includes(signal.action) &&
-    signal.strategy === 'ICT_LIQUIDITY_HUNT_M5_MSS_RETEST' &&
+    signal.strategy === 'ICT_LIQUIDITY_HUNT_M1_MSS_RETEST' &&
     [signal.entry, signal.stopLoss, signal.target1].every(validNumber)
   );
 }
@@ -108,7 +108,7 @@ function closeBtcJournalTrade(trade, outcome, exitPrice, closedAtMs = Date.now()
     setupId: trade.key,
     side: trade.side,
     action: trade.side,
-    strategy: 'ICT_LIQUIDITY_HUNT_M5_MSS_RETEST',
+    strategy: 'ICT_LIQUIDITY_HUNT_M1_MSS_RETEST',
     confidence: Number(trade.confidence) || 0,
     entry,
     originalStopLoss,
@@ -138,7 +138,7 @@ function startTracking(signal, key, announcedAtMs = Date.now()) {
   trackedTrade = {
     key,
     side: signal.action,
-    strategy: 'ICT_LIQUIDITY_HUNT_M5_MSS_RETEST',
+    strategy: 'ICT_LIQUIDITY_HUNT_M1_MSS_RETEST',
     confidence: Number(signal.confidence) || 0,
     announcedAtMs,
     signalId: String(signal.signalId || ''),
@@ -304,7 +304,7 @@ async function tick() {
       lastSentKey = key;
       lastSentAt = now;
       startTracking(signal, key, now);
-      console.log(`[btc-telegram] sent+tracking ${signal.action} ${signal.confidence}% strategy=ICT_LIQUIDITY_HUNT_M5_MSS_RETEST key=${key}`);
+      console.log(`[btc-telegram] sent+tracking ${signal.action} ${signal.confidence}% strategy=ICT_LIQUIDITY_HUNT_M1_MSS_RETEST key=${key}`);
     }
   }
 
