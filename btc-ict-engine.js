@@ -100,79 +100,74 @@ function lotSizing(entry, stop) {
 }
 
 
-const validM5=(b,now)=>b&&Number.isFinite(b.t)&&b.t+300000<=now&&Number.isFinite(b.close);
+const validM1=(b,now)=>b&&Number.isFinite(b.t)&&b.t+60000<=now&&Number.isFinite(b.open)&&Number.isFinite(b.high)&&Number.isFinite(b.low)&&Number.isFinite(b.close);
 const sideFor=pool=>pool.liquiditySide==='SSL'?'BUY':'SELL';
 function precedingPivot(bars,side){
  if(bars.length<7)return null;const f=side==='BUY'?'high':'low';
- for(let i=bars.length-3;i>=2;i--){
-  const v=bars[i][f],l=[bars[i-2],bars[i-1]],r=[bars[i+1],bars[i+2]];
+ for(let i=bars.length-3;i>=2;i--){const v=bars[i][f],l=[bars[i-2],bars[i-1]],r=[bars[i+1],bars[i+2]];
   const valid=side==='BUY'?l.every(b=>v>b.high)&&r.every(b=>v>=b.high):l.every(b=>v<b.low)&&r.every(b=>v<=b.low);
-  if(valid)return v;
- }
- return null;
+  if(valid)return v;}return null;
 }
-export function detectBtcIctSequence({M5=[],externalLevels=[],now=Date.now(),atr5=null}={}){
- const bars=M5.filter(b=>validM5(b,now)).sort((a,b)=>a.t-b.t),a=atr5||atr(bars)||50;
- const levels=externalLevels.filter(p=>p.targetEligible===true&&['PWH','PWL','PDH','PDL'].includes(p.label));
- const found=[];
- for(let s=Math.max(7,bars.length-55);s<bars.length-2;s++){
-  const sweep=bars[s];if(now-sweep.t>4*3600000)continue;
-  for(const pool of levels){
-   const side=sideFor(pool),isBuy=side==='BUY';
+// BTC mirrors gold: external sweep -> closed M1 MSS/displacement -> later M1 retest/hold.
+export function detectBtcIctSequence({M1=[],externalLevels=[],now=Date.now(),atr1=null}={}){
+ const bars=M1.filter(b=>validM1(b,now)).sort((a,b)=>a.t-b.t),a=atr1||atr(bars)||50;
+ const levels=externalLevels.filter(p=>p.targetEligible===true&&['PWH','PWL','PDH','PDL'].includes(p.label)),found=[];
+ for(let s=Math.max(7,bars.length-240);s<bars.length-2;s++){
+  const sweep=bars[s];if(now-(sweep.t+60000)>4*3600000)continue;
+  for(const pool of levels){const side=sideFor(pool),isBuy=side==='BUY';
    if(!(isBuy?sweep.low<pool.level&&sweep.close>pool.level:sweep.high>pool.level&&sweep.close<pool.level))continue;
-   const trigger=precedingPivot(bars.slice(Math.max(0,s-50),s),side);
-   if(trigger==null)continue;
-   const extreme=isBuy?sweep.low:sweep.high;let finished=false;
-   for(let i=s+1;i<Math.min(bars.length-1,s+19);i++){
-    const b=bars[i],prev=bars[i-1];
-    if(isBuy?b.close<extreme:b.close>extreme)break;
+   const trigger=precedingPivot(bars.slice(Math.max(0,s-60),s),side);if(trigger==null)continue;
+   const extreme=isBuy?sweep.low:sweep.high;
+   for(let i=s+1;i<Math.min(bars.length,s+21);i++){
+    const b=bars[i],prev=bars[i-1];if(isBuy?b.close<extreme:b.close>extreme)break;
     const cross=isBuy?prev.close<=trigger&&b.close>trigger:prev.close>=trigger&&b.close<trigger;
-    const displaced=Math.abs(b.close-b.open)>=Math.max(2,a*.5);
-    if(!cross||!displaced||(isBuy?b.close<=b.open:b.close>=b.open))continue;
+    const range=Math.max(.0001,b.high-b.low),body=Math.abs(b.close-b.open);
+    const displaced=body>=Math.max(.0001,a*.45)&&(isBuy?b.close>b.open&&b.close>=b.low+range*.65:b.close<b.open&&b.close<=b.high-range*.65);
+    if(!cross||!displaced)continue;
+    let retestFound=false;
     for(let j=i+1;j<Math.min(bars.length,i+13);j++){
-     const r=bars[j],tol=Math.max(3,a*.25);
-     if(isBuy?r.close<extreme:r.close>extreme)break;
+     const r=bars[j],tol=Math.max(.5,a*.25);if(isBuy?r.close<extreme:r.close>extreme)break;
      const touched=isBuy?r.low<=trigger+tol:r.high>=trigger-tol;
-     const held=isBuy?r.close>trigger&&r.low>extreme:r.close<trigger&&r.high<extreme;
-     if(!touched||!held||now-(r.t+300000)>15*60000)continue;
-     found.push({side,pool,trigger,extreme,sweepAt:sweep.t,mssAt:b.t,retestAt:r.t,
-      retestClose:r.close,retestLow:r.low,retestHigh:r.high,
-      mss:{confirmed:true,level:round(trigger),t:b.t,displacement:true},
-      retest:{confirmed:true,level:round(trigger),t:r.t,hold:true},
-      setupId:['BTC-ICT',side,pool.label,sweep.t,b.t,r.t].join('-')});
-     break;
-    }finished=true;break;
+     const held=isBuy?r.close>trigger&&r.low>=extreme:r.close<trigger&&r.high<=extreme;
+     if(!touched||!held||now-(r.t+60000)>5*60000)continue;
+     found.push({side,pool,trigger,extreme,sweepAt:sweep.t,mssAt:b.t,retestAt:r.t,retestClose:r.close,retestLow:r.low,retestHigh:r.high,
+      mss:{confirmed:true,level:round(trigger),t:b.t,timeframe:'M1',closeT:b.t+60000,displacement:true},
+      retest:{confirmed:true,level:round(trigger),t:r.t,timeframe:'M1',closeT:r.t+60000,hold:true},
+      setupId:['BTC-ICT-M1',side,pool.label,sweep.t,b.t,r.t].join('-')});
+     retestFound=true;break;
+    }
+    if(retestFound)break;
    }
   }
  }
  return found.sort((a,b)=>b.retestAt-a.retestAt||b.mssAt-a.mssAt);
 }
 export function analyzeBtcIct({M1=[],M5=[],M15=[],H1=[],H4=[],D1=[],ticker={},now=Date.now()}={}){
- const price=num(ticker.price),closed5=M5.filter(b=>validM5(b,now)).sort((a,b)=>a.t-b.t);
+ const price=num(ticker.price),closed5=M5.filter(b=>b&&Number.isFinite(b.t)&&b.t+300000<=now&&Number.isFinite(b.close)).sort((a,b)=>a.t-b.t);
  const dol=buildBtcDolMap({M5:closed5,M15,H1,H4,D1,price,now});
  const qt=Date.parse(ticker.time||''),quoteFresh=Number.isFinite(qt)&&qt<=now+30000&&now-qt<=90000;
- const last=closed5.at(-1),fiveFresh=last&&now-(last.t+300000)<=600000;
- const base={symbol:'BTCUSD',strategy:'ICT_LIQUIDITY_HUNT_M5_MSS_RETEST',tradeStyle:'ICT_ONLY_EXTERNAL_LIQUIDITY',
+ const last=closed1.at(-1),oneFresh=last&&now-(last.t+60000)<=180000;
+ const base={symbol:'BTCUSD',strategy:'ICT_LIQUIDITY_HUNT_M1_MSS_RETEST',tradeStyle:'ICT_ONLY_EXTERNAL_LIQUIDITY',
    status:'WAIT',action:'WAIT',side:null,executable:false,executionMode:'SIGNALS_ONLY',
    confidence:0,confidenceIsProbability:false,price:round(price),entry:null,stopLoss:null,target1:null,
    target2:null,target3:null,target4:null,targetLabels:[],lotSizing:null,riskReward:null,dol,
-   ict:{gate:'EXTERNAL_SWEEP -> M5_MSS_DISPLACEMENT -> M5_RETEST_HOLD',externalOnly:true,confirmed:false,
-    m15Role:'CONTEXT_ONLY',m1Role:'TIMING_ONLY',quoteFresh,fiveFresh:Boolean(fiveFresh)},
-   updatedAt:new Date(now).toISOString(),reason:'ICT WAIT — external liquidity sweep then closed M5 MSS/displacement and later M5 retest/hold'};
- if(price==null||!quoteFresh||!fiveFresh||closed5.length<18)return{...base,reason:'BTC ICT WAIT — fresh Coinbase quote and completed M5 history required'};
- const atr5=atr(closed5)||price*.001;
- const sequence=detectBtcIctSequence({M5:closed5,externalLevels:dol.levels,atr5,now})[0];
+   ict:{gate:'EXTERNAL_SWEEP -> CLOSED_M1_MSS_CHOCH_DISPLACEMENT -> M1_RETEST_HOLD',externalOnly:true,confirmed:false,
+    m15Role:'CONTEXT_ONLY',m1Role:'EXECUTION_GATE',m5Role:'CONTEXT_ONLY',quoteFresh,oneFresh:Boolean(oneFresh)},
+   updatedAt:new Date(now).toISOString(),reason:'BTC ICT WAIT — external liquidity sweep then closed M1 MSS/displacement and later M1 retest/hold'};
+ if(price==null||!quoteFresh||!oneFresh||closed1.length<30||closed5.length<18)return{...base,reason:'BTC ICT WAIT — fresh quote plus completed M1 and M5 history required'};
+ const atr1=atr(closed1)||price*.0005;
+ const sequence=detectBtcIctSequence({M1:closed1,externalLevels:dol.levels,atr1,now})[0];
  if(!sequence)return base;
  const side=sequence.side,dir=side==='BUY'?1:-1,objectives=projectBtcDolSide(dol,side,price);
  const anchor=side==='BUY'?Math.min(sequence.extreme,sequence.retestLow):Math.max(sequence.extreme,sequence.retestHigh);
- const stop=round(anchor-dir*Math.max(4,atr5*.18)),risk=Math.abs(price-stop);
+ const stop=round(anchor-dir*Math.max(2,atr1*.22)),risk=Math.abs(price-stop);
  const targets=objectives.objectives.filter(x=>x.distance>=Math.max(10,risk*.8)).slice(0,4);
- const drift=Math.abs(price-sequence.retestClose),maxDrift=Math.max(25,Math.min(250,atr5*.65));
+ const drift=Math.abs(price-sequence.retestClose),maxDrift=Math.max(20,Math.min(200,atr1*2.5));
  const ict={...base.ict,confirmed:true,legSweep:{name:sequence.pool.label,level:sequence.pool.level,
    liquidityClass:'EXTERNAL',t:sequence.sweepAt,extreme:round(sequence.extreme)},
-   m5MssEvent:sequence.mss,m5MssRetest:sequence.retest,activeSequence:sequence,atr5:round(atr5)};
+   m1MssEvent:sequence.mss,m1MssRetest:sequence.retest,activeSequence:sequence,atr1:round(atr1),executionTimeframe:'M1'};
  if(risk<=0||dir*(price-stop)<=0||!targets.length||drift>maxDrift){
-   return{...base,dol:objectives,ict,reason:!targets.length?'BTC ICT WAIT — no valid external TP with enough reward':drift>maxDrift?'BTC ICT NO CHASE — price too far from M5 retest':'BTC ICT WAIT — invalid structural stop'};
+   return{...base,dol:objectives,ict,reason:!targets.length?'BTC ICT WAIT — no valid external TP with enough reward':drift>maxDrift?'BTC ICT NO CHASE — price too far from M1 retest':'BTC ICT WAIT — invalid structural stop'};
  }
  const rr=targets[0].distance/risk;
  if(rr<.8)return{...base,dol:objectives,ict,reason:'BTC ICT WAIT — minimum 0.8R to external TP1 not met'};
@@ -181,7 +176,7 @@ export function analyzeBtcIct({M1=[],M5=[],M15=[],H1=[],H4=[],D1=[],ticker={},no
    target2:targets[1]?.level??null,target3:targets[2]?.level??null,target4:targets[3]?.level??null,
    targetLabels:targets.map(x=>x.label),riskReward:round(rr),lotSizing:lotSizing(price,stop),
    dol:objectives,ict,reason:'BTC ICT '+side+' — external '+sequence.pool.label+
-     ' sweep, displaced closed M5 MSS, subsequent M5 retest/hold. Targets external liquidity only.'};
+     ' sweep, displaced closed M1 MSS, subsequent M1 retest/hold. Targets external liquidity only.'};
 }
 function reached(side, price, target) {
   const p = num(price), t = num(target);
@@ -363,5 +358,5 @@ async function freshCandidate(force=false){
 export async function getBtcSignal(force=false){
  const candidate=await freshCandidate(force),managed=lifecycleSignal(candidate);
  return{...managed,dol:projectBtcDolSide(candidate.dol,managed.tradeSide||managed.side||managed.action,managed.price),
-  ict:managed.ict||candidate.ict,strategy:'ICT_LIQUIDITY_HUNT_M5_MSS_RETEST',tradeStyle:'ICT_ONLY_EXTERNAL_LIQUIDITY'};
+  ict:managed.ict||candidate.ict,strategy:'ICT_LIQUIDITY_HUNT_M1_MSS_RETEST',tradeStyle:'ICT_ONLY_EXTERNAL_LIQUIDITY'};
 }
