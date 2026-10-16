@@ -751,31 +751,27 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const reversal=Boolean(reversalPoiFvg&&triggerConfirmed);
   const continuation=Boolean(continuationFvg&&structureAligned&&hasBos&&triggerConfirmed);
   // FVG/OB/iFVG/BOS and HTF alignment remain supportive context only.
-  // Executable sequence: external liquidity sweep -> closed M1 MSS + displacement -> M1 FVG retest.
+  // Entry trigger: external liquidity sweep followed by a closed M1 MSS/CHoCH.
+  // FVG/OB/iFVG/BOS and higher-timeframe agreement are optional context, not entry gates.
   const directContinuation=coreIctEntryReady;
   const trendContinuation=null;
-  const selectedFvg=reversalPoiFvg??null; // Only a post-MSS FVG (or confirmed post-sweep iFVG) may define entry; never reuse a stale pre-shift gap.
-  // Wick-touch entry: a post-MSS M1 candle qualifies when its high-low range overlaps the FVG zone; close back beyond the midpoint is NOT required.
+  const selectedFvg=reversalPoiFvg??null;
   const m1FvgRetest=Boolean(coreIctEntryReady&&selectedFvg&&m1.some(b=>b.t>selectedFvg.t&&b.low<=selectedFvg.high&&b.high>=selectedFvg.low));
-  const executionReady=m1FvgRetest;
+  const executionReady=coreIctEntryReady;
   const contextSequence=executionReady
-    ?'EXTERNAL_LIQUIDITY_SWEEP -> CLOSED_M1_MSS+DISPLACEMENT -> M1_FVG_RETEST'
-    :coreIctEntryReady
-      ?'EXTERNAL_LIQUIDITY_SWEEP -> M1_MSS+DISPLACEMENT -> WAIT_M1_FVG_RETEST'
-      :hasSweep
-        ?'EXTERNAL_LIQUIDITY_SWEEP -> WAIT_CLOSED_M1_MSS+DISPLACEMENT'
-        :'WAIT_EXTERNAL_LIQUIDITY_SWEEP';
+    ?'EXTERNAL_LIQUIDITY_SWEEP -> CLOSED_M1_MSS_CHOCH -> ENTRY'
+    :hasSweep
+      ?'EXTERNAL_LIQUIDITY_SWEEP -> WAIT_CLOSED_M1_MSS_CHOCH'
+      :'WAIT_EXTERNAL_LIQUIDITY_SWEEP';
   const sweepAgeMinutes=hasSweep?Math.max(0,round((now-legSweep.t)/60_000,1)):null,sweepExpiresAt=hasSweep?new Date(legSweep.t+EXTERNAL_SWEEP_TTL_MS).toISOString():null;
-  const executionStage=executionReady?'ENTRY_READY':coreIctEntryReady?'WAIT_M1_FVG_RETEST':hasSweep?'WAIT_M1_MSS_DISPLACEMENT':'WAIT_EXTERNAL_SWEEP';
+  const executionStage=executionReady?'ENTRY_READY':hasSweep?'WAIT_M1_MSS_CHOCH':'WAIT_EXTERNAL_SWEEP';
   const waitReason=!hasSweep
-    ?'ICT WAIT: external liquidity sweep required; then closed M1 MSS + displacement and FVG retest.'
-    :!coreIctEntryReady
-      ?`ICT ARMED: ${String(legSweep?.name||'external liquidity').toUpperCase()} sweep retained; waiting for closed M1 MSS.`
-      :`ICT ARMED: M1 MSS + displacement confirmed; waiting for price to retest the M1 FVG.`;
+    ?'ICT WAIT: external liquidity sweep required, followed by a closed M1 MSS/CHoCH.'
+    :`ICT ARMED: ${String(legSweep?.name||'external liquidity').toUpperCase()} sweep retained; waiting for closed M1 MSS/CHoCH.`;
 
-  if(!executionReady)return{...base,status:'WAIT',candidateAction:side,confidence:0,contextBias:side,oneMinuteConfirmed,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,contextAligned,biasAligned,setupAligned,setupVotes,setupReady,fvg15,sweep15,dm15,fvg5,sweep5,dm5,bos5,fvg1,sweep1,dm1,bos1,bos15,legSweep,sequence1,sequence5,m5MssEvent,m5MssRetest,coreIctEntryReady,shift1,shift5,shift15,firstMssEvent,firstDisplacementEvent,firstTriggerEvent,triggerConfirmed,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),hasSweep,hasShift,hasDisplacement,hasBos,contextSequence,executionStage,sweepAgeMinutes,sweepExpiresAt,externalSweepTtlMinutes:Math.round(EXTERNAL_SWEEP_TTL_MS/60_000)},reason:waitReason+' FVG/OB/iFVG/BOS and timeframe agreement are confluence only.'};
+  if(!executionReady)return{...base,status:'WAIT',candidateAction:side,confidence:0,contextBias:side,oneMinuteConfirmed,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,contextAligned,biasAligned,setupAligned,setupVotes,setupReady,fvg15,sweep15,dm15,fvg5,sweep5,dm5,bos5,fvg1,sweep1,dm1,bos1,bos15,legSweep,sequence1,sequence5,m5MssEvent,m5MssRetest,coreIctEntryReady,shift1,shift5,shift15,firstMssEvent,firstDisplacementEvent,firstTriggerEvent,triggerConfirmed,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),hasSweep,hasShift,hasDisplacement,hasBos,contextSequence,executionStage,sweepAgeMinutes,sweepExpiresAt,externalSweepTtlMinutes:Math.round(EXTERNAL_SWEEP_TTL_MS/60_000)},reason:waitReason+' FVG/OB/iFVG/BOS and timeframe agreement are optional context only.'};
 
-  const setupType='ICT_EXTERNAL_SWEEP_M1_MSS_FVG_RETEST';
+  const setupType='ICT_EXTERNAL_SWEEP_M1_MSS_CHOCH';
   const fvg=selectedFvg,shiftT=m5MssEvent?.t??firstShift?.t??sequenceShiftT;
   const orderBlock=orderBlockBeforeShift(reversal?m1:m5,side,shiftT);
   const sweepBars=legSweep?.tf===1?m1:legSweep?.tf===15?m15:m5;
@@ -787,8 +783,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const insideOriginPoi=originPoi&&price>=originEntryLow&&price<=originEntryHigh;
   const useDirectContinuation=coreIctEntryReady;
   const directPad=clamp(atr1*.20,.08,.22);
-  const poi=originPoi;
-  if(!poi)return{...base,status:'WAIT',candidateAction:side,contextBias:side,ict:{dir4,dir1,dir15,levels,session,contextSequence,legSweep,sequence1,sequence5,hasSweep,hasShift,hasDisplacement,hasBos,directContinuation},reason:'ICT WAIT: structure confirmed but no valid entry zone is available yet'};
+  const poi=originPoi??{type:'M1_MSS_ENTRY',low:price-clamp(atr1*.20,.08,.22),high:price+clamp(atr1*.20,.08,.22),mid:price,fvg:null,orderBlock:null,rangeLocation:rangeContext?.location||'CURRENT_PRICE'};
   const entry=poi.mid,entryPad=originPad,entryLow=poi.low-entryPad,entryHigh=poi.high+entryPad;
   const zoneAgeMs=fvg?now-fvg.t:0;
   if(!useDirectContinuation&&fvg&&zoneAgeMs>75*60_000)return{...base,status:'WAIT',candidateAction:side,contextBias:side,ict:{dir4,dir1,dir15,levels,session,contextSequence,originFvg:fvg,zoneAgeMinutes:round(zoneAgeMs/60000,1)},reason:'ICT MOVE CONSUMED: origin FVG is too old; wait for a new liquidity sweep / structure leg'};
@@ -813,9 +808,9 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const referenceEntry=useDirectContinuation?entry:(originPoi?.mid??entry),totalPath=mainTarget==null?null:Math.abs(mainTarget-referenceEntry),travelled=Math.abs(price-referenceEntry),pathConsumed=totalPath>0?travelled/totalPath:0;
   const insidePoi=price>=entryLow&&price<=entryHigh;
   const phase=executionReady?'M1_MSS_FVG_RETEST_CONFIRMED':coreIctEntryReady?'WAITING_FOR_M1_FVG_RETEST':ictPhase({hasSweep,firstShift,originFvg:fvg,price,entryLow,entryHigh,hasBos,target:mainTarget});
-  const configuredMaxPath=Number(process.env.GOLD_MAX_PATH_CONSUMED_FOR_ENTRY),maxPathConsumedForEntry=Number.isFinite(configuredMaxPath)?clamp(configuredMaxPath,.40,.80):.65;
+  const configuredMaxPath=Number(process.env.GOLD_MAX_PATH_CONSUMED_FOR_ENTRY),maxPathConsumedForEntry=Number.isFinite(configuredMaxPath)?clamp(configuredMaxPath,.50,.90):.80;
   if(useDirectContinuation&&pathConsumed>=maxPathConsumedForEntry)return{...base,status:'WAIT',candidateAction:side,contextBias:side,ict:{dir4,dir1,dir15,levels,session,phase,contextSequence,legSweep,sequence1,sequence5,firstShift,orderBlock,poi,rangeContext,mainLiquidity:plan.mainLiquidity,pathConsumed:round(pathConsumed,2),maxPathConsumedForEntry:round(maxPathConsumedForEntry,2),directContinuation:true},reason:'ICT NO CHASE: continuation confirmed but '+Math.round(maxPathConsumedForEntry*100)+'% or more of the path to external liquidity is already consumed'};
-  const lateMove=!useDirectContinuation&&pathConsumed>=.55&&!insidePoi;
+  const lateMove=!useDirectContinuation&&pathConsumed>=.75&&!insidePoi;
   if(lateMove)return{...base,status:'WAIT',candidateAction:side,contextBias:side,ict:{dir4,dir1,dir15,levels,session,phase,contextSequence,legSweep,sequence1,sequence5,firstShift,orderBlock,poi,rangeContext,mainLiquidity:plan.mainLiquidity,pathConsumed:round(pathConsumed,2)},reason:'ICT NO CHASE: more than half of the path to external liquidity is already consumed; wait for a fresh liquidity event / new dealing range'};
   let confidence=coreIctEntryReady?75:55;
   if(sequenceConfirmed)confidence+=6;
