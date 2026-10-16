@@ -113,7 +113,10 @@ function precedingPivot(bars,side){
 }
 export function detectBtcIctSequence({M5=[],externalLevels=[],now=Date.now(),atr5=null}={}){
  const bars=M5.filter(b=>validM5(b,now)).sort((a,b)=>a.t-b.t),a=atr5||atr(bars)||50;
- const levels=externalLevels.filter(p=>p.targetEligible===true&&['PWH','PWL','PDH','PDL'].includes(p.label));
+ // Named previous-period OR fully completed UTC session levels are externally
+ // sourced. Arbitrary H1/H4 pivot labels must never become entry sweeps.
+ const named=/^(?:PWH|PWL|PDH|PDL|(?:ASIA|LONDON|NEW_YORK)_(?:HIGH|LOW))$/;
+ const levels=externalLevels.filter(p=>p.targetEligible===true&&named.test(p.label));
  const found=[];
  for(let s=Math.max(7,bars.length-55);s<bars.length-2;s++){
   const sweep=bars[s];if(now-sweep.t>4*3600000)continue;
@@ -157,7 +160,9 @@ export function analyzeBtcIct({M1=[],M5=[],M15=[],H1=[],H4=[],D1=[],ticker={},no
    confidence:0,confidenceIsProbability:false,price:round(price),entry:null,stopLoss:null,target1:null,
    target2:null,target3:null,target4:null,targetLabels:[],lotSizing:null,riskReward:null,dol,
    ict:{gate:'EXTERNAL_SWEEP -> M5_MSS_DISPLACEMENT -> M5_RETEST_HOLD',externalOnly:true,confirmed:false,
-    m15Role:'CONTEXT_ONLY',m1Role:'TIMING_ONLY',quoteFresh,fiveFresh:Boolean(fiveFresh)},
+    m15Role:'CONTEXT_ONLY',m1Role:'TIMING_ONLY',quoteFresh,fiveFresh:Boolean(fiveFresh),
+    externalPoolCount:dol.levels.filter(p=>p.targetEligible).length,
+    completedSessionPoolCount:dol.levels.filter(p=>p.timeframe==='SESSION'&&p.targetEligible).length},
    updatedAt:new Date(now).toISOString(),reason:'ICT WAIT — external liquidity sweep then closed M5 MSS/displacement and later M5 retest/hold'};
  if(price==null||!quoteFresh||!fiveFresh||closed5.length<18)return{...base,reason:'BTC ICT WAIT — fresh Coinbase quote and completed M5 history required'};
  const atr5=atr(closed5)||price*.001;
