@@ -14,7 +14,7 @@ function candles(){
  return rows;
 }
 const pool={timeframe:'D1',label:'PDL',level:990,liquiditySide:'SSL',targetEligible:true};
-test('Only complete external sweep + chronological displaced M5 MSS + later M5 retest gives an ICT setup',()=>{
+test('Only complete external sweep + chronological displaced M1 MSS + later M1 retest gives an ICT setup',()=>{
  const bars=candles(),seq=detectBtcIctSequence({M1:bars,externalLevels:[pool],atr1:6,now});
  assert.equal(seq.length,1);
  assert.equal(seq[0].side,'BUY');
