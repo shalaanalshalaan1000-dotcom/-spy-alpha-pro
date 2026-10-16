@@ -15,7 +15,7 @@ export function assessGoldLiquidity({samples=[],now=Date.now(),quote=null}={}){
   quoteProvider:quote?.provider??null,session:entryWindow.session,
   sessionEntryAllowed:entryWindow.allowed,sessionReason:entryWindow.reason,
   recommendedWindow:nextWindow,activityRatio:null,latestCompletedM5Range:null,
-  baselineM5Range:null,recentM5Observations:0,minimumObservations:12,
+  baselineM5Range:null,recentM5Observations:0,minimumObservations:3,
   marketActivity:'UNAVAILABLE',allowNewEntry:false,
   reason:entryWindow.allowed?'AWAITING_LIVE_ACTIVITY_DATA':entryWindow.reason,
   caveat:'Observed updates and candle movement are proxies, not proof of executable volume, market depth, or fills.'
@@ -24,11 +24,12 @@ export function assessGoldLiquidity({samples=[],now=Date.now(),quote=null}={}){
  const rows=Array.isArray(samples)?samples:[];
  const buckets=new Map(),current=Math.floor(now/300000)*300000;
  for(const sample of rows){
-  const t=n(sample?.t),p=n(sample?.p??sample?.price??sample?.close);
+  const t=n(sample?.t),p=n(sample?.close??sample?.p??sample?.price);
   if(t==null||p==null||p<=0||t>=current||t<current-9*300000)continue;
+  const high=n(sample?.high)??p,low=n(sample?.low)??p;
   const key=Math.floor(t/300000)*300000,b=buckets.get(key);
-  if(!b)buckets.set(key,{t:key,high:p,low:p,count:1});
-  else{b.high=Math.max(b.high,p);b.low=Math.min(b.low,p);b.count++;}
+  if(!b)buckets.set(key,{t:key,high:Math.max(high,low,p),low:Math.min(high,low,p),count:1});
+  else{b.high=Math.max(b.high,high,p);b.low=Math.min(b.low,low,p);b.count++;}
  }
  const latest=buckets.get(current-300000),prior=[];
  for(let i=2;i<=7;i++){
@@ -40,7 +41,7 @@ export function assessGoldLiquidity({samples=[],now=Date.now(),quote=null}={}){
  const normalRange=median(prior.map(x=>x.range).filter(x=>x>0));
  const range=latest.high-latest.low;
  const relative=normalCount?latest.count/normalCount:null;
- const enough=latest.count>=12&&normalCount>=12&&relative>=0.65;
+ const enough=latest.count>=3&&normalCount>=3&&relative>=0.60;
  const moving=normalRange!=null&&range>=Math.max(0.15,normalRange*0.45);
  const allowNewEntry=Boolean(enough&&moving);
  const reason=!enough?'THIN_OBSERVED_QUOTE_ACTIVITY':!moving?'FLAT_OR_LOW_M5_PRICE_ACTIVITY':'ACTIVITY_PROXY_PASS';

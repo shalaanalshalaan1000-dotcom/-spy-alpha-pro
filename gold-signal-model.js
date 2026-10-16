@@ -7,15 +7,20 @@ function barsFromSamples(samples = [], timeframeMinutes = 1) {
   const buckets = new Map();
   for (const sample of samples) {
     const time = Number(sample?.t);
-    const price = Number(sample?.p ?? sample?.price);
+    const price = Number(sample?.close ?? sample?.p ?? sample?.price);
     if (!Number.isFinite(time) || !Number.isFinite(price) || price <= 0) continue;
+    const validPrice = value => value != null && Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : null;
+    const sampleOpen = validPrice(sample?.open) ?? price;
+    const sampleHigh = validPrice(sample?.high) ?? price;
+    const sampleLow = validPrice(sample?.low) ?? price;
+    const sampleClose = price;
     const key = Math.floor(time / span) * span;
     const bar = buckets.get(key);
-    if (!bar) buckets.set(key, {t:key, open:price, high:price, low:price, close:price});
+    if (!bar) buckets.set(key, {t:key, open:sampleOpen, high:Math.max(sampleHigh, sampleOpen, sampleClose), low:Math.min(sampleLow, sampleOpen, sampleClose), close:sampleClose});
     else {
-      bar.high = Math.max(bar.high, price);
-      bar.low = Math.min(bar.low, price);
-      bar.close = price;
+      bar.high = Math.max(bar.high, sampleHigh, sampleOpen, sampleClose);
+      bar.low = Math.min(bar.low, sampleLow, sampleOpen, sampleClose);
+      bar.close = sampleClose;
     }
   }
   return [...buckets.values()].sort((a, b) => a.t - b.t);
