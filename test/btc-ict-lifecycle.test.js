@@ -6,7 +6,7 @@ const baseTime = Date.UTC(2026, 9, 8, 13, 0, 0);
 function sell(overrides = {}) {
   return {
     symbol: 'BTCUSD', status: 'ACTIVE', action: 'SELL', side: 'SELL',
-    strategy: 'ICT_LIQUIDITY_HUNT_M5_MSS_RETEST', setupId: 'BTC-TEST-SELL',
+    strategy: 'ICT_LIQUIDITY_HUNT_M1_MSS_RETEST', setupId: 'BTC-TEST-SELL',
     confidence: 100, entry: 100, stopLoss: 110,
     target1: 90, target2: 80, target3: 70, target4: 60,
     price: 100, updatedAt: new Date(baseTime).toISOString(), ...overrides
