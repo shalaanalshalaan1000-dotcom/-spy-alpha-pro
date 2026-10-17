@@ -119,21 +119,31 @@ export function detectBtcIctSequence({M1=[],externalLevels=[],now=Date.now(),atr
    const trigger=precedingPivot(bars.slice(Math.max(0,s-60),s),side);if(trigger==null)continue;
    const extreme=isBuy?sweep.low:sweep.high;
    for(let i=s+1;i<Math.min(bars.length,s+21);i++){
-    const b=bars[i],prev=bars[i-1];if(isBuy?b.close<extreme:b.close>extreme)break;
-    const cross=isBuy?prev.close<=trigger&&b.close>trigger:prev.close>=trigger&&b.close<trigger;
-    const range=Math.max(.0001,b.high-b.low),body=Math.abs(b.close-b.open);
-    const displaced=body>=Math.max(.0001,a*.45)&&(isBuy?b.close>b.open&&b.close>=b.low+range*.65:b.close<b.open&&b.close<=b.high-range*.65);
-    if(!cross||!displaced)continue;
+    const mssBar=bars[i];if(isBuy?mssBar.close<extreme:mssBar.close>extreme)break;
+    // MSS is the first closed M1 candle through the pre-sweep pivot; displacement may
+    // confirm on that candle or either of the next two closed candles.
+    const crossed=isBuy?mssBar.close>trigger:mssBar.close<trigger;
+    const crossedEarlier=bars.slice(s+1,i).some(x=>isBuy?x.close>trigger:x.close<trigger);
+    if(!crossed||crossedEarlier)continue;
+    let displacementIndex=-1;
+    for(let d=i;d<=Math.min(i+2,bars.length-1);d++){
+     const b=bars[d];if(isBuy?b.close<extreme:b.close>extreme)break;
+     const range=Math.max(.0001,b.high-b.low),body=Math.abs(b.close-b.open);
+     const displaced=body>=Math.max(.0001,a*.25)&&(isBuy?b.close>b.open&&b.close>=b.low+range*.55:b.close<b.open&&b.close<=b.high-range*.55);
+     if(displaced){displacementIndex=d;break;}
+    }
+    if(displacementIndex<0)continue;
+    const displacementBar=bars[displacementIndex];
     let retestFound=false;
-    for(let j=i+1;j<Math.min(bars.length,i+13);j++){
-     const r=bars[j],tol=Math.max(.5,a*.25);if(isBuy?r.close<extreme:r.close>extreme)break;
+    for(let j=displacementIndex+1;j<Math.min(bars.length,displacementIndex+21);j++){
+     const r=bars[j],tol=Math.max(.5,a*.35);if(isBuy?r.close<extreme:r.close>extreme)break;
      const touched=isBuy?r.low<=trigger+tol:r.high>=trigger-tol;
      const held=isBuy?r.close>trigger&&r.low>=extreme:r.close<trigger&&r.high<=extreme;
-     if(!touched||!held||now-(r.t+60000)>5*60000)continue;
-     found.push({side,pool,trigger,extreme,sweepAt:sweep.t,mssAt:b.t,retestAt:r.t,retestClose:r.close,retestLow:r.low,retestHigh:r.high,
-      mss:{confirmed:true,level:round(trigger),t:b.t,timeframe:'M1',closeT:b.t+60000,displacement:true},
+     if(!touched||!held||now-(r.t+60000)>8*60000)continue;
+     found.push({side,pool,trigger,extreme,sweepAt:sweep.t,mssAt:mssBar.t,displacementAt:displacementBar.t,retestAt:r.t,retestClose:r.close,retestLow:r.low,retestHigh:r.high,
+      mss:{confirmed:true,level:round(trigger),t:mssBar.t,timeframe:'M1',closeT:mssBar.t+60000,displacement:true,displacementAt:displacementBar.t},
       retest:{confirmed:true,level:round(trigger),t:r.t,timeframe:'M1',closeT:r.t+60000,hold:true},
-      setupId:['BTC-ICT-M1',side,pool.label,sweep.t,b.t,r.t].join('-')});
+      setupId:['BTC-ICT-M1',side,pool.label,sweep.t,mssBar.t,displacementBar.t,r.t].join('-')});
      retestFound=true;break;
     }
     if(retestFound)break;
@@ -162,7 +172,7 @@ export function analyzeBtcIct({M1=[],M5=[],M15=[],H1=[],H4=[],D1=[],ticker={},no
    target2:null,target3:null,target4:null,targetLabels:[],lotSizing:null,riskReward:null,dol,
    ict:{gate:'EXTERNAL_OR_INTERNAL_M1_SWEEP -> CLOSED_M1_MSS_CHOCH_DISPLACEMENT -> LATER_M1_RETEST_HOLD',externalOnly:false,internalLiquidityScalps:true,confirmed:false,
     m15Role:'CONTEXT_ONLY',m1Role:'EXECUTION_GATE',m5Role:'CONTEXT_ONLY',quoteFresh,oneFresh:Boolean(oneFresh)},
-   updatedAt:new Date(now).toISOString(),reason:'BTC ICT WAIT — external liquidity sweep then closed M1 MSS/displacement and later M1 retest/hold'};
+   updatedAt:new Date(now).toISOString(),reason:'BTC ICT WAIT — external/internal liquidity sweep, closed M1 MSS/CHoCH, displacement and later M1 retest/hold'};
  if(price==null||!quoteFresh||!oneFresh||closed1.length<30)return{...base,reason:'BTC ICT WAIT — fresh quote plus completed M1 history required'};
  const atr1=atr(closed1)||price*.0005;
  const sequence=detectBtcIctSequence({M1:closed1,externalLevels:dol.levels,atr1,now})[0];
