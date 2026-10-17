@@ -298,9 +298,13 @@ export function lifecycleSignal(candidate, now = Date.now()) {
         lifecycle.lastTerminal);
     }
     if (now - signal.issuedAtMs >= MAX_ENTRY_AGE_MS) {
-      return {...noNewEntry(signal,'MANAGING',
-        'BTC ICT ENTRY WINDOW ENDED — no new entry; the existing signal remains tracked until TP/SL.',
-        lifecycle.lastTerminal),trackingActive:true,entryWindowExpired:true};
+      const at = new Date(now).toISOString();
+      const terminalEvent = {type:'ENTRY_EXPIRED',side:signal.action,signalId:signal.signalId,at,price:round(price),entry:signal.entry,stopLoss:signal.stopLoss,target1:signal.target1,target2:signal.target2,targetHits:[...(signal.targetHits||[])],status:'EXPIRED',brokerPositionClosed:false};
+      lifecycle.lastTerminal = terminalEvent;
+      lifecycle.cooldownUntil = now + 15000;
+      lifecycle.signal = null;
+      lifecycle.lastClosedSignal = {...noNewEntry(signal,'EXPIRED','BTC ICT ENTRY WINDOW EXPIRED — stale setup released; waiting for a new confirmed M1 setup.',terminalEvent),closedAt:at,closedReason:'ENTRY_EXPIRED',brokerPositionClosed:false,trackingActive:false,entryWindowExpired:true};
+      return lifecycle.lastClosedSignal;
     }
     return { ...signal, status: 'ACTIVE', entryEligible: true, lockedTargets: true, terminalEvent: lifecycle.lastTerminal };
   }
