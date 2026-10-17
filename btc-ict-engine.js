@@ -31,6 +31,31 @@ async function coinbaseCandles(granularity) {
     .sort((a, b) => a.t - b.t);
 }
 
+async function krakenCandles1m() {
+  const response = await fetch('https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1', {
+    headers: { accept: 'application/json', 'user-agent': 'Gold-Alpha-BTC-ICT/1.0' },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10000)
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || (Array.isArray(data.error) && data.error.length)) {
+    throw new Error('Kraken M1 candles unavailable');
+  }
+  const key = Object.keys(data.result || {}).find(k => k !== 'last');
+  const rows = key ? data.result[key] : [];
+  const now = Date.now();
+  return (Array.isArray(rows) ? rows : []).map(x => ({
+    t: Number(x[0]) * 1000,
+    open: Number(x[1]),
+    high: Number(x[2]),
+    low: Number(x[3]),
+    close: Number(x[4]),
+    volume: Number(x[6] || 0)
+  })).filter(x => [x.t, x.open, x.high, x.low, x.close].every(Number.isFinite)
+    && x.close > 0 && x.t + 60000 <= now + 1000)
+    .sort((a, b) => a.t - b.t);
+}
+
 async function coinbaseTicker() {
   const response = await fetch('https://api.exchange.coinbase.com/products/BTC-USD/ticker', {
     headers: { accept: 'application/json', 'user-agent': 'Gold-Alpha-BTC-ICT/1.0' },
@@ -371,10 +396,15 @@ export function resetBtcIctLifecycleForTests() {
 
 async function freshCandidate(force=false){
  if(!force&&cache.value&&Date.now()<cache.expiresAt)return cache.value;
- const [M1,M5,M15,H1,D1,ticker]=await Promise.all([
-  coinbaseCandles(60),coinbaseCandles(300),coinbaseCandles(900),
+ const [coinbaseM1,krakenM1,M5,M15,H1,D1,ticker]=await Promise.all([
+  coinbaseCandles(60).catch(()=>[]),krakenCandles1m().catch(()=>[]),
+  coinbaseCandles(300),coinbaseCandles(900),
   coinbaseCandles(3600),coinbaseCandles(86400),coinbaseTicker()
  ]);
+ // Prefer the venue with the newest completed M1 bar; a stale Coinbase candle
+ // response must not freeze BTC entries while its ticker continues updating.
+ const coinbaseLast=coinbaseM1.at(-1)?.t||0,krakenLast=krakenM1.at(-1)?.t||0;
+ const M1=krakenLast>coinbaseLast?krakenM1:coinbaseM1;
  const value=analyzeBtcIct({M1,M5,M15,H1,H4:aggregate(H1,4),D1,ticker});
  cache.value=value;cache.expiresAt=Date.now()+CACHE_MS;return value;
 }
