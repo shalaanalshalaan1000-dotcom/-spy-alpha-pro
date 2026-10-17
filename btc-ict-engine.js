@@ -163,7 +163,7 @@ export function analyzeBtcIct({M1=[],M5=[],M15=[],H1=[],H4=[],D1=[],ticker={},no
    ict:{gate:'EXTERNAL_OR_INTERNAL_M1_SWEEP -> CLOSED_M1_MSS_CHOCH_DISPLACEMENT -> LATER_M1_RETEST_HOLD',externalOnly:false,internalLiquidityScalps:true,confirmed:false,
     m15Role:'CONTEXT_ONLY',m1Role:'EXECUTION_GATE',m5Role:'CONTEXT_ONLY',quoteFresh,oneFresh:Boolean(oneFresh)},
    updatedAt:new Date(now).toISOString(),reason:'BTC ICT WAIT — external liquidity sweep then closed M1 MSS/displacement and later M1 retest/hold'};
- if(price==null||!quoteFresh||!oneFresh||closed1.length<30||closed5.length<18)return{...base,reason:'BTC ICT WAIT — fresh quote plus completed M1 and M5 history required'};
+ if(price==null||!quoteFresh||!oneFresh||closed1.length<30)return{...base,reason:'BTC ICT WAIT — fresh quote plus completed M1 history required'};
  const atr1=atr(closed1)||price*.0005;
  const sequence=detectBtcIctSequence({M1:closed1,externalLevels:dol.levels,atr1,now})[0];
  if(!sequence)return base;
