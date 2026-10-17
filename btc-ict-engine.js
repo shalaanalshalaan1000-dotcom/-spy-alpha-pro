@@ -160,7 +160,7 @@ export function analyzeBtcIct({M1=[],M5=[],M15=[],H1=[],H4=[],D1=[],ticker={},no
    status:'WAIT',action:'WAIT',side:null,executable:false,executionMode:'SIGNALS_ONLY',
    confidence:0,confidenceIsProbability:false,price:round(price),entry:null,stopLoss:null,target1:null,
    target2:null,target3:null,target4:null,targetLabels:[],lotSizing:null,riskReward:null,dol,
-   ict:{gate:'EXTERNAL_SWEEP -> CLOSED_M1_MSS_CHOCH_DISPLACEMENT -> M1_RETEST_HOLD',externalOnly:true,confirmed:false,
+   ict:{gate:'EXTERNAL_OR_INTERNAL_M1_SWEEP -> CLOSED_M1_MSS_CHOCH_DISPLACEMENT -> LATER_M1_RETEST_HOLD',externalOnly:false,internalLiquidityScalps:true,confirmed:false,
     m15Role:'CONTEXT_ONLY',m1Role:'EXECUTION_GATE',m5Role:'CONTEXT_ONLY',quoteFresh,oneFresh:Boolean(oneFresh)},
    updatedAt:new Date(now).toISOString(),reason:'BTC ICT WAIT — external liquidity sweep then closed M1 MSS/displacement and later M1 retest/hold'};
  if(price==null||!quoteFresh||!oneFresh||closed1.length<30||closed5.length<18)return{...base,reason:'BTC ICT WAIT — fresh quote plus completed M1 and M5 history required'};
@@ -173,13 +173,14 @@ export function analyzeBtcIct({M1=[],M5=[],M15=[],H1=[],H4=[],D1=[],ticker={},no
  const targets=objectives.objectives.filter(x=>x.liquidityClass==='INTERNAL_RANGE'?x.distance>=Math.max(2,risk*.8):x.distance>=Math.max(10,risk*.8)).slice(0,4);
  const drift=Math.abs(price-sequence.retestClose),maxDrift=Math.max(20,Math.min(200,atr1*2.5));
  const ict={...base.ict,confirmed:true,legSweep:{name:sequence.pool.label,level:sequence.pool.level,
-   liquidityClass:'EXTERNAL',t:sequence.sweepAt,extreme:round(sequence.extreme)},
+   liquidityClass:sequence.pool.liquidityClass==='INTERNAL_RANGE'?'INTERNAL_RANGE':'EXTERNAL',t:sequence.sweepAt,extreme:round(sequence.extreme)},
+   setupLiquidityClass:sequence.pool.liquidityClass==='INTERNAL_RANGE'?'INTERNAL_RANGE':'EXTERNAL',
    m1MssEvent:sequence.mss,m1MssRetest:sequence.retest,activeSequence:sequence,atr1:round(atr1),executionTimeframe:'M1'};
  if(risk<=0||dir*(price-stop)<=0||!targets.length||drift>maxDrift){
-   return{...base,dol:objectives,ict,reason:!targets.length?'BTC ICT WAIT — no valid external TP with enough reward':drift>maxDrift?'BTC ICT NO CHASE — price too far from M1 retest':'BTC ICT WAIT — invalid structural stop'};
+   return{...base,dol:objectives,ict,reason:!targets.length?'BTC ICT WAIT — no valid external or internal liquidity TP with enough reward':drift>maxDrift?'BTC ICT NO CHASE — price too far from M1 retest':'BTC ICT WAIT — invalid structural stop'};
  }
  const rr=targets[0].distance/risk;
- if(rr<.8)return{...base,dol:objectives,ict,reason:'BTC ICT WAIT — minimum 0.8R to external TP1 not met'};
+ if(rr<.8)return{...base,dol:objectives,ict,reason:'BTC ICT WAIT — minimum 0.8R to first valid liquidity TP not met'};
  return{...base,status:'ACTIVE',action:side,side,confidence:80,setupStrength:80,
    setupId:sequence.setupId,entry:round(price),stopLoss:stop,target1:targets[0]?.level??null,
    target2:targets[1]?.level??null,target3:targets[2]?.level??null,target4:targets[3]?.level??null,
