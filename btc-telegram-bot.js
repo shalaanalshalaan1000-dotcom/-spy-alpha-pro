@@ -286,8 +286,18 @@ async function tick() {
 
   if (!primed) {
     primed = true;
-    previousActive = active;
+    previousActive = false;
     console.log(`[btc-telegram] primed; current=${active ? `${signal.action} ${signal.confidence}%` : 'WAIT'}`);
+    // Do not silently discard a valid, still-entry-eligible signal on process startup.
+    if (active) {
+      const key = signalKey(signal);
+      await telegram('sendMessage', { chat_id: CHAT_ID, text: message(signal), disable_web_page_preview: true });
+      lastSentKey = key;
+      lastSentAt = Date.now();
+      startTracking(signal, key, lastSentAt);
+      previousActive = true;
+      console.log(`[btc-telegram] sent+tracking startup signal ${signal.action} ${signal.confidence}% strategy=${signal.strategy} key=${key}`);
+    }
     return;
   }
 
