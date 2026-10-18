@@ -670,12 +670,12 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
     return{side,sign,fvg,sweep,sweep5,sweep1,namedSweep,freshSweep,seq5,seq1,firstMss,firstDisplacement,m1Mss,m1Retest,coreEntryReady,cisd,cisd5,cisd1,ifvg,ifvg5,ifvg1,triggerEvent,sequenceAt,origin,freshSequence,freshReversal,dm,bos,freshBos,directionalBreak,patternBonus,patternPenalty,score};
   };
   const buy5Preview=build5Preview('BUY'),sell5Preview=build5Preview('SELL');
-  const reversalWinner=[buy5Preview,sell5Preview].filter(x=>x.coreEntryReady).sort((a,b)=>(b.m5MssRetest?.t||0)-(a.m5MssRetest?.t||0)||(b.sweep?.t||0)-(a.sweep?.t||0))[0]??null;
+  const reversalWinner=[buy5Preview,sell5Preview].filter(x=>x.coreEntryReady).sort((a,b)=>(b.m1Retest?.t||0)-(a.m1Retest?.t||0)||(b.sweep?.t||0)-(a.sweep?.t||0))[0]??null;
   // After an external sweep, only the M1 MSS/CHoCH and M1 retest can arm execution.
   // M5 structure is context only and cannot select or block an entry.
   const armedReversalWinner=[buy5Preview,sell5Preview]
     .filter(x=>x.freshSweep&&x.seq1?.firstMss)
-    .sort((a,b)=>(b.m5Mss?.closeT??b.m5Mss?.t??0)-(a.m5Mss?.closeT??a.m5Mss?.t??0)||(b.sweep?.t||0)-(a.sweep?.t||0))[0]??null;
+    .sort((a,b)=>(b.m1Mss?.closeT??b.m1Mss?.t??0)-(a.m1Mss?.closeT??a.m1Mss?.t??0)||(b.sweep?.t||0)-(a.sweep?.t||0))[0]??null;
   const trendWinner=null; // BOS/trend continuation is context, not a liquidity-hunt setup.
   const lowerTfWinner=reversalWinner??armedReversalWinner??(trendWinner?{side:trendWinner.side,score:70}:null)??(buy5Preview.score>sell5Preview.score?buy5Preview:sell5Preview.score>buy5Preview.score?sell5Preview:null);
   let setup15=lowerTfWinner&&lowerTfWinner.score>=28
