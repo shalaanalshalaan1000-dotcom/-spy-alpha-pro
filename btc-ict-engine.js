@@ -186,7 +186,7 @@ export function analyzeBtcIct({M1=[],M5=[],M15=[],H1=[],H4=[],D1=[],ticker={},no
  const sweepBars=[...closed15.map(b=>({...b,tf:'M15'})),...closed30.map(b=>({...b,tf:'M30'}))].sort((a,b)=>a.t-b.t);
  const externalSweeps=[];
  for(const b of sweepBars){for(const p of externalLevels){const buy=p.liquiditySide==='SSL'&&b.low<p.level&&b.close>p.level;const sell=p.liquiditySide==='BSL'&&b.high>p.level&&b.close<p.level;if(buy||sell)externalSweeps.push({label:p.label,level:p.level,liquiditySide:p.liquiditySide,side:buy?'BUY':'SELL',t:b.t,tf:b.tf,extreme:buy?b.low:b.high});}}
- const latestSweep=externalSweeps.sort((a,b)=>b.t-a.t)[0]||null;
+ const latestSweep=externalSweeps.sort((a,b)=>b.t-a.t).find(s=>now-(s.t+(s.tf==='M30'?1800000:900000))<=4*3600000)||null;
  const qt=Date.parse(ticker.time||''),quoteFresh=Number.isFinite(qt)&&qt<=now+30000&&now-qt<=90000;
  const last=closed1.at(-1),oneFresh=last&&now-(last.t+60000)<=180000;
  const base={symbol:'BTCUSD',strategy:'ICT_EXTERNAL_ONLY_M15_M30_M1_RETEST',tradeStyle:'EXTERNAL_LIQUIDITY_ONLY',
@@ -208,7 +208,7 @@ export function analyzeBtcIct({M1=[],M5=[],M15=[],H1=[],H4=[],D1=[],ticker={},no
  const targets=opposing&&midpoint!=null?[{label:'TP1_50_PERCENT_RANGE',level:midpoint,price:midpoint,distance:Math.abs(midpoint-price),liquidityClass:'EXTERNAL_RANGE_MIDPOINT'},{...opposing,label:'TP2_OPPOSING_EXTERNAL_LIQUIDITY',distance:Math.abs(opposing.level-price)}].filter(x=>side==='BUY'?x.level>price:x.level<price):[];
  const drift=Math.abs(price-sequence.retestClose),maxDrift=Math.max(20,Math.min(200,atr1*2.5));
  const ict={...base.ict,confirmed:true,legSweep:{name:sequence.pool.label,level:sequence.pool.level,
-   liquidityClass:'EXTERNAL',timeframe:latestSweep?.tf,level:latestSweep?.level,t:sequence.sweepAt,extreme:round(sequence.extreme)},
+   liquidityClass:'EXTERNAL',timeframe:latestSweep?.tf,t:sequence.sweepAt,extreme:round(sequence.extreme)},
    setupLiquidityClass:'EXTERNAL',
    m1MssEvent:sequence.mss,m1MssRetest:sequence.retest,activeSequence:sequence,atr1:round(atr1),executionTimeframe:'M1'};
  if(risk<=0||dir*(price-stop)<=0||!targets.length||drift>maxDrift){
