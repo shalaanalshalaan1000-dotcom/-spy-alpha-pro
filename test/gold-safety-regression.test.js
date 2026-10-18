@@ -96,18 +96,18 @@ test('confluence wrapper and Telegram require the external ICT contract',()=>{
 });
 
 
-test('gold core entry contract uses external sweep plus M5 MSS retest and keeps confluence advisory',()=>{
+test('gold core entry contract uses external sweep plus M1 MSS retest and keeps confluence advisory',()=>{
  const ictSource=fs.readFileSync(new URL('../gold-ict-swing-model.js',import.meta.url),'utf8');
  const confluenceSource=fs.readFileSync(new URL('../gold-confluence-model.js',import.meta.url),'utf8');
- assert.match(ictSource,/executionGate:'EXTERNAL_SWEEP -> M5_MSS -> M5_RETEST_HOLD'/);
+ assert.match(ictSource,/executionGate:'EXTERNAL_SWEEP -> M1_MSS_CHOCH -> M1_RETEST_HOLD'/);
  assert.match(ictSource,/coreIctEntryReady/);
- assert.match(ictSource,/M5_MSS_RETEST_CONFIRMED/);
+ assert.match(ictSource,/M1_MSS_CHOCH_CONFIRMED/);
  assert.match(ictSource,/if\(coreIctEntryReady\)confidence=Math\.max\(75,confidence\)/);
  assert.match(ictSource,/FVG_OB_IFVG_BOS_AND_TIMEFRAME_ALIGNMENT_ARE_CONFLUENCE_ONLY/);
  assert.doesNotMatch(ictSource,/waiting for external sweep \+ shift \+ FVG/);
  assert.match(confluenceSource,/h4SwingHigh/);
  assert.match(confluenceSource,/m15SwingLow/);
- assert.match(confluenceSource,/M5 MSS → retest\/hold; FVG\/OB\/iFVG\/BOS are support only/);
+ assert.match(confluenceSource,/M1 MSS\/CHoCH → retest\/hold; FVG\/OB\/iFVG\/BOS are support only/);
 });
 
 test('ICT Month 4 context stays supportive and cannot replace the external sweep gate',()=>{
@@ -176,20 +176,20 @@ test('liquidity hunt requires structural MSS retest and cannot bypass it with mo
  assert.match(enginePatch,/Number\(m\.confidence\)<MIN_CONFIDENCE/);
 });
 
-test('confirmed core M5 MSS retest can activate without an Origin FVG retouch',()=>{
+test('confirmed core M1 MSS retest can activate without an Origin FVG retouch',()=>{
  const enginePatch=fs.readFileSync(new URL('../gold-site-signal-engine-v9.js',import.meta.url),'utf8');
  const uiSource=fs.readFileSync(new URL('../gold-site-ui-start.js',import.meta.url),'utf8');
  assert.match(enginePatch,/function coreIctRetestExecutionAccepted/);
  assert.match(enginePatch,/ict\?\.coreIctEntryReady/);
- assert.match(enginePatch,/ict\?\.m5MssEvent\?\.mss/);
+ assert.match(enginePatch,/ict\?\.sequence1\?\.firstMss/);
  assert.match(enginePatch,/retest\?\.confirmed!==true/);
  assert.match(enginePatch,/age>15\*60_000/);
  assert.match(enginePatch,/const held=side==='BUY'\?p>level:p<level/);
  assert.match(enginePatch,/consumed<\.65/);
- assert.match(enginePatch,/entryConfirmation:coreRetestAccepted\?'M5_MSS_RETEST_HOLD'/);
+ assert.match(enginePatch,/entryConfirmation:coreRetestAccepted\?'M1_MSS_RETEST_HOLD'/);
  assert.doesNotMatch(uiSource,/Origin FVG محددة؛ ننتظر رجوع السعر إلى منطقة الدخول/);
  assert.match(uiSource,/FVG\/OB\/iFVG دعم فقط/);
- assert.match(uiSource,/External Sweep → M5 MSS → Retest\/Hold \| FVG\/iFVG\/OB = Confluence/);
+ assert.match(uiSource,/External Sweep → M1 MSS\/CHoCH → Retest\/Hold \| FVG\/iFVG\/OB = Confluence/);
 });
 
 
@@ -200,12 +200,12 @@ test('external ICT sweep remains armed through the same trading session instead 
  assert.match(ictSource,/GOLD_EXTERNAL_SWEEP_TTL_MS\|\|12\*60\*60_000/);
  assert.match(ictSource,/recentSweeps\(m1,side,levels,24,m1Lookback\)/);
  assert.match(ictSource,/now-x\.t<=EXTERNAL_SWEEP_TTL_MS/);
- assert.match(ictSource,/EXTERNAL_LIQUIDITY_SWEEP -> WAIT_M5_MSS/);
- assert.match(ictSource,/EXTERNAL_LIQUIDITY_SWEEP -> M5_MSS -> WAIT_RETEST_HOLD/);
- assert.match(ictSource,/sweep retained; waiting for M5 MSS/);
- assert.match(ictSource,/sweep \+ M5 MSS retained; waiting for M5 retest\/hold/);
- assert.match(uiSource,/تم حفظ '\+sweepLabel\+' sweep — ننتظر M5 MSS/);
- assert.match(uiSource,/M5 MSS مؤكد — ننتظر Retest\/Hold/);
+ assert.match(ictSource,/EXTERNAL_LIQUIDITY_SWEEP -> WAIT_CLOSED_M1_MSS_CHOCH/);
+ assert.match(ictSource,/EXTERNAL_LIQUIDITY_SWEEP -> WAIT_M1_RETEST_HOLD/);
+ assert.match(ictSource,/sweep retained; waiting for closed M1 MSS\/CHoCH/);
+ assert.match(ictSource,/closed M1 MSS\/CHoCH confirmed; waiting for M1 retest\/hold/);
+ assert.match(uiSource,/تم حفظ '\+sweepLabel\+' sweep — ننتظر إغلاق M1 MSS\/CHoCH/);
+ assert.match(uiSource,/M1 MSS\/CHoCH مؤكد — ننتظر Retest\/Hold/);
 });
 
 
@@ -234,13 +234,13 @@ test('confirmed XAU lifecycle has one authoritative state across engine agents s
  const telegramSource=fs.readFileSync(new URL('../telegram-xau-bot-v2.js',import.meta.url),'utf8');
  assert.match(enginePatch,/XAU_TRADE_STATE_V1/);
  assert.match(enginePatch,/lifecycle:'CONFIRMED',active:true,status:'ACTIVE'/);
- assert.match(enginePatch,/side==='BUY'\?m\?\.ict\?\.m5MssEvent\?\.priorHigh:m\?\.ict\?\.m5MssEvent\?\.priorLow/);
+ assert.match(enginePatch,/m\?\.ict\?\.sequence1\?\.firstMss\?\.level/);
  assert.match(agentSource,/if \(tradeState\.active\)/);
  assert.match(agentSource,/status: String\(source\.status \|\| ''\)\.toUpperCase\(\) === 'MANAGING' \? 'MANAGING' : 'ACTIVE'/);
- assert.match(agentSource,/ict\?\.m5MssEvent\?\.mss/);
- assert.match(agentSource,/ict\?\.m5MssRetest\?\.confirmed/);
+ assert.match(agentSource,/ict\?\.sequence1\?\.firstMss/);
+ assert.match(agentSource,/ict\?\.m1MssRetest\?\.confirmed/);
  assert.match(siteSource,/CONFIRMED '\+activeSide\+' • ENTRY ACTIVE/);
- assert.match(siteSource,/ict\?\.m5MssRetest\?\.confirmed/);
+ assert.match(siteSource,/ict\?\.m1MssRetest\?\.confirmed/);
  assert.match(siteSource,/CONFIRMED • MANUAL\/TELEGRAM/);
  assert.match(telegramSource,/mirrorWindowOpen\(s,now\)/);
  assert.doesNotMatch(telegramSource,/eligibleNewTrade=!tradeLock\.active&&startedThisRun\(s\)/);
@@ -278,19 +278,19 @@ test('authoritative ACTIVE trade state survives worker restart and Render deploy
  assert.match(telegramSource,/await sendTradeManagement\(s\)/);
 });
 
-test('stale external sweep is invalidated after closed M5 accepts beyond the swept level',()=>{
+test('stale external sweep is invalidated by closed M1 price action beyond the swept level',()=>{
  const ictSource=fs.readFileSync(new URL('../gold-ict-swing-model.js',import.meta.url),'utf8');
- assert.match(ictSource,/function sweepStillValid\(m5,side,sweep,atr5\)/);
+ assert.match(ictSource,/function sweepStillValid\(m1,side,sweep,atr1\)/);
  assert.match(ictSource,/side==='SELL'\?Number\(b\.close\)>Number\(sweep\.level\)\+tolerance:Number\(b\.close\)<Number\(sweep\.level\)-tolerance/);
- assert.match(ictSource,/sweepStillValid\(m5,side,x,atr5\)/);
+ assert.match(ictSource,/sweepStillValid\(m1,side,x,atr1\)/);
 });
 
-test('fresh armed M5 external sweep outranks older completed or trend-continuation state while retest is pending',()=>{
+test('fresh external sweep with M1 MSS outranks older setup while M1 retest is pending',()=>{
  const ictSource=fs.readFileSync(new URL('../gold-ict-swing-model.js',import.meta.url),'utf8');
- assert.match(ictSource,/const m5Armed=Boolean\(seq5\?\.firstMss\)/);
- assert.match(ictSource,/\(m5Armed\?2200:complete\?1000:0\)/);
+ assert.match(ictSource,/const firstMss=seq1\?\.firstMss\?\?null/);
+ assert.match(ictSource,/\(complete\?1000:0\)/);
  assert.match(ictSource,/const armedReversalWinner=\[buy5Preview,sell5Preview\]/);
- assert.match(ictSource,/\.filter\(x=>x\.freshSweep&&x\.m5Mss\)/);
+ assert.match(ictSource,/\.filter\(x=>x\.freshSweep&&x\.seq1\?\.firstMss\)/);
  assert.match(ictSource,/reversalWinner\?\?armedReversalWinner\?\?\(trendWinner/);
 });
 
