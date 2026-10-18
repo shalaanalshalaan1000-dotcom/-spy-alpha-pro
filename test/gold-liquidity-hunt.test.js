@@ -58,7 +58,7 @@ test('session MSS must match side, swept level, chronology, and structural evide
   assert.equal(sessionHuntMss(s,'SELL',110,5*span,5*span),null);
   assert.equal(sessionHuntMss({...s,ict:{...s.ict,m5MssEvent:{...event,structureConfirmed:false}}},'SELL',110,5*span,6*span),null);
 });
-test('full ICT and confluence engines wait for retest, then produce the same external SELL hunt',()=>{
+test('full ICT and confluence engines reject an M5-only MSS and wait for the M1 trigger',()=>{
   const now=Date.parse('2026-10-09T14:00:00Z');
   const tail=[...lead,breakBar,retest];
   const rows=Array.from({length:296},(_,i)=>{
@@ -69,13 +69,12 @@ test('full ICT and confluence engines wait for retest, then produce the same ext
   const ht={D1:[{t:now-172800000,open:100,high:110,low:90,close:104},{t:now-86400000,open:104,high:111,low:98,close:99.5}],
     W1:[{t:now-1209600000,open:100,high:120,low:80,close:105},{t:now-604800000,open:105,high:111,low:90,close:99}]};
   const pending=analyzeIct(samples.slice(0,-5),98.5,now-span,ht);
-  assert.equal(pending.status,'WAIT');assert.equal(pending.ict.executionStage,'WAIT_M1_RETEST_HOLD');
+  assert.equal(pending.status,'WAIT');assert.equal(pending.ict.executionStage,'WAIT_M1_MSS_CHOCH');
   for(const analyze of [analyzeIct,analyzeWrapped]){
     const x=analyze(samples,99.5,now,ht);
-    assert.equal(x.status,'CANDIDATE');assert.equal(x.candidateAction,'SELL');
-    assert.equal(x.ict.legSweep.name,'pdh');assert.equal(x.ict.m5MssEvent.level,100);
-    assert.equal(x.ict.m1MssRetest.confirmed,true);assert.equal(x.ict.m1MssRetest.level,100);
-    assert.equal(x.targetLabels[0],'PDL');assert.equal(x.targetLabels[1],'PWL');
+    assert.equal(x.status,'WAIT');assert.equal(x.ict.executionStage,'WAIT_M1_MSS_CHOCH');
+    assert.equal(x.ict.legSweep.name,'pdh');
+    assert.equal(x.ict.coreIctEntryReady,false);
   }
 });
 test('a retest invalidated on a subsequent bar cannot be replayed',()=>{
