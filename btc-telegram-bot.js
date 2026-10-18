@@ -61,7 +61,7 @@ function isConfirmed(signal) {
     signal &&
     signal.status === 'ACTIVE' &&
     ['BUY', 'SELL'].includes(signal.action) &&
-    signal.strategy === 'ICT_LIQUIDITY_HUNT_M1_MSS_RETEST' &&
+    ['ICT_LIQUIDITY_HUNT_M1_MSS_RETEST', 'ICT_EXTERNAL_AND_INTERNAL_M1_SCALP'].includes(signal.strategy) &&
     [signal.entry, signal.stopLoss, signal.target1].every(validNumber)
   );
 }
@@ -264,7 +264,7 @@ function message(signal) {
   + '📍 Entry: '+n(signal.entry)+'\n'
   + '🛑 Structural SL: '+n(signal.stopLoss)+'\n'
   + targetLines+'\n\n'+sizing.join('\n')+'\n'
-  + '⏱️ External Sweep → closed M5 displaced MSS → later M1 Retest/Hold; only external liquidity targets\n'
+  + '⏱️ Liquidity sweep (external/internal) → closed M1 MSS/CHoCH + displacement → later M1 retest/hold\\n'
   + '🕒 '+stamp+' بتوقيت السعودية\n'
   + '⚪ إشارات فقط — لا تداول آلي';
 }
@@ -304,7 +304,7 @@ async function tick() {
       lastSentKey = key;
       lastSentAt = now;
       startTracking(signal, key, now);
-      console.log(`[btc-telegram] sent+tracking ${signal.action} ${signal.confidence}% strategy=ICT_LIQUIDITY_HUNT_M1_MSS_RETEST key=${key}`);
+      console.log(`[btc-telegram] sent+tracking ${signal.action} ${signal.confidence}% strategy=${signal.strategy} key=${key}`);
     }
   }
 
