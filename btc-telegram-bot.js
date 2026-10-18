@@ -309,12 +309,18 @@ async function tick() {
   if (!previousActive) {
     const now = Date.now();
     const key = signalKey(signal);
-    if (key !== lastSentKey || now - lastSentAt > 300000) {
+    // One active BTC signal at a time. The engine can regenerate setupId timestamps
+    // while the same market move is still active; do not treat that as a fresh entry.
+    if (trackedTrade) {
+      console.log(`[btc-telegram] suppressed overlapping signal ${signal.action} ${signal.confidence}%; active=${trackedTrade.side} key=${trackedTrade.key} candidate=${key}`);
+    } else if (key !== lastSentKey) {
       await telegram('sendMessage', { chat_id: CHAT_ID, text: message(signal), disable_web_page_preview: true });
       lastSentKey = key;
       lastSentAt = now;
       startTracking(signal, key, now);
       console.log(`[btc-telegram] sent+tracking ${signal.action} ${signal.confidence}% strategy=${signal.strategy} key=${key}`);
+    } else {
+      console.log(`[btc-telegram] suppressed duplicate signal key=${key}`);
     }
   }
 
