@@ -201,11 +201,11 @@ test('external ICT sweep remains armed through the same trading session instead 
  assert.match(ictSource,/recentSweeps\(m1,side,levels,24,m1Lookback\)/);
  assert.match(ictSource,/now-x\.t<=EXTERNAL_SWEEP_TTL_MS/);
  assert.match(ictSource,/EXTERNAL_LIQUIDITY_SWEEP -> WAIT_CLOSED_M1_MSS_CHOCH/);
- assert.match(ictSource,/EXTERNAL_LIQUIDITY_SWEEP -> WAIT_M1_RETEST_HOLD/);
+ assert.match(ictSource,/EXTERNAL_LIQUIDITY_SWEEP -> CLOSED_M1_MSS_CHOCH -> WAIT_M1_RETEST_HOLD/);
  assert.match(ictSource,/sweep retained; waiting for closed M1 MSS\/CHoCH/);
  assert.match(ictSource,/closed M1 MSS\/CHoCH confirmed; waiting for M1 retest\/hold/);
- assert.match(uiSource,/تم حفظ '\+sweepLabel\+' sweep — ننتظر إغلاق M1 MSS\/CHoCH/);
- assert.match(uiSource,/M1 MSS\/CHoCH مؤكد — ننتظر Retest\/Hold/);
+ assert.match(uiSource,/تم حفظ '\+sweepLabel\+' sweep — ننتظر closed M1 MSS\/CHoCH/);
+ assert.match(uiSource,/M1 MSS\/CHoCH مؤكد — ننتظر M1 Retest\/Hold/);
 });
 
 
@@ -240,7 +240,7 @@ test('confirmed XAU lifecycle has one authoritative state across engine agents s
  assert.match(agentSource,/ict\?\.sequence1\?\.firstMss/);
  assert.match(agentSource,/ict\?\.m1MssRetest\?\.confirmed/);
  assert.match(siteSource,/CONFIRMED '\+activeSide\+' • ENTRY ACTIVE/);
- assert.match(siteSource,/ict\?\.m1MssRetest\?\.confirmed/);
+ assert.match(siteSource,/m1FvgRetest/);
  assert.match(siteSource,/CONFIRMED • MANUAL\/TELEGRAM/);
  assert.match(telegramSource,/mirrorWindowOpen\(s,now\)/);
  assert.doesNotMatch(telegramSource,/eligibleNewTrade=!tradeLock\.active&&startedThisRun\(s\)/);
