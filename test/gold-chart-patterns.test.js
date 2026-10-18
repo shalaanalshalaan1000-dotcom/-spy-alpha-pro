@@ -37,7 +37,7 @@ test('M1 and M5 cannot override an M15 classical pattern',()=>{
   assert.equal(alternative.timeframe,'M15');
   assert.equal(alternative.m5ClosedBars,36);
 });
-test('pattern catalogue and integration remain advisory; ICT gate remains external sweep / M5 MSS / retest',()=>{
+test('pattern catalogue and integration remain advisory; ICT gate remains external sweep / M1 MSS / retest',()=>{
   const patterns=fs.readFileSync(new URL('../gold-chart-patterns.js',import.meta.url),'utf8');
   for(const pattern of ['DOUBLE_TOP','DOUBLE_BOTTOM','TRIPLE_TOP','TRIPLE_BOTTOM','HEAD_AND_SHOULDERS',
     'INVERSE_HEAD_AND_SHOULDERS','RISING_WEDGE','FALLING_WEDGE','BULLISH_RECTANGLE','BEARISH_RECTANGLE',
@@ -48,7 +48,7 @@ test('pattern catalogue and integration remain advisory; ICT gate remains extern
   assert.match(source,/chartPatterns:base\.chartPatterns/);
   assert.match(source,/const ictCandidate=Boolean\(ict\?\.status==='CANDIDATE'&&ictSide&&\(externalSweepValid\|\|trendContinuationValid\)\)/);
   const core=fs.readFileSync(new URL('../gold-ict-swing-model.js',import.meta.url),'utf8');
-  assert.match(core,/EXTERNAL_LIQUIDITY_SWEEP -> M5_MSS -> RETEST_HOLD/);
+  assert.match(core,/EXTERNAL_LIQUIDITY_SWEEP -> CLOSED_M1_MSS_CHOCH -> M1_RETEST_HOLD -> ENTRY/);
   const ui=fs.readFileSync(new URL('../site-indicator-start.js',import.meta.url),'utf8');
   assert.match(ui,/Chart Patterns — M15 \(قراءة فقط\)/);
   assert.match(ui,/chartPatterns: source\.chartPatterns \|\| null/);
