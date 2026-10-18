@@ -408,10 +408,10 @@ function recentSweeps(bars,side,levels,limit=12,lookbackBars=120){
   }
   return out.sort((a,b)=>b.t-a.t);
 }
-function sweepStillValid(m5,side,sweep,atr5){
+function sweepStillValid(m1,side,sweep,atr1){
   if(!sweep||!['BUY','SELL'].includes(side))return false;
-  const tolerance=Math.max(.15,(Number(atr5)||1)*.08);
-  const later=(Array.isArray(m5)?m5:[]).filter(b=>Number(b.t)>Number(sweep.t));
+  const tolerance=Math.max(.15,(Number(atr1)||1)*.08);
+  const later=(Array.isArray(m1)?m1:[]).filter(b=>Number(b.t)>Number(sweep.t));
   const invalidated=later.some(b=>side==='SELL'?Number(b.close)>Number(sweep.level)+tolerance:Number(b.close)<Number(sweep.level)-tolerance);
   return !invalidated;
 }
@@ -421,19 +421,17 @@ function selectSweepSequence({m1,m5,m15,side,levels,atr1,atr5,atr15,now}){
     ...recentSweeps(m5,side,levels,18,m5Lookback).map(x=>({...x,tf:5})),
     ...recentSweeps(m1,side,levels,24,m1Lookback).map(x=>({...x,tf:1})),
     ...recentSweeps(m15,side,levels,10,m15Lookback).map(x=>({...x,tf:15}))
-  ].filter(x=>now-x.t>=0&&now-x.t<=EXTERNAL_SWEEP_TTL_MS&&sweepStillValid(m5,side,x,atr5));
+  ].filter(x=>now-x.t>=0&&now-x.t<=EXTERNAL_SWEEP_TTL_MS&&sweepStillValid(m1,side,x,atr1));
   let best=null;
   for(const sweep of rows){
     const seq5=sequenceAfter(m5,side,sweep.t+sweep.tf*60000,atr5,300000),seq1=sequenceAfter(m1,side,sweep.t+sweep.tf*60000,atr1,60000);
-    const firstMss=[seq5?.firstMss,seq1?.firstMss].filter(Boolean).sort((a,b)=>(a.closeT??a.t)-(b.closeT??b.t))[0]??null;
-    const firstDisplacement=[seq5?.firstDisplacement,seq1?.firstDisplacement].filter(Boolean).sort((a,b)=>(a.closeT??a.t)-(b.closeT??b.t))[0]??null;
+    // Execution is exclusively M1 after the external sweep. M5 sequence data remains context only.
+    const firstMss=seq1?.firstMss??null;
+    const firstDisplacement=seq1?.firstDisplacement??null;
     const complete=Boolean(firstMss&&firstDisplacement),progress=(firstMss?1:0)+(firstDisplacement?1:0);
-    // A fresh external sweep that already produced an M5 MSS is the active execution leg.
-    // Do not let an older completed M1/M5 sequence reclaim priority while the newer M5 retest is pending.
-    const m5Armed=Boolean(seq5?.firstMss);
     const named=Boolean(sweep?.liquidityClass==='EXTERNAL'),ageMin=Math.max(0,(now-sweep.t)/60000);
-    const quality=(m5Armed?2200:complete?1000:0)+progress*120+(named?28:0)+(sweep.tf===5?12:sweep.tf===1?8:3)-ageMin*.08;
-    const candidate={sweep,seq5,seq1,firstMss,firstDisplacement,complete,m5Armed,quality};
+    const quality=(complete?1000:0)+progress*120+(named?28:0)+(sweep.tf===15?12:sweep.tf===5?8:3)-ageMin*.08;
+    const candidate={sweep,seq5,seq1,firstMss,firstDisplacement,complete,m5Armed:false,quality};
     if(!best||candidate.quality>best.quality||(candidate.quality===best.quality&&sweep.t>best.sweep.t))best=candidate;
   }
   return best;
@@ -652,7 +650,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
     const sweep=seqPick?.sweep??null,sweep5=sweep?.tf===5?sweep:null,sweep1=sweep?.tf===1?sweep:null;
     const namedSweep=Boolean(sweep?.liquidityClass==='EXTERNAL'),freshSweep=Boolean(sweep&&now-sweep.t>=0&&now-sweep.t<=EXTERNAL_SWEEP_TTL_MS);
     const seq5=seqPick?.seq5??null,seq1=seqPick?.seq1??null,firstMss=seqPick?.firstMss??null,firstDisplacement=seqPick?.firstDisplacement??null;
-    const m5Mss=seq5?.firstMss??null,m5MssRetest=m5RetestAfterMss(m5,side,m5Mss,atr5,sweep?.extreme),coreEntryReady=Boolean(freshSweep&&m5Mss&&m5MssRetest?.confirmed);
+    const m1Mss=seq1?.firstMss??null,m1Retest=m1Mss?m5RetestAfterMss(m1,side,m1Mss,atr1,sweep?.extreme):null,coreEntryReady=Boolean(freshSweep&&m1Mss&&m1Retest?.confirmed);
     const cisd5=cisdAfter(m5,side,sweep),cisd1=cisdAfter(m1,side,sweep);
     const cisd=[cisd5,cisd1].filter(x=>x?.confirmed).sort((a,b)=>(a.confirmT||Infinity)-(b.confirmT||Infinity))[0]??null;
     const ifvg5=inverseFvgAfterSweep(m5,side,sweep),ifvg1=inverseFvgAfterSweep(m1,side,sweep);
@@ -669,15 +667,14 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
     const pa=priceAction.m5,patternAligned=pa.confirmed&&pa.breakoutSide===side,patternConflict=pa.confirmed&&pa.breakoutSide&&pa.breakoutSide!==side,patternWatch=!pa.confirmed&&pa.bias===side&&['FALLING_WEDGE','RISING_WEDGE'].includes(pa.pattern);
     const patternBonus=patternAligned?18:patternWatch?4:0,patternPenalty=patternConflict?-20:0;
     const score=(coreEntryReady?180:0)+(freshSequence?70:0)+(freshReversal?20:0)+(namedSweep?12:0)+(freshSweep?18:0)+(freshBos?16:0)+(directionalBreak?12:0)+(fvg?6:0)+(cisd?10:0)+(ifvg?.confirmed?6:0)+(ifvg?.retested?8:0)+(dir15===sign?3:0)+(dir1===sign?1:0)+patternBonus+patternPenalty;
-    return{side,sign,fvg,sweep,sweep5,sweep1,namedSweep,freshSweep,seq5,seq1,firstMss,firstDisplacement,m5Mss,m5MssRetest,coreEntryReady,cisd,cisd5,cisd1,ifvg,ifvg5,ifvg1,triggerEvent,sequenceAt,origin,freshSequence,freshReversal,dm,bos,freshBos,directionalBreak,patternBonus,patternPenalty,score};
+    return{side,sign,fvg,sweep,sweep5,sweep1,namedSweep,freshSweep,seq5,seq1,firstMss,firstDisplacement,m1Mss,m1Retest,coreEntryReady,cisd,cisd5,cisd1,ifvg,ifvg5,ifvg1,triggerEvent,sequenceAt,origin,freshSequence,freshReversal,dm,bos,freshBos,directionalBreak,patternBonus,patternPenalty,score};
   };
   const buy5Preview=build5Preview('BUY'),sell5Preview=build5Preview('SELL');
   const reversalWinner=[buy5Preview,sell5Preview].filter(x=>x.coreEntryReady).sort((a,b)=>(b.m5MssRetest?.t||0)-(a.m5MssRetest?.t||0)||(b.sweep?.t||0)-(a.sweep?.t||0))[0]??null;
-  // While a fresh external-liquidity reversal is armed on M5, keep that side selected until
-  // its retest confirms or the sweep is structurally invalidated. A trend-continuation read
-  // must never switch the engine back to an older opposite-side sweep during this window.
+  // After an external sweep, only the M1 MSS/CHoCH and M1 retest can arm execution.
+  // M5 structure is context only and cannot select or block an entry.
   const armedReversalWinner=[buy5Preview,sell5Preview]
-    .filter(x=>x.freshSweep&&x.m5Mss)
+    .filter(x=>x.freshSweep&&x.seq1?.firstMss)
     .sort((a,b)=>(b.m5Mss?.closeT??b.m5Mss?.t??0)-(a.m5Mss?.closeT??a.m5Mss?.t??0)||(b.sweep?.t||0)-(a.sweep?.t||0))[0]??null;
   const trendWinner=null; // BOS/trend continuation is context, not a liquidity-hunt setup.
   const lowerTfWinner=reversalWinner??armedReversalWinner??(trendWinner?{side:trendWinner.side,score:70}:null)??(buy5Preview.score>sell5Preview.score?buy5Preview:sell5Preview.score>buy5Preview.score?sell5Preview:null);
@@ -694,21 +691,16 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const fvg5=latestFvg(m5,side),sweep5=localSweep(m5,side,levels),dm5=displacementAndMss(m5,side,atr5),bos5=latestBos(m5,side);
   const fvg1=latestFvg(m1,side),sweep1=localSweep(m1,side,levels),dm1=displacementAndMss(m1,side,atr1),bos1=latestBos(m1,side);
   const bos15=latestBos(m15,side);
-  // Execution hierarchy: keep the best live sweep anchor for the configured TTL, but invalidate it once a closed M5 accepts beyond the swept external level.
+  // Execution hierarchy: keep the external sweep anchor for the configured TTL; invalidate it using post-sweep closed M1 price action.
   // A later micro-sweep must not erase an earlier sweep that already produced MSS/displacement.
   const sweepState=selectSweepSequence({m1,m5,m15,side,levels,atr1,atr5,atr15,now});
   const legSweep=sweepState?.sweep??null;
   const hasSweep=Boolean(legSweep);
   const sequence5=sweepState?.seq5??null;
   const sequence1=sweepState?.seq1??null;
-  const m5MssEvent=sequence5?.firstMss??null;
-  const m5Retest=m5RetestAfterMss(m5,side,m5MssEvent,atr5,legSweep?.extreme);
-  // M1 is the execution trigger after the external sweep; M5 remains context only.
-  // Require a closed M1 MSS plus displacement, then use the post-shift FVG as the entry zone.
-  const m1RetestFallback=!m5Retest?.confirmed&&!m5Retest?.invalidated&&m5MssEvent
-    ?(()=>{const eventT=Number(m5MssEvent.closeT??(Number(m5MssEvent.t)+300000));if(!Number.isFinite(eventT))return null;const result=m5RetestAfterMss(m1,side,{...m5MssEvent,t:eventT},atr1,legSweep?.extreme);return result?.confirmed?{...result,sourceTf:'M1_AFTER_M5_MSS'}:result;})()
-    :null;
-  const m5MssRetest=m5Retest?.confirmed?{...m5Retest,sourceTf:'M5'}:m5Retest?.invalidated?m5Retest:m1RetestFallback;
+  const m5MssEvent=null; // M5 MSS is intentionally removed from gold execution.
+  const m5Retest={confirmed:false,sourceTf:'M5_CONTEXT_ONLY'};
+  const m5MssRetest={confirmed:false,sourceTf:'M1_ONLY_EXECUTION'};
   const m1MssRetest=sequence1?.firstMss?{...m5RetestAfterMss(m1,side,sequence1.firstMss,atr1,legSweep?.extreme),sourceTf:'M1'}:{confirmed:false,sourceTf:'M1'};
   const coreIctEntryReady=Boolean(hasSweep&&sequence1?.firstMss&&m1MssRetest?.confirmed);
   const shift5=sequence5?.firstAny??null;
@@ -777,9 +769,9 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   if(!executionReady)return{...base,status:'WAIT',candidateAction:side,confidence:0,contextBias:side,oneMinuteConfirmed,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,contextAligned,biasAligned,setupAligned,setupVotes,setupReady,fvg15,sweep15,dm15,fvg5,sweep5,dm5,bos5,fvg1,sweep1,dm1,bos1,bos15,legSweep,sequence1,sequence5,m5MssEvent,m5MssRetest,m1MssRetest,coreIctEntryReady,shift1,shift5,shift15,firstMssEvent,firstDisplacementEvent,firstTriggerEvent,triggerConfirmed,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),hasSweep,hasShift,hasDisplacement,hasBos,contextSequence,executionStage,sweepAgeMinutes,sweepExpiresAt,externalSweepTtlMinutes:Math.round(EXTERNAL_SWEEP_TTL_MS/60_000)},reason:waitReason+' FVG/OB/iFVG/BOS and timeframe agreement are optional context only.'};
 
   const setupType='ICT_EXTERNAL_SWEEP_M1_MSS_CHOCH';
-  const fvg=selectedFvg,shiftT=m5MssEvent?.t??firstShift?.t??sequenceShiftT;
-  const orderBlock=orderBlockBeforeShift(reversal?m1:m5,side,shiftT);
-  const sweepBars=legSweep?.tf===1?m1:legSweep?.tf===15?m15:m5;
+  const fvg=selectedFvg,shiftT=sequence1?.firstMss?.t??firstShift?.t??sequenceShiftT;
+  const orderBlock=orderBlockBeforeShift(m1,side,shiftT);
+  const sweepBars=legSweep?.tf===15?m15:m1;
   const rejectionBlock=rejectionBlockAtSweep(sweepBars,side,legSweep);
   const rangeContext=dealingRangeContext(h1,h4,price,side);
   const originPoi=fvg?choosePoi(side,fvg,orderBlock,rangeContext):null;
