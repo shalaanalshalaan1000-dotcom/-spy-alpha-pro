@@ -61,7 +61,7 @@ function isConfirmed(signal) {
     signal &&
     signal.status === 'ACTIVE' &&
     ['BUY', 'SELL'].includes(signal.action) &&
-    ['ICT_LIQUIDITY_HUNT_M1_MSS_RETEST', 'ICT_EXTERNAL_AND_INTERNAL_M1_SCALP'].includes(signal.strategy) &&
+    ['ICT_LIQUIDITY_HUNT_M1_MSS_RETEST', 'ICT_EXTERNAL_AND_INTERNAL_M1_SCALP', 'ICT_EXTERNAL_ONLY_M15_M30_M1_RETEST'].includes(signal.strategy) &&
     [signal.entry, signal.stopLoss, signal.target1].every(validNumber)
   );
 }
