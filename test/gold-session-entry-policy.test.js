@@ -35,7 +35,7 @@ test('Entry policy is enforced by engine, API agent gate, and Telegram new-entry
   const telegram=fs.readFileSync(new URL('../telegram-xau-bot-v2.js',import.meta.url),'utf8');
   assert.match(engine,/if\(!entryWindow.allowed\).*return;/);
   assert.match(agent,/if\(!tradeState.active&&!entryWindow.allowed\)/);
-  assert.ok(engine.includes('function validCandidatePlan(m,now=Date.now())') && engine.includes('freshRetest'));
-  assert.ok(engine.includes('now-lockRetest>15*60_000'));
+  assert.ok(engine.includes('function validCandidatePlan(m,now=Date.now())') && engine.includes('freshM1Setup'));
+  assert.ok(engine.includes('now-mssT>20*60_000'));
   assert.match(telegram,/goldEntryWindow\(issuedAtOf\(s\)\?\?now\)\.allowed/);
 });
