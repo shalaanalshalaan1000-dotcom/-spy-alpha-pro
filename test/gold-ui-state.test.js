@@ -7,12 +7,12 @@ const mapper=ui.split('const mapper = `')[1].split('`;')[0];
 const context=vm.createContext({goldBrowserReading:()=>({}),Date});
 vm.runInContext(mapper,context);
 const now=Date.now();
-const active={signalId:'SELL-1',status:'ACTIVE',side:'SELL',entered:true,triggered:true,entry:4189,stopLoss:4198.99,target1:4141.8,target2:4110.87,signalConfidence:98,quoteAgeMs:100,liveFeedFresh:true,updatedAt:new Date(now).toISOString(),tradeState:{signalId:'SELL-1',sweptName:'pdh',sweptLevel:4190,sweptAtMs:now-900000,mssTrigger:4188,mssAtMs:now-600000,m5RetestConfirmed:true,retestLevel:4188,retestAtMs:now-300000}};
+const active={signalId:'SELL-1',status:'ACTIVE',side:'SELL',entered:true,triggered:true,entry:4189,stopLoss:4198.99,target1:4141.8,target2:4110.87,signalConfidence:98,quoteAgeMs:100,liveFeedFresh:true,updatedAt:new Date(now).toISOString(),tradeState:{signalId:'SELL-1',sweptName:'pdh',sweptLevel:4190,sweptAtMs:now-900000,mssTrigger:4188,mssAtMs:now-600000,m1RetestConfirmed:true,retestLevel:4188,retestAtMs:now-300000}};
 test('active snapshot overrides a newly waiting context and unavailable confluence scores',()=>{
  const p=context.goldSignalReading({...active,ict:{executionStage:'WAIT_EXTERNAL_SWEEP'},confluence:{scores:{BUY:0,SELL:0},breakdown:{}}}).plan;
  assert.equal(p.locked,true);assert.equal(p.setupProgress,100);assert.equal(p.confidence,98);
  assert.match(p.missingCondition,/الصفقة مفعلة/);assert.doesNotMatch(p.missingCondition,/ننتظر/);
- assert.match(p.setupSteps,/pdh ✓ @ 4190.00/);assert.match(p.setupSteps,/M5 MSS ✓ @ 4188.00/);
+ assert.match(p.setupSteps,/pdh ✓ @ 4190.00/);assert.match(p.setupSteps,/M1 MSS\/CHoCH ✓ @ 4188.00/);
  assert.match(p.setupSteps,new RegExp(new Date(now-300000).toISOString().replaceAll('.','\\.')));
  assert.doesNotMatch(p.setupSteps,/Structure 0/);
 });
