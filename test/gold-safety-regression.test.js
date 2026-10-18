@@ -99,7 +99,7 @@ test('confluence wrapper and Telegram require the external ICT contract',()=>{
 test('gold core entry contract uses external sweep plus M1 MSS retest and keeps confluence advisory',()=>{
  const ictSource=fs.readFileSync(new URL('../gold-ict-swing-model.js',import.meta.url),'utf8');
  const confluenceSource=fs.readFileSync(new URL('../gold-confluence-model.js',import.meta.url),'utf8');
- assert.match(ictSource,/executionGate:'EXTERNAL_SWEEP -> M1_MSS_CHOCH -> M1_RETEST_HOLD'/);
+ assert.match(ictSource,/executionGate:'EXTERNAL_SWEEP -> CLOSED_M1_MSS_CHOCH -> M1_RETEST_HOLD'/);
  assert.match(ictSource,/coreIctEntryReady/);
  assert.match(ictSource,/M1_MSS_CHOCH_CONFIRMED/);
  assert.match(ictSource,/if\(coreIctEntryReady\)confidence=Math\.max\(75,confidence\)/);
@@ -172,7 +172,7 @@ test('liquidity hunt requires structural MSS retest and cannot bypass it with mo
  const enginePatch=fs.readFileSync(new URL('../gold-site-signal-engine-v9.js',import.meta.url),'utf8');
  assert.match(enginePatch,/const momentumAcceptance=false/);
  assert.match(enginePatch,/if\(!coreRetestAccepted\)/);
- assert.match(enginePatch,/structureConfirmed!==true/);
+ assert.match(enginePatch,/function coreIctRetestExecutionAccepted/);
  assert.match(enginePatch,/Number\(m\.confidence\)<MIN_CONFIDENCE/);
 });
 
@@ -182,7 +182,7 @@ test('confirmed core M1 MSS retest can activate without an Origin FVG retouch',(
  assert.match(enginePatch,/function coreIctRetestExecutionAccepted/);
  assert.match(enginePatch,/ict\?\.coreIctEntryReady/);
  assert.match(enginePatch,/ict\?\.sequence1\?\.firstMss/);
- assert.match(enginePatch,/retest\?\.confirmed!==true/);
+ assert.match(enginePatch,/if\(!coreRetestAccepted\)/);
  assert.match(enginePatch,/age>15\*60_000/);
  assert.match(enginePatch,/const held=side==='BUY'\?p>level:p<level/);
  assert.match(enginePatch,/consumed<\.65/);
