@@ -184,7 +184,7 @@ test('confirmed core M1 MSS retest can activate without an Origin FVG retouch',(
  assert.match(enginePatch,/ict\?\.sequence1\?\.firstMss/);
  assert.match(enginePatch,/if\(!coreRetestAccepted\)/);
  assert.match(enginePatch,/now-mssT>20\*60_000/);
- assert.match(enginePatch,/const held=side==='BUY'\?p>level:p<level/);
+ assert.match(enginePatch,/const held=side==='BUY'\?second\.close>level:second\.close<level/);
  assert.match(enginePatch,/consumed<\.65/);
  assert.match(enginePatch,/entryConfirmation:coreRetestAccepted\?'M1_MSS_RETEST_HOLD'/);
  assert.doesNotMatch(uiSource,/Origin FVG محددة؛ ننتظر رجوع السعر إلى منطقة الدخول/);
