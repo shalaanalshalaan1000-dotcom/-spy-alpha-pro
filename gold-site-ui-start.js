@@ -69,7 +69,7 @@ function patchSiteSignalUi(source) {
   );
   source = source.replace(
     "$('#goldConfidence').textContent=plan.state==='COLLECTING'?(plan.sampleCount+' عينة • '+plan.spanMinutes+' / 5 د'):('التأكيد '+plan.confidence+'% • الحركة المتوقعة '+(plan.expectedMove5!=null?money(plan.expectedMove5):'—')+' ('+(plan.expectedMovePct!=null?plan.expectedMovePct+'%':'—')+')');",
-    "$('#goldConfidence').textContent=(plan.state==='UP'||plan.state==='DOWN')?'ICT مكتمل':(plan.candidate?(plan.candidateLocked?'خطة ICT مثبتة — Entry/SL/Targets ثابتة':((plan.ict?.coreIctEntryReady&&plan.ict?.m5MssRetest?.confirmed)?'M1 MSS/CHoCH + Retest/Hold مكتمل — بانتظار التفعيل اللحظي':'ICT sequence قيد المتابعة')):(plan.state==='COLLECTING'?'تهيئة بيانات ICT':'ICT sequence قيد المتابعة'));"
+    "$('#goldConfidence').textContent=(plan.state==='UP'||plan.state==='DOWN')?'ICT مكتمل':(plan.candidate?(plan.candidateLocked?'خطة ICT مثبتة — Entry/SL/Targets ثابتة':((plan.ict?.coreIctEntryReady&&plan.ict?.m1MssRetest?.confirmed)?'M1 MSS/CHoCH + Retest/Hold مكتمل — بانتظار التفعيل اللحظي':'ICT sequence قيد المتابعة')):(plan.state==='COLLECTING'?'تهيئة بيانات ICT':'ICT sequence قيد المتابعة'));"
   );
   source = source.replace(
     "lock={state:plan.state,entry:p,target1:t1",
@@ -97,7 +97,7 @@ function patchSiteSignalUi(source) {
   if(/USD_NEWS_BLACKOUT|NEWS RISK/.test(u))return 'فلتر الأخبار يمنع الدخول مؤقتًا';
    if(/ICT CONTEXT WAIT/.test(u))return 'السيولة مرصودة؛ ننتظر MSS/Displacement أو تأكيد بنيوي مكافئ قبل التنفيذ';
    if(/WAITING_ENTRY_RANGE/.test(u)){const g=raw?.entryGuard||{};return Number.isFinite(Number(g.entryLow))&&Number.isFinite(Number(g.entryHigh))?'خطة ICT غير مكتملة بعد — ننتظر نطاق التنفيذ '+Number(g.entryLow).toFixed(2)+' – '+Number(g.entryHigh).toFixed(2):'خطة ICT غير مكتملة بعد — ننتظر نطاق التنفيذ';}
-   if(st==='CANDIDATE'&&raw?.ict?.coreIctEntryReady&&raw?.ict?.m5MssRetest?.confirmed)return raw?.candidateLocked?'بوابة ICT مكتملة — الخطة مثبتة؛ FVG/OB/iFVG دعم فقط':'بوابة ICT مكتملة — M1 MSS/CHoCH + Retest/Hold؛ FVG/OB/iFVG دعم فقط';
+   if(st==='CANDIDATE'&&raw?.ict?.coreIctEntryReady&&raw?.ict?.m1MssRetest?.confirmed)return raw?.candidateLocked?'بوابة ICT مكتملة — الخطة مثبتة؛ FVG/OB/iFVG دعم فقط':'بوابة ICT مكتملة — M1 MSS/CHoCH + Retest/Hold؛ FVG/OB/iFVG دعم فقط';
    if(st==='CANDIDATE')return raw?.candidateLocked?'خطة ICT مثبتة — ننتظر اكتمال M1 MSS/CHoCH + Retest/Hold':'ننتظر M1 MSS/CHoCH + Retest/Hold';
   return 'بانتظار External Sweep ثم M1 MSS/CHoCH + Retest/Hold';
  }
