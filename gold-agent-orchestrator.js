@@ -105,9 +105,9 @@ function marketAgent(source = {}, now = Date.now()) {
   const news = source.newsRisk || {};
   const blockedByNews = Boolean(news.blockEntries);
   const liquidity = Boolean(ict?.hasSweep || ict?.legSweep || ict?.sweep || source?.confluence?.liquidity?.externalSweep) || inferCondition(source, ['liquidity', 'sweep', 'session low', 'session high']);
-  const mss = Boolean(ict?.m5MssEvent?.mss || ict?.hasShift || ict?.mss || ict?.firstMssEvent) || inferCondition(source, ['mss', 'choch', 'structure shift']);
+  const mss = Boolean(ict?.sequence1?.firstMss || ict?.hasShift || ict?.mss || ict?.firstMssEvent) || inferCondition(source, ['mss', 'choch', 'structure shift']);
   const displacement = Boolean(ict?.hasDisplacement || ict?.displacement || ict?.firstDisplacementEvent) || inferCondition(source, ['displacement', 'impulse']);
-  const retest = Boolean(ict?.m5MssRetest?.confirmed || ict?.hasIfvgRetest || ict?.retest || ict?.inverseFvg?.retested) || inferCondition(source, ['retest']);
+  const retest = Boolean(ict?.m1MssRetest?.confirmed || ict?.hasIfvgRetest || ict?.retest || ict?.inverseFvg?.retested) || inferCondition(source, ['retest']);
 
   return {
     name: 'MARKET_AGENT',
