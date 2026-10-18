@@ -134,13 +134,13 @@ function precedingPivot(bars,side){
   if(valid)return v;}return null;
 }
 // BTC mirrors gold: external sweep -> closed M1 MSS/displacement -> later M1 retest/hold.
-export function detectBtcIctSequence({M1=[],externalLevels=[],now=Date.now(),atr1=null}={}){
+export function detectBtcIctSequence({M1=[],externalLevels=[],externalSweep=null,now=Date.now(),atr1=null}={}){
  const bars=M1.filter(b=>validM1(b,now)).sort((a,b)=>a.t-b.t),a=atr1||atr(bars)||50;
- const levels=externalLevels.filter(p=>p.targetEligible===true&&(['PWH','PWL','PDH','PDL'].includes(p.label)||String(p.label||'').startsWith('M1I_'))),found=[];
+ const levels=externalLevels.filter(p=>p.targetEligible===true&&['PWH','PWL','PDH','PDL'].includes(p.label)),found=[];
  for(let s=Math.max(7,bars.length-240);s<bars.length-2;s++){
-  const sweep=bars[s];if(now-(sweep.t+60000)>4*3600000)continue;
-  for(const pool of levels){const side=sideFor(pool),isBuy=side==='BUY';
-   if(!(isBuy?sweep.low<pool.level&&sweep.close>pool.level:sweep.high>pool.level&&sweep.close<pool.level))continue;
+  const sweep=bars[s];if(!externalSweep||sweep.t<=externalSweep.t||now-(sweep.t+60000)>4*3600000)continue;
+  for(const pool of levels){const side=externalSweep.side,isBuy=side==='BUY';
+   if(pool.label!==externalSweep.label)continue;
    const trigger=precedingPivot(bars.slice(Math.max(0,s-60),s),side);if(trigger==null)continue;
    const extreme=isBuy?sweep.low:sweep.high;
    for(let i=s+1;i<Math.min(bars.length,s+21);i++){
@@ -180,39 +180,39 @@ export function detectBtcIctSequence({M1=[],externalLevels=[],now=Date.now(),atr
 export function analyzeBtcIct({M1=[],M5=[],M15=[],H1=[],H4=[],D1=[],ticker={},now=Date.now()}={}){
  const price=num(ticker.price),closed1=M1.filter(b=>validM1(b,now)).sort((a,b)=>a.t-b.t),closed5=M5.filter(b=>b&&Number.isFinite(b.t)&&b.t+300000<=now&&Number.isFinite(b.close)).sort((a,b)=>a.t-b.t);
  const dol=buildBtcDolMap({M5:closed5,M15,H1,H4,D1,price,now});
- // Confirmed M1 swing pools inside the recent range are eligible for short-duration scalps.
- const internalBars=closed1.slice(-120), internalPivots=pivots(internalBars,2,2);
- const rangeHigh=internalBars.length?Math.max(...internalBars.map(b=>b.high)):null;
- const rangeLow=internalBars.length?Math.min(...internalBars.map(b=>b.low)):null;
- const internalLevels=[
-   ...internalPivots.highs.slice(-4).map(p=>({timeframe:'M1',label:'M1I_BSL_'+p.t,level:round(p.price),price:round(p.price),liquiditySide:'BSL',liquidityClass:'INTERNAL_RANGE',targetEligible:true,evidence:'CONFIRMED_M1_SWING_INSIDE_RECENT_RANGE'})),
-   ...internalPivots.lows.slice(-4).map(p=>({timeframe:'M1',label:'M1I_SSL_'+p.t,level:round(p.price),price:round(p.price),liquiditySide:'SSL',liquidityClass:'INTERNAL_RANGE',targetEligible:true,evidence:'CONFIRMED_M1_SWING_INSIDE_RECENT_RANGE'}))
- ].filter(p=>p.level!=null&&p.level>0&&rangeHigh!=null&&rangeLow!=null&&p.level<=rangeHigh&&p.level>=rangeLow);
- dol.levels=[...(dol.levels||[]),...internalLevels];
+ const externalLevels=(dol.levels||[]).filter(p=>p.targetEligible===true&&['PWH','PWL','PDH','PDL'].includes(p.label));
+ const closed15=M15.filter(b=>b&&Number.isFinite(b.t)&&b.t+900000<=now&&Number.isFinite(b.open)&&Number.isFinite(b.high)&&Number.isFinite(b.low)&&Number.isFinite(b.close)).sort((a,b)=>a.t-b.t);
+ const closed30=aggregate(closed15,0.5).filter(b=>b.t+1800000<=now);
+ const sweepBars=[...closed15.map(b=>({...b,tf:'M15'})),...closed30.map(b=>({...b,tf:'M30'}))].sort((a,b)=>a.t-b.t);
+ const externalSweeps=[];
+ for(const b of sweepBars){for(const p of externalLevels){const buy=p.liquiditySide==='SSL'&&b.low<p.level&&b.close>p.level;const sell=p.liquiditySide==='BSL'&&b.high>p.level&&b.close<p.level;if(buy||sell)externalSweeps.push({label:p.label,level:p.level,liquiditySide:p.liquiditySide,side:buy?'BUY':'SELL',t:b.t,tf:b.tf,extreme:buy?b.low:b.high});}}
+ const latestSweep=externalSweeps.sort((a,b)=>b.t-a.t)[0]||null;
  const qt=Date.parse(ticker.time||''),quoteFresh=Number.isFinite(qt)&&qt<=now+30000&&now-qt<=90000;
  const last=closed1.at(-1),oneFresh=last&&now-(last.t+60000)<=180000;
- const base={symbol:'BTCUSD',strategy:'ICT_EXTERNAL_AND_INTERNAL_M1_SCALP',tradeStyle:'ICT_EXTERNAL_PLUS_INTERNAL_LIQUIDITY',
+ const base={symbol:'BTCUSD',strategy:'ICT_EXTERNAL_ONLY_M15_M30_M1_RETEST',tradeStyle:'EXTERNAL_LIQUIDITY_ONLY',
    status:'WAIT',action:'WAIT',side:null,executable:false,executionMode:'SIGNALS_ONLY',
    confidence:0,confidenceIsProbability:false,price:round(price),entry:null,stopLoss:null,target1:null,
    target2:null,target3:null,target4:null,targetLabels:[],lotSizing:null,riskReward:null,dol,
-   ict:{gate:'EXTERNAL_OR_INTERNAL_M1_SWEEP -> CLOSED_M1_MSS_CHOCH_DISPLACEMENT -> LATER_M1_RETEST_HOLD',externalOnly:false,internalLiquidityScalps:true,confirmed:false,
-    m15Role:'CONTEXT_ONLY',m1Role:'EXECUTION_GATE',m5Role:'CONTEXT_ONLY',quoteFresh,oneFresh:Boolean(oneFresh)},
-   updatedAt:new Date(now).toISOString(),reason:'BTC ICT WAIT — external/internal liquidity sweep, closed M1 MSS/CHoCH, displacement and later M1 retest/hold'};
+   ict:{gate:'CLOSED_M15_OR_M30_EXTERNAL_SWEEP -> CLOSED_M1_MSS_OR_CHOCH_AND_DISPLACEMENT -> LATER_M1_RETEST_HOLD',externalOnly:true,internalLiquidityScalps:false,confirmed:false,
+    externalSweep:latestSweep,m15Role:'EXTERNAL_SWEEP_GATE',m30Role:'EXTERNAL_SWEEP_GATE',m1Role:'EXECUTION_GATE',m5Role:'CONTEXT_ONLY',quoteFresh,oneFresh:Boolean(oneFresh)},
+   updatedAt:new Date(now).toISOString(),reason:'BTC ICT WAIT — confirmed external M15/M30 sweep, then closed M1 MSS/CHoCH, displacement and later M1 retest/hold'};
  if(price==null||!quoteFresh||!oneFresh||closed1.length<30)return{...base,reason:'BTC ICT WAIT — fresh quote plus completed M1 history required'};
  const atr1=atr(closed1)||price*.0005;
- const sequence=detectBtcIctSequence({M1:closed1,externalLevels:dol.levels,atr1,now})[0];
+ const sequence=detectBtcIctSequence({M1:closed1,externalLevels,externalSweep:latestSweep,atr1,now})[0];
  if(!sequence)return base;
  const side=sequence.side,dir=side==='BUY'?1:-1,objectives=projectBtcDolSide(dol,side,price);
+ const opposing=externalLevels.filter(x=>x.liquiditySide===(side==='BUY'?'BSL':'SSL')&&(side==='BUY'?x.level>price:x.level<price)).sort((a,b)=>Math.abs(a.level-price)-Math.abs(b.level-price))[0]||null;
+ const midpoint=opposing&&latestSweep?round((Number(latestSweep.level)+Number(opposing.level))/2):null;
  const anchor=side==='BUY'?Math.min(sequence.extreme,sequence.retestLow):Math.max(sequence.extreme,sequence.retestHigh);
  const stop=round(anchor-dir*Math.max(2,atr1*.22)),risk=Math.abs(price-stop);
- const targets=objectives.objectives.filter(x=>x.liquidityClass==='INTERNAL_RANGE'?x.distance>=Math.max(2,risk*.8):x.distance>=Math.max(10,risk*.8)).slice(0,4);
+ const targets=opposing&&midpoint!=null?[{label:'TP1_50_PERCENT_RANGE',level:midpoint,price:midpoint,distance:Math.abs(midpoint-price),liquidityClass:'EXTERNAL_RANGE_MIDPOINT'},{...opposing,label:'TP2_OPPOSING_EXTERNAL_LIQUIDITY',distance:Math.abs(opposing.level-price)}].filter(x=>side==='BUY'?x.level>price:x.level<price):[];
  const drift=Math.abs(price-sequence.retestClose),maxDrift=Math.max(20,Math.min(200,atr1*2.5));
  const ict={...base.ict,confirmed:true,legSweep:{name:sequence.pool.label,level:sequence.pool.level,
-   liquidityClass:sequence.pool.liquidityClass==='INTERNAL_RANGE'?'INTERNAL_RANGE':'EXTERNAL',t:sequence.sweepAt,extreme:round(sequence.extreme)},
-   setupLiquidityClass:sequence.pool.liquidityClass==='INTERNAL_RANGE'?'INTERNAL_RANGE':'EXTERNAL',
+   liquidityClass:'EXTERNAL',timeframe:latestSweep?.tf,level:latestSweep?.level,t:sequence.sweepAt,extreme:round(sequence.extreme)},
+   setupLiquidityClass:'EXTERNAL',
    m1MssEvent:sequence.mss,m1MssRetest:sequence.retest,activeSequence:sequence,atr1:round(atr1),executionTimeframe:'M1'};
  if(risk<=0||dir*(price-stop)<=0||!targets.length||drift>maxDrift){
-   return{...base,dol:objectives,ict,reason:!targets.length?'BTC ICT WAIT — no valid external or internal liquidity TP with enough reward':drift>maxDrift?'BTC ICT NO CHASE — price too far from M1 retest':'BTC ICT WAIT — invalid structural stop'};
+   return{...base,dol:objectives,ict,reason:!targets.length?'BTC ICT WAIT — opposing external liquidity target unavailable':drift>maxDrift?'BTC ICT NO CHASE — price too far from M1 retest':'BTC ICT WAIT — invalid structural stop'};
  }
  const rr=targets[0].distance/risk;
  if(rr<.8)return{...base,dol:objectives,ict,reason:'BTC ICT WAIT — minimum 0.8R to first valid liquidity TP not met'};
@@ -220,7 +220,7 @@ export function analyzeBtcIct({M1=[],M5=[],M15=[],H1=[],H4=[],D1=[],ticker={},no
    setupId:sequence.setupId,entry:round(price),stopLoss:stop,target1:targets[0]?.level??null,
    target2:targets[1]?.level??null,target3:targets[2]?.level??null,target4:targets[3]?.level??null,
    targetLabels:targets.map(x=>x.label),riskReward:round(rr),lotSizing:lotSizing(price,stop),
-   dol:objectives,ict,reason:'BTC ICT '+side+' — '+(sequence.pool.liquidityClass==='INTERNAL_RANGE'?'internal M1 liquidity scalp':'external '+sequence.pool.label)+' sweep, displaced closed M1 MSS, subsequent M1 retest/hold. Target class: '+sequence.pool.liquidityClass+'.'};
+   dol:objectives,ict,reason:'BTC ICT '+side+' — closed '+latestSweep.tf+' '+latestSweep.label+' external sweep, then M1 MSS/CHoCH, displacement and later retest/hold. TP1=50% range; TP2=opposing external liquidity.'};
 }
 function reached(side, price, target) {
   const p = num(price), t = num(target);
