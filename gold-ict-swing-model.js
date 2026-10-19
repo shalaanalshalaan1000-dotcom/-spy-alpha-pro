@@ -702,7 +702,8 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const m5Retest={confirmed:false,sourceTf:'M5_CONTEXT_ONLY'};
   const m5MssRetest={confirmed:false,sourceTf:'M1_ONLY_EXECUTION'};
   const m1MssRetest=sequence1?.firstMss?{...m5RetestAfterMss(m1,side,sequence1.firstMss,atr1,legSweep?.extreme),sourceTf:'M1'}:{confirmed:false,sourceTf:'M1'};
-  const coreIctEntryReady=Boolean(hasSweep&&sequence1?.firstMss&&sequence1?.firstDisplacement&&m1MssRetest?.confirmed);
+  // Retest is advisory only: do not suppress a valid external sweep + closed M1 MSS + displacement.
+  const coreIctEntryReady=Boolean(hasSweep&&sequence1?.firstMss&&sequence1?.firstDisplacement);
   const shift5=sequence5?.firstAny??null;
   const shift1=sequence1?.firstAny??null;
   const shift15=hasSweep?shiftAfter(m15,side,legSweep.t,atr15):null;
