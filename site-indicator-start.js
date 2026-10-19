@@ -100,7 +100,7 @@ function mapIndicator(source = {}) {
     executable: Boolean(agentStack.decision?.executable),
     confidence: Number.isFinite(confidence) ? confidence : 0,
     price: Number.isFinite(Number(source.price)) ? Number(source.price) : null,
-    timeframe: '1h/15m context / 5m multi-model confluence / 1m timing',
+    timeframe: 'W1/D1/H4/H1/M15 context / external sweep + M1 MSS/displacement/retest',
     provider: source.provider || null,
     status: activeTrade ? (source.status || 'ACTIVE') : (blockedByNews ? 'NEWS_BLOCK' : (source.status || 'WAIT')),
     tradeState: activeTrade ? {...tradeState,active:true,side:authoritativeSide||tradeState?.side||source.side||null} : tradeState,
