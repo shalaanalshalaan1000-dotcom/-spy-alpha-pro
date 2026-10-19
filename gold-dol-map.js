@@ -58,7 +58,7 @@ export function buildGoldDolMap(source={},now=Date.now()){
   const m1Mss=Boolean(ict?.firstMssEvent||ict?.sequence1?.firstMss||ict?.m1MssEvent?.confirmed);
   const m1Displacement=Boolean(ict?.firstDisplacementEvent||ict?.sequence1?.firstDisplacement||ict?.hasDisplacement);
   const m1Retest=Boolean(ict?.m1MssRetest?.confirmed);
-  const setupChecksPassed=Boolean(ict?.coreIctEntryReady&&m1Mss&&m1Retest&&ict?.legSweep?.liquidityClass==='EXTERNAL');
+  const setupChecksPassed=Boolean(ict?.coreIctEntryReady&&m1Mss&&m1Displacement&&m1Retest&&ict?.legSweep?.liquidityClass==='EXTERNAL');
   const entryEligible=Boolean(entryWindow.allowed&&setupChecksPassed&&side!=='WAIT');
   return {
     model:'ICT_MULTI_TIMEFRAME_DOL_V1',
