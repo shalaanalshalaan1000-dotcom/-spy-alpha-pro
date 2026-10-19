@@ -8,7 +8,7 @@ test('top-down DOL map only promotes named external references, not raw H1/H4/M1
     pwh:4370,pdh:4320,asiaHigh:4315
   },dir15:1}};
   const d=buildGoldDolMap(source);
-  assert.deepEqual(d.timeframeHierarchy,['W1','D1','H4','H1','M15','M5']);
+  assert.deepEqual(d.timeframeHierarchy,['W1','D1','H4','H1','M15','M1']);
   assert.equal(d.byTimeframe.H4[0].targetEligible,false);
   assert.equal(d.byTimeframe.H1[0].targetEligible,false);
   assert.equal(d.m15.direction,'BUY');
@@ -38,14 +38,14 @@ test('no named sources or direction means WAIT, never fabricate a TP',()=>{
   assert.equal(buildGoldDolMap({}).dataStatus,'NO_NAMED_LIQUIDITY_LEVELS');
 });
 
-test('DOL map is non-mutating and cannot promote an unconfirmed M5 retest to entry',()=>{
+test('DOL map is non-mutating and cannot promote an unconfirmed M1 retest to entry',()=>{
   const s={price:4300,side:'BUY',target1:4304,tradeState:{active:true},ict:{
     coreIctEntryReady:false,legSweep:{liquidityClass:'EXTERNAL'},
-    m5MssEvent:{mss:true},m5MssRetest:{confirmed:false},
+    firstMssEvent:{confirmed:true},firstDisplacementEvent:{confirmed:true},m1MssRetest:{confirmed:false},
     levels:{pdh:4320}
   }};
   const before=JSON.stringify(s),d=buildGoldDolMap(s);
-  assert.equal(d.m5.confirmed,false);
+  assert.equal(d.m1.confirmed,false);
   assert.equal(d.canChangeActiveTargets,false);
   assert.equal(d.advisoryOnly,true);
   assert.equal(JSON.stringify(s),before);
