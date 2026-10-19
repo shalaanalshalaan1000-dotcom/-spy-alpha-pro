@@ -69,6 +69,21 @@ function getJson(path) {
   });
 }
 
+function buildClosedMinuteCandles(history={}) {
+  const points=Array.isArray(history?.prices)?history.prices:[];
+  const now=Date.now(),currentMinute=Math.floor(now/60000)*60000,buckets=new Map();
+  for(const point of points){
+    const price=Number(point?.p??point?.price??point?.close),rawTime=Number(point?.t??point?.time??point?.timestamp);
+    const t=Number.isFinite(rawTime)?(rawTime<1e12?rawTime*1000:rawTime):Date.parse(point?.t??point?.time??point?.timestamp);
+    if(!Number.isFinite(price)||price<=0||!Number.isFinite(t)||t<=0)continue;
+    const key=Math.floor(t/60000)*60000;
+    if(key>=currentMinute)continue;
+    const b=buckets.get(key);
+    if(!b)buckets.set(key,{t:key,open:price,high:price,low:price,close:price,closed:true});
+    else{b.high=Math.max(b.high,price);b.low=Math.min(b.low,price);b.close=price;}
+  }
+  return [...buckets.values()].sort((a,b)=>a.t-b.t);
+}
 function mapIndicator(source = {}) {
   const sourceStatus = String(source.status || '').toUpperCase();
   const tradeState = source.tradeState || source.agentStack?.tradeState || {};
@@ -372,7 +387,17 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url.pathname === '/api/site-indicator') {
     try {
       const upstream = await getJson('/api/auto-trade/signal?observe=1');
-      const payload = mapIndicator(upstream.data);
+      let indicatorSource=upstream.data;
+      // Read-only history fetch: convert gold price observations into closed M1 candles.
+      // Agents consume these candles but cannot create trades or alter the execution gate.
+      try {
+        const history=await getJson('/api/data/gold/candles');
+        const minuteCandles=buildClosedMinuteCandles(history.data);
+        if(minuteCandles.length) indicatorSource={...indicatorSource,timeframeCandles:{...(indicatorSource.timeframeCandles||{}),M1:minuteCandles},timeframeHistory:{provider:history.data?.provider||'GOLD_HISTORY',closedM1Candles:minuteCandles.length}};
+      } catch(error) {
+        indicatorSource={...indicatorSource,timeframeHistory:{status:'UNAVAILABLE',reason:String(error?.message||error)}};
+      }
+      const payload = mapIndicator(indicatorSource);
       res.writeHead(200, {
         'content-type': 'application/json; charset=utf-8',
         'cache-control': 'no-store',
