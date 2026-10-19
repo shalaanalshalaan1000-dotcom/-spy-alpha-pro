@@ -163,11 +163,11 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
 
   const bars={m1,m5,m15,h1,h4};const topDown=buildTopDownContext(bars,higherTimeframes);base.multiTimeframe=topDown;base.topDownReady=topDown.ready;
   const externalSweep=ict?.ict?.legSweep||ict?.ict?.sweep||null;
-  const externalNames=new Set(['pdh','pdl','pwh','pwl','h4swinghigh','h4swinglow','h1swinghigh','h1swinglow','m15swinghigh','m15swinglow','asiahigh','asialow','londonhigh','londonlow','nyhigh','nylow']);
-  const externalSweepValid=Boolean(externalSweep&&externalNames.has(String(externalSweep.name||'').toLowerCase())&&externalSweep.liquidityClass==='EXTERNAL');
+  const externalNames=new Set(['pdh','pdl','pwh','pwl','h4swinghigh','h4swinglow','h1swinghigh','h1swinglow','m15swinghigh','m15swinglow','asiahigh','asialow','tokyohigh','tokyolow','londonhigh','londonlow','nyhigh','nylow']);
+  const externalSweepName=String(externalSweep?.name||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const externalSweepValid=Boolean(externalSweep&&externalNames.has(externalSweepName)&&externalSweep.liquidityClass==='EXTERNAL');
   const ictSide=['BUY','SELL'].includes(ict?.candidateAction)?ict.candidateAction:null;
-  // Unified gold/BTC entry contract: only the core external-sweep -> closed M1 MSS/CHoCH
-  // -> displacement -> M1 retest/hold sequence may create a candidate. No classic/M5 fallback.
+  // Gold entry contract: named external sweep (including Tokyo high/low) -> closed M1 MSS/CHoCH -> displacement. Retest is advisory, not a gate.
   const ictM1EntryReady = Boolean(
     ict?.status === 'CANDIDATE' &&
     externalSweepValid &&
@@ -182,7 +182,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
         ? 'ICT WAIT — external sweep detected; waiting for closed M1 MSS/CHoCH.'
         : !(ict?.ict?.firstDisplacementEvent || ict?.ict?.sequence1?.firstDisplacement || ict?.ict?.hasDisplacement)
           ? 'ICT WAIT — M1 MSS/CHoCH detected; waiting for M1 displacement.'
-          : 'ICT WAIT — waiting for M1 retest/hold after the confirmed MSS/displacement.';
+          : 'ICT WAIT — M1 displacement is present but the upstream ICT model did not publish a CANDIDATE; inspect its status/sequence flags.';
     return {
       ...base,
       status: 'WAIT',
