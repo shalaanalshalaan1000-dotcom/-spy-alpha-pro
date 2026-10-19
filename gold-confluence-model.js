@@ -173,7 +173,6 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
     externalSweepValid &&
     ['BUY','SELL'].includes(ictSide) &&
     ict?.ict?.coreIctEntryReady === true &&
-    ict?.ict?.m1MssRetest?.confirmed === true &&
     Boolean(ict?.ict?.firstDisplacementEvent || ict?.ict?.sequence1?.firstDisplacement || ict?.ict?.hasDisplacement)
   );
   if (!ictM1EntryReady) {
