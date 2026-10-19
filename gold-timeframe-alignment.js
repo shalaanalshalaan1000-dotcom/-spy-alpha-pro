@@ -20,7 +20,7 @@ export function classifyGoldTimeframeAlignment(source = {}) {
     classification, side, h4Side: h4 || 'UNKNOWN', h1Side: h1 || 'UNKNOWN',
     h1Aligned: !side || !h1 || h1 === 'NEUTRAL' ? null : side === h1,
     advisoryOnly: true, entryGate: false,
-    methodology: 'H4 PRIMARY / H1 SECONDARY / ICT M5 ENTRY UNCHANGED'
+    methodology: 'W1/D1/H4/H1/M15 CONTEXT / ICT M1 ENTRY'
   };
 }
 
