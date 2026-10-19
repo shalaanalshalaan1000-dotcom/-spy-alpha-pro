@@ -53,16 +53,17 @@ function evaluate(tf, bars, fallbackLevels={}, now=Date.now()) {
   const latest=clean[clean.length-1], prior=clean.slice(0,-1);
   const lastHigh=highs[highs.length-1]||null,lastLow=lows[lows.length-1]||null;
   let mss=null;
-  // Search the available history for the latest closed-candle break of the most recent confirmed opposing swing.
-  if(lastHigh) for(let i=lastHigh.index+1;i<clean.length;i++) {
-    if(clean[i].close>lastHigh.price && clean[i-1].close<=lastHigh.price)
-      mss={status:'CONFIRMED',direction:'BULLISH',brokenSwing:lastHigh.price,confirmationTime:clean[i].t};
-  }
-  if(lastLow) for(let i=lastLow.index+1;i<clean.length;i++) {
-    if(clean[i].close<lastLow.price && clean[i-1].close>=lastLow.price) {
-      const candidate={status:'CONFIRMED',direction:'BEARISH',brokenSwing:lastLow.price,confirmationTime:clean[i].t};
-      if(!mss || Number(candidate.confirmationTime)>=Number(mss.confirmationTime)) mss=candidate;
-    }
+  // Walk forward: at each candle, use the latest swing that had already been confirmed then.
+  // This avoids incorrectly using a later pivot to judge an earlier structure break.
+  for(let i=1;i<clean.length;i++) {
+    const eligibleHighs=highs.filter(p=>p.index+2<i);
+    const eligibleLows=lows.filter(p=>p.index+2<i);
+    const priorHigh=eligibleHighs[eligibleHighs.length-1]||null;
+    const priorLow=eligibleLows[eligibleLows.length-1]||null;
+    if(priorHigh && clean[i].close>priorHigh.price && clean[i-1].close<=priorHigh.price)
+      mss={status:'CONFIRMED',direction:'BULLISH',brokenSwing:priorHigh.price,confirmationTime:clean[i].t};
+    if(priorLow && clean[i].close<priorLow.price && clean[i-1].close>=priorLow.price)
+      mss={status:'CONFIRMED',direction:'BEARISH',brokenSwing:priorLow.price,confirmationTime:clean[i].t};
   }
   // A sweep is reported when the latest closed candle pierced a confirmed swing and closed back inside.
   const sweepHigh=lastHigh && latest.high>lastHigh.price && latest.close<lastHigh.price;
