@@ -163,7 +163,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
 
   const bars={m1,m5,m15,h1,h4};const topDown=buildTopDownContext(bars,higherTimeframes);base.multiTimeframe=topDown;base.topDownReady=topDown.ready;
   const externalSweep=ict?.ict?.legSweep||ict?.ict?.sweep||null;
-  const externalNames=new Set(['pdh','pdl','pwh','pwl','h4SwingHigh','h4SwingLow','h1SwingHigh','h1SwingLow','m15SwingHigh','m15SwingLow','asiaHigh','asiaLow','londonHigh','londonLow','nyHigh','nyLow']);
+  const externalNames=new Set(['pdh','pdl','pwh','pwl','h4swinghigh','h4swinglow','h1swinghigh','h1swinglow','m15swinghigh','m15swinglow','asiahigh','asialow','londonhigh','londonlow','nyhigh','nylow']);
   const externalSweepValid=Boolean(externalSweep&&externalNames.has(String(externalSweep.name||'').toLowerCase())&&externalSweep.liquidityClass==='EXTERNAL');
   const ictSide=['BUY','SELL'].includes(ict?.candidateAction)?ict.candidateAction:null;
   // Unified gold/BTC entry contract: an external M15/HTF liquidity sweep is the setup gate;
