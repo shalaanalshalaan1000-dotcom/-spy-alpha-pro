@@ -55,15 +55,16 @@ export function buildGoldDolMap(source={},now=Date.now()){
   const explicitSweep=ict?.legSweep||ict?.liquiditySweep||ict?.sweep||null;
   const sweepConfirmed=Boolean(explicitSweep&&(explicitSweep.liquidityClass==='EXTERNAL'||explicitSweep.external===true));
   const sweepSide=String(explicitSweep?.side||explicitSweep?.direction||explicitSweep?.liquiditySide||'UNKNOWN').toUpperCase();
-  const m5Mss=Boolean(ict?.m5MssEvent?.mss||ict?.sequence5?.firstMss);
-  const m5Retest=Boolean(ict?.m5MssRetest?.confirmed);
-  const setupChecksPassed=Boolean(ict?.coreIctEntryReady&&m5Mss&&m5Retest&&ict?.legSweep?.liquidityClass==='EXTERNAL');
-  const entryEligible=Boolean(entryWindow.allowed&&setupChecksPassed&&m15Aligned&&side!=='WAIT');
+  const m1Mss=Boolean(ict?.firstMssEvent||ict?.sequence1?.firstMss||ict?.m1MssEvent?.confirmed);
+  const m1Displacement=Boolean(ict?.firstDisplacementEvent||ict?.sequence1?.firstDisplacement||ict?.hasDisplacement);
+  const m1Retest=Boolean(ict?.m1MssRetest?.confirmed);
+  const setupChecksPassed=Boolean(ict?.coreIctEntryReady&&m1Mss&&m1Retest&&ict?.legSweep?.liquidityClass==='EXTERNAL');
+  const entryEligible=Boolean(entryWindow.allowed&&setupChecksPassed&&side!=='WAIT');
   return {
     model:'ICT_MULTI_TIMEFRAME_DOL_V1',
     advisoryOnly:true,canCreateSignal:false,canOverrideIctGate:false,canChangeActiveTargets:false,
     price:round(price),side,drawSide,
-    timeframeHierarchy:['W1','D1','H4','H1','M15','M5'],
+    timeframeHierarchy:['W1','D1','H4','H1','M15','M1'],
     levels:records,objectives,nearest:objectives[0]||null,primary,
     liquidityMap:{
       model:'ICT_INTERNAL_EXTERNAL_LIQUIDITY_V1',advisoryOnly:true,canCreateSignal:false,
@@ -72,15 +73,15 @@ export function buildGoldDolMap(source={},now=Date.now()){
       internal:{count:internalPools.length,pools:internalPools,rangeKnown:validRange,reason:validRange?'SWINGS_INSIDE_DEALING_RANGE':'DEALING_RANGE_UNAVAILABLE'},
       unclassifiedSwings:{count:unclassifiedSwings.length,pools:unclassifiedSwings},
       sweep:{confirmed:sweepConfirmed,side:sweepSide,source:explicitSweep?'ICT_SOURCE':'NO_SWEEP_EVIDENCE'},
-      sequence:{externalSweep:sweepConfirmed,mss:Boolean(ict?.m5MssEvent?.mss||ict?.sequence5?.firstMss),displacement:Boolean(ict?.m5Displacement?.confirmed||ict?.displacement?.confirmed||ict?.sequence5?.displacement),retestHold:Boolean(ict?.m5MssRetest?.confirmed),entryRequiresExistingIctGate:true}
+      sequence:{externalSweep:sweepConfirmed,mss:m1Mss,displacement:m1Displacement,retestHold:m1Retest,entryTimeframe:'M1',entryRequiresExistingIctGate:true}
     },
     targetPreview:objectives.slice(0,4).map((x,i)=>({target:'TP'+(i+1),label:x.label,price:x.price,timeframe:x.timeframe,liquiditySide:x.liquiditySide})),
     byTimeframe:Object.fromEntries(['W1','D1','H4','H1','M15'].map(tf=>[tf,records.filter(x=>x.timeframe===tf)])),
     m15:{timeframe:'M15',direction:m15Direction,role:'CONTEXT_ONLY'},
-    m5:{timeframe:'M5',externalSweep:Boolean(ict?.legSweep?.liquidityClass==='EXTERNAL'),mss:m5Mss,retestHold:m5Retest,setupChecksPassed,confirmed:entryEligible,entryEligible,session:entryWindow.session,sessionEntryAllowed:entryWindow.allowed,sessionReason:entryWindow.reason,m15Aligned},
+    m1:{timeframe:'M1',externalSweep:Boolean(ict?.legSweep?.liquidityClass==='EXTERNAL'),mss:m1Mss,displacement:m1Displacement,retestHold:m1Retest,setupChecksPassed,confirmed:entryEligible,entryEligible,session:entryWindow.session,sessionEntryAllowed:entryWindow.allowed,sessionReason:entryWindow.reason,m15Aligned},
     dataStatus:records.length?'PARTIAL_OR_AVAILABLE':'NO_NAMED_LIQUIDITY_LEVELS',
-    entryGate:{allowed:entryEligible,session:entryWindow.session,sessionAllowed:entryWindow.allowed,m15Direction,m15Aligned,setupChecksPassed,reason:!entryWindow.allowed?entryWindow.reason:!m15Aligned?'M15_CONTEXT_CONFLICT':!setupChecksPassed?'ICT_SEQUENCE_NOT_FULLY_CONFIRMED':'ICT_ENTRY_GATES_PASSED'},
-    note:'Only named previous-day/week and session pools are eligible objectives. H1/H4/M15 swing levels are context unless independently proven external. This map never changes existing trade TP/SL or the external sweep + M5 MSS + M5 retest/hold gate.',
+    entryGate:{allowed:entryEligible,session:entryWindow.session,sessionAllowed:entryWindow.allowed,m15Direction,m15Aligned,setupChecksPassed,reason:!entryWindow.allowed?entryWindow.reason:!setupChecksPassed?'ICT_M1_SEQUENCE_NOT_FULLY_CONFIRMED':'ICT_ENTRY_GATES_PASSED'},
+    note:'Only named previous-day/week and session pools are eligible objectives. H1/H4/M15 swing levels are context unless independently proven external. This map never changes existing trade TP/SL or the external sweep + closed M1 MSS/displacement + M1 retest/hold gate.',
     updatedAt:new Date(now).toISOString()
   };
 }
