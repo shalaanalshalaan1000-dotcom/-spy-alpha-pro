@@ -2,7 +2,7 @@ import http from 'node:http';
 import https from 'node:https';
 
 const PORT=Number(process.env.PORT||3005);
-const BUILD='gold-data-bridge-v1';
+const BUILD='gold-data-bridge-v2-72h-history';
 let quoteCache={at:0,data:null};
 let histCache={at:0,data:null};
 
