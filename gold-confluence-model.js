@@ -47,7 +47,7 @@ function buildMonth6Support(topDown={},ict={},side=null){
     hasFairValueGap:Boolean(ict?.originFvg||poi?.fvg),hasOrderBlock:Boolean(ict?.orderBlock||poi?.orderBlock),
     drawOnLiquidity:draw?{label:draw.label||draw.role||'EXTERNAL_LIQUIDITY',price:n(draw.price??draw.level),sourceTimeframe:draw.sourceTimeframe||null}:null,
     htfConflict:false,
-    note:'Month 6 HTF and PD Array context is support-only; it never vetoes a valid M5 ICT external-liquidity setup.'
+    note:'Month 6 HTF and PD Array context is support-only; it never vetoes a valid external-sweep M1 MSS/displacement/retest setup.'
   };
 }
 
@@ -155,7 +155,7 @@ function liquidityReversalInvalidated(key,lastM5){
 export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimeframes={}){
   const price=n(rawPrice),classic=analyzeClassicModel(samples,rawPrice,now),ict=analyzeIctModel(samples,rawPrice,now,higherTimeframes);
   const m1all=minuteBars(samples),m1=closed(m1all,1,now),m5=closed(aggregate(m1all,5),5,now),m15=closed(aggregate(m1all,15),15,now),h1=closed(aggregate(m1all,60),60,now),h4=closed(aggregate(m1all,240),240,now);
-  const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'MULTI_MODEL_CONFLUENCE',tradeStyle:'MULTI_MODEL_CONFLUENCE',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',sampleCount:samples.length,modelTimeframes:{macro:'MN1/W1/D2/D1',context:'H4/H1/M15',setup:'M5 multi-model confluence',timing:'M1'},confluence:null,importantCandles:null,technicalRead:ict?.technicalRead||null,priceAction:ict?.priceAction||null,liquidityContext:ict?.ict||null,ict:ict?.ict||null,month5Context:null,updatedAt:new Date(now).toISOString(),reason:'Building multi-model context'};
+  const base={status:'COLLECTING',action:'WAIT',candidateAction:'WAIT',side:null,strategy:'MULTI_MODEL_CONFLUENCE',tradeStyle:'MULTI_MODEL_CONFLUENCE',confidence:0,price:round(price),entry:null,entryLow:null,entryHigh:null,stopLoss:null,target1:null,target2:null,target3:null,target4:null,targetLabels:[],riskReward:null,oneMinuteConfirmed:false,contextBias:'NEUTRAL',sampleCount:samples.length,modelTimeframes:{macro:'MN1/W1/D2/D1',context:'H4/H1/M15',setup:'External sweep -> closed M1 MSS/displacement -> M1 retest/hold',timing:'M1'},confluence:null,importantCandles:null,technicalRead:ict?.technicalRead||null,priceAction:ict?.priceAction||null,liquidityContext:ict?.ict||null,ict:ict?.ict||null,month5Context:null,updatedAt:new Date(now).toISOString(),reason:'Building multi-model context'};
   // M15 classical formations are strictly advisory. They do not affect the ICT entry gate,
   // side, confidence, stop, or external-liquidity targets.
   base.chartPatterns=analyzeGoldChartPatterns({m15,m5});
