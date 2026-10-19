@@ -391,7 +391,7 @@ const server = http.createServer(async (req, res) => {
       // Read-only history fetch: convert gold price observations into closed M1 candles.
       // Agents consume these candles but cannot create trades or alter the execution gate.
       try {
-        const history=await getJson('/api/data/gold/candles');
+        const history=await getJson('/api/data/candles');
         const minuteCandles=buildClosedMinuteCandles(history.data);
         if(minuteCandles.length) indicatorSource={...indicatorSource,timeframeCandles:{...(indicatorSource.timeframeCandles||{}),M1:minuteCandles},timeframeHistory:{provider:history.data?.provider||'GOLD_HISTORY',closedM1Candles:minuteCandles.length}};
       } catch(error) {
