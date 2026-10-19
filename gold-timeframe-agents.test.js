@@ -15,13 +15,13 @@ test('agents fail closed when candle history is missing', () => {
 test('each timeframe agent reports its own candle count', () => {
   const now = Date.now();
   const candles = [];
-  for (let i=180;i>=0;i--) {
+  for (let i=48*60;i>=0;i--) {
     const t = now - i*60_000;
-    const close = 4200 + Math.sin(i/4)*3 + (180-i)*0.015;
+    const close = 4200 + Math.sin(i/4)*3 + (48*60-i)*0.015;
     candles.push({t,open:close-0.2,high:close+0.6,low:close-0.7,close,closed:true});
   }
   const result = buildGoldTimeframeAgents({timeframeCandles:{M1:candles}}, now);
-  assert.equal(result.timeframes.M1.barsAvailable, 181);
+  assert.equal(result.timeframes.M1.barsAvailable, 48*60+1);
   assert.ok(result.timeframes.M15.barsAvailable >= 8);
   assert.ok(result.timeframes.M30.barsAvailable >= 8);
   assert.ok(result.timeframes.H1.barsAvailable >= 3);
