@@ -164,8 +164,54 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const bars={m1,m5,m15,h1,h4};const topDown=buildTopDownContext(bars,higherTimeframes);base.multiTimeframe=topDown;base.topDownReady=topDown.ready;
   const externalSweep=ict?.ict?.legSweep||ict?.ict?.sweep||null;
   const externalNames=new Set(['pdh','pdl','pwh','pwl','h4SwingHigh','h4SwingLow','h1SwingHigh','h1SwingLow','m15SwingHigh','m15SwingLow','asiaHigh','asiaLow','londonHigh','londonLow','nyHigh','nyLow']);
-  const externalSweepValid=Boolean(externalSweep&&externalNames.has(String(externalSweep.name||''))&&externalSweep.liquidityClass==='EXTERNAL');
+  const externalSweepValid=Boolean(externalSweep&&externalNames.has(String(externalSweep.name||'').toLowerCase())&&externalSweep.liquidityClass==='EXTERNAL');
   const ictSide=['BUY','SELL'].includes(ict?.candidateAction)?ict.candidateAction:null;
+  // Unified gold/BTC entry contract: an external M15/HTF liquidity sweep is the setup gate;
+  // only a completed M1 MSS/CHoCH followed by an M1 retest/hold may create an entry.
+  // M5 alignment, M5 MSS, FVG, OB, BOS, SNR and higher-timeframe agreement are context only.
+  if (
+    ict?.status === 'CANDIDATE' &&
+    externalSweepValid &&
+    ['BUY','SELL'].includes(ictSide) &&
+    ict?.ict?.coreIctEntryReady === true &&
+    ict?.ict?.m1MssRetest?.confirmed === true
+  ) {
+    const ictConfidence = Number(ict.confidence);
+    const confidence = Number.isFinite(ictConfidence) ? ictConfidence : 0;
+    return {
+      ...base,
+      ...ict,
+      status: 'CANDIDATE',
+      action: 'WAIT',
+      candidateAction: ictSide,
+      side: ictSide,
+      strategy: 'ICT_EXTERNAL_SWEEP_M1_MSS_RETEST',
+      tradeStyle: 'ICT_EXTERNAL_ONLY_M1_EXECUTION',
+      confidence,
+      signalConfidence: confidence,
+      confidenceIsProbability: false,
+      confluence: {
+        version: 'ICT_EXTERNAL_M1_UNIFIED_V1',
+        executionGate: 'EXTERNAL_SWEEP -> CLOSED_M1_MSS_DISPLACEMENT -> M1_RETEST_HOLD',
+        externalSweepValid: true,
+        m5ExecutionGate: false,
+        fvgRequired: false,
+        obRequired: false,
+        bosRequired: false,
+        higherTimeframesAdvisoryOnly: true
+      },
+      multiTimeframe: topDown,
+      ict: {
+        ...ict.ict,
+        externalOnly: true,
+        executionTimeframe: 'M1',
+        m5Role: 'CONTEXT_ONLY',
+        sequence: 'EXTERNAL_SWEEP -> CLOSED_M1_MSS_CHOCH -> M1_RETEST_HOLD',
+        entryReady: true
+      },
+      reason: `UNIFIED ICT ${ictSide} — confirmed external ${String(externalSweep.name).toUpperCase()} sweep, closed M1 MSS/CHoCH and M1 retest/hold. M5/FVG/OB/BOS/HTF alignment are context only.`
+    };
+  }
   const month3Sponsorship=buildMonth3Sponsorship({side:ictSide,candidate:ict,topDown,price,now});
   const month6Support=buildMonth6Support(topDown,ict?.ict,ictSide);
   topDown.month6Support=month6Support;
