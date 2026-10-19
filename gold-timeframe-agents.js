@@ -31,11 +31,11 @@ function swings(bars) {
   }
   return out;
 }
-function aggregate(bars, bucketMs) {
+function aggregate(bars, bucketMs, now=Date.now()) {
   const groups=[];
   for(const b of bars){
     const key=Number.isFinite(Number(b.t))?Math.floor(Number(b.t)/bucketMs):null;
-    if(key===null) continue;
+    if(key===null || key>=Math.floor(now/bucketMs)) continue;
     let g=groups[groups.length-1];
     if(!g || g._key!==key){g={_key:key,t:key*bucketMs,open:b.open,high:b.high,low:b.low,close:b.close,closed:true};groups.push(g);}
     else {g.high=Math.max(g.high,b.high);g.low=Math.min(g.low,b.low);g.close=b.close;}
@@ -77,16 +77,18 @@ export function buildGoldTimeframeAgents(source={}, now=Date.now()) {
   const raw30m=bars('M30','m30','30m','candlesM30');
   const raw1h=bars('H1','h1','1h','60m','candlesH1');
   const raw4h=bars('H4','h4','4h','240m','candlesH4');
-  const norm15=normalize(raw15m), norm30=normalize(raw30m), norm1h=normalize(raw1h);
-  // Aggregation is allowed only from complete native lower-timeframe candle series.
-  const bars30=norm30.length?raw30m:(norm15.length>=16?aggregate(norm15,30*60*1000):[]);
-  const bars4h=normalize(raw4h).length?raw4h:(norm1h.length>=16?aggregate(norm1h,4*60*60*1000):[]);
+  const norm1=normalize(raw1m), norm15=normalize(raw15m), norm30=normalize(raw30m), norm1h=normalize(raw1h), norm4h=normalize(raw4h);
+  // Build missing timeframes only from available lower-timeframe candles; current partial buckets are excluded.
+  const bars15=norm15.length?raw15m:(norm1.length>=30?aggregate(norm1,15*60*1000,now):[]);
+  const bars30=norm30.length?raw30m:(normalize(bars15).length>=4?aggregate(normalize(bars15),30*60*1000,now):(norm1.length>=60?aggregate(norm1,30*60*1000,now):[]));
+  const bars1h=norm1h.length?raw1h:(norm1.length>=120?aggregate(norm1,60*60*1000,now):[]);
+  const bars4h=norm4h.length?raw4h:(normalize(bars1h).length>=8?aggregate(normalize(bars1h),4*60*60*1000,now):(norm1.length>=480?aggregate(norm1,4*60*60*1000,now):[]));
   const levels=ict.levels||{};
   const agents={
     H4:evaluate('H4',bars4h,{high:levels.h4SwingHigh,low:levels.h4SwingLow},now),
     H1:evaluate('H1',raw1h,{high:levels.h1SwingHigh,low:levels.h1SwingLow},now),
     M30:evaluate('M30',bars30,{},now),
-    M15:evaluate('M15',raw15m,{high:levels.m15SwingHigh,low:levels.m15SwingLow},now),
+    M15:evaluate('M15',bars15,{high:levels.m15SwingHigh,low:levels.m15SwingLow},now),
     M1:evaluate('M1',raw1m,{},now)
   };
   return {model:'GOLD_INDEPENDENT_TIMEFRAME_AGENTS_V1',advisoryOnly:true,canCreateSignal:false,canChangeTradeGate:false,timeframes:agents,updatedAt:new Date(now).toISOString(),note:'Each agent uses its own closed candles. Missing candle data remains INSUFFICIENT_DATA; no MSS is copied from another timeframe.'};
