@@ -264,8 +264,8 @@ function tradeManagerAgent(source = {}, setup, now = Date.now()) {
   const executionEnabled = String(process.env.AGENT_EXECUTION_ENABLED || 'false').toLowerCase() === 'true';
 
   // Post-entry management is structure-first. Model confidence is advisory only:
-  // CONTINUE requires the original ICT sequence to remain structurally valid on M5,
-  // while an early STOP requires both a high-confidence opposite model and opposite M5 structure.
+  // CONTINUE requires the original ICT sequence to remain valid on M1;
+  // an early STOP requires both a high-confidence opposite model and opposite M1 structure.
   const managementMinConfidence = Math.max(75, toNum(process.env.GOLD_TRADE_MANAGEMENT_MIN_CONFIDENCE) ?? 82);
   const managementConfirmMs = Math.max(0, toNum(process.env.GOLD_TRADE_MANAGEMENT_CONFIRM_MS) ?? 5000);
   const liveModelSide = validSide(source.liveModelAction);
@@ -282,28 +282,28 @@ function tradeManagerAgent(source = {}, setup, now = Date.now()) {
   const oppositeConfirmed = Boolean(liveModelReady && liveModelSide !== side);
 
   const ict = ictStateOf(source);
-  const m5Side = validSide(source?.multiTimeframe?.reads?.M5?.side || source?.confluence?.multiTimeframe?.reads?.M5?.side);
+  const m1Side = validSide(source?.multiTimeframe?.reads?.M1?.side || source?.confluence?.multiTimeframe?.reads?.M1?.side);
   const liquidityConfirmed = Boolean(
     ict?.hasSweep || ict?.legSweep || ict?.sweep || source?.confluence?.liquidity?.externalSweep
   ) || inferCondition(source, ['liquidity', 'sweep', 'session low', 'session high']);
   const mssConfirmed = Boolean(
-    ict?.m5MssEvent?.mss || ict?.hasShift || ict?.mss || ict?.firstMssEvent || ict?.dm5?.mss || ict?.trendContinuation?.mss?.confirmed
+    ict?.m1MssEvent?.confirmed || ict?.hasShift || ict?.mss || ict?.firstMssEvent || ict?.sequence1?.firstMss || ict?.trendContinuation?.mss?.confirmed
   ) || inferCondition(source, ['mss', 'choch', 'structure shift']);
   const retestConfirmed = Boolean(
-    ict?.m5MssRetest?.confirmed || ict?.hasIfvgRetest || ict?.retest || ict?.inverseFvg?.retested || ict?.trendContinuation?.retested
+    ict?.m1MssRetest?.confirmed || ict?.hasIfvgRetest || ict?.retest || ict?.inverseFvg?.retested || ict?.trendContinuation?.retested
   ) || inferCondition(source, ['retest']);
   const displacementConfirmed = Boolean(
-    ict?.hasDisplacement || ict?.displacement || ict?.firstDisplacementEvent || ict?.dm5?.displacement
+    ict?.hasDisplacement || ict?.displacement || ict?.firstDisplacementEvent || ict?.sequence1?.firstDisplacement
   ) || inferCondition(source, ['displacement', 'impulse']);
-  const m5SupportsTrade = Boolean(m5Side && m5Side === side);
-  const m5OpposesTrade = Boolean(m5Side && m5Side !== side);
+  const m1SupportsTrade = Boolean(m1Side && m1Side === side);
+  const m1OpposesTrade = Boolean(m1Side && m1Side !== side);
   const structureValid = Boolean(
     signalId && ['BUY','SELL'].includes(side) &&
-    liquidityConfirmed && mssConfirmed && retestConfirmed && m5SupportsTrade
+    liquidityConfirmed && mssConfirmed && displacementConfirmed && retestConfirmed
   );
   const structureInvalidated = Boolean(
     signalId && ['BUY','SELL'].includes(side) &&
-    m5OpposesTrade && oppositeConfirmed
+    m1OpposesTrade && oppositeConfirmed
   );
   const structureState = stopped || structureInvalidated
     ? 'INVALIDATED'
@@ -318,20 +318,20 @@ function tradeManagerAgent(source = {}, setup, now = Date.now()) {
     candidateReason = 'Current price reached the active stop.';
   } else if (structureInvalidated) {
     candidateAction = 'STOP';
-    candidateReason = `Opposite ${liveModelSide} model is confirmed and M5 structure also flipped ${m5Side}; exit the current ${side} trade.`;
+    candidateReason = `Opposite ${liveModelSide} model is confirmed and M1 structure also flipped ${m1Side}; exit the current ${side} trade.`;
   } else if (sameSideConfirmed && structureValid) {
     candidateAction = 'CONTINUE';
-    candidateReason = `ICT structure remains valid on M5; ${liveModelSide} model alignment is advisory confirmation only.`;
+    candidateReason = `ICT external-sweep/MSS/displacement/retest sequence remains valid on M1; ${liveModelSide} model alignment is advisory confirmation only.`;
   } else if (oppositeConfirmed) {
-    candidateReason = `Opposite ${liveModelSide} model is advisory only because M5 structure has not confirmed invalidation.`;
+    candidateReason = `Opposite ${liveModelSide} model is advisory only because M1 structure has not confirmed invalidation.`;
   } else if (sameSideConfirmed) {
-    candidateReason = `Same-side ${liveModelSide} model is advisory only because the ICT/M5 structure is not fully confirmed.`;
+    candidateReason = `Same-side ${liveModelSide} model is advisory only because the ICT/M1 structure is not fully confirmed.`;
   }
 
   let confirmed = stopped;
   let stableForMs = stopped ? managementConfirmMs : 0;
   if (!stopped && ['STOP', 'CONTINUE'].includes(candidateAction)) {
-    const signature = [signalId, candidateAction, liveModelSide, structureState, m5Side || 'NA'].join('|');
+    const signature = [signalId, candidateAction, liveModelSide, structureState, m1Side || 'NA'].join('|');
     if (!memory.managementTrack || memory.managementTrack.signature !== signature) {
       memory.managementTrack = {signature, firstSeenAtMs:now};
     }
@@ -356,7 +356,7 @@ function tradeManagerAgent(source = {}, setup, now = Date.now()) {
     structureState,
     structureConfirmed: structureValid,
     structureInvalidated,
-    m5Side,
+    m1Side,
     liquidityConfirmed,
     mssConfirmed,
     displacementConfirmed,
@@ -408,10 +408,10 @@ function sessionAgent(source = {}) {
   const session = source.sessionLiquidity || source.sessionLevels || source.sessions || source.liquidity || null;
   return {
     name: 'SESSION_LIQUIDITY_AGENT',
-    timeframe: 'M15/M30 context; M5 confirmation',
+    timeframe: 'M15/M30 external-liquidity context; M1 execution',
     data: session,
     detectedFromSetup: inferCondition(source, ['london', 'new york', 'tokyo', 'session', 'liquidity', 'sweep']),
-    rule: 'Session high/low breaks are alerts; entries require a confirmed structure shift/retest.'
+    rule: 'Session high/low breaks are alerts; entries require external sweep -> closed M1 MSS/CHoCH + displacement -> M1 retest/hold.'
   };
 }
 
@@ -466,7 +466,7 @@ function amdSessionAgent(source = {}, session = {}, market = {}, setup = {}, now
       candidate: distributionCandidate,
       newYorkContextAvailable: Boolean(newYork),
       newYorkStatus: newYork?.status || null,
-      requiresM5Structure: true
+      requiresM1Structure: true
     },
     londonStatus: london?.status || null,
     structureConfirmed,
@@ -475,7 +475,7 @@ function amdSessionAgent(source = {}, session = {}, market = {}, setup = {}, now
     canCreateSignal: false,
     canOverrideIctGate: false,
     updatedAt: new Date(now).toISOString(),
-    rule: 'AMD is session context only: Asia range -> external-liquidity manipulation -> M5 MSS/displacement/retest -> distribution context. It never creates or authorizes a trade by itself.'
+    rule: 'AMD is session context only: Asia range -> external-liquidity manipulation -> M1 MSS/displacement/retest -> distribution context. It never creates or authorizes a trade by itself.'
   };
 }
 
@@ -488,26 +488,26 @@ function liquidityDecisionAgent(source = {}, setup = {}, now = Date.now()) {
   const sweep = ict?.legSweep || ict?.sweep || null;
   const sweepName = String(sweep?.name || '');
   const sweptLiquiditySide = /high|pdh|pwh/i.test(sweepName) ? 'BSL' : /low|pdl|pwl/i.test(sweepName) ? 'SSL' : null;
-  const m5Structure = Boolean(ict?.dm5?.mss || ict?.shift5 || ict?.hasShift || ict?.mss);
-  const m5Displacement = Boolean(ict?.dm5?.displacement || ict?.hasDisplacement || ict?.displacement);
-  const m5Retest = Boolean(ict?.m5MssRetest?.confirmed);
-  const m5Confirmed = Boolean(m5Structure && m5Displacement && m5Retest);
+  const m1Structure = Boolean(ict?.firstMssEvent || ict?.sequence1?.firstMss || ict?.m1MssEvent?.confirmed || ict?.hasShift || ict?.mss);
+  const m1Displacement = Boolean(ict?.firstDisplacementEvent || ict?.sequence1?.firstDisplacement || ict?.hasDisplacement || ict?.displacement);
+  const m1Retest = Boolean(ict?.m1MssRetest?.confirmed);
+  const m1Confirmed = Boolean(m1Structure && m1Displacement && m1Retest);
   return {
     name:'LIQUIDITY_DECISION_AGENT',
     mode:'HTF_EXTERNAL_POOL_DECISION_ONLY',
     hierarchy:['W1','D1','H4','H1','M15'],
-    executionTimeframe:'M5',
+    executionTimeframe:'M1',
     side:side||'WAIT',drawSide,
     map:dol.levels,
     contextualSwings:dol.levels.filter(x=>!x.targetEligible),
     sweptLiquiditySide,sweptLevel:round(sweep?.level,3),
     secondaryLiquidity:dol.nearest,
     primaryLiquidity:dol.primary,
-    m5Confirmation:{required:true,structure:m5Structure,displacement:m5Displacement,retest:m5Retest,confirmed:m5Confirmed},
+    m1Confirmation:{required:true,structure:m1Structure,displacement:m1Displacement,retest:m1Retest,confirmed:m1Confirmed},
     recommendation:drawSide==='BSL'?'DRAW_TO_BUYSIDE_LIQUIDITY':drawSide==='SSL'?'DRAW_TO_SELLSIDE_LIQUIDITY':'WAIT_FOR_DIRECTION',
     canCreateSignal:false,canExecute:false,canOverrideIctGate:false,
     updatedAt:new Date(now).toISOString(),
-    rule:'W1/D1 and named session levels may be external targets; raw H4/H1/M15 swings are context only unless separately validated. M15 directs context; M5 is the unchanged execution gate.'
+    rule:'W1/D1 and named session levels may be external targets; raw H4/H1/M15 swings are context only unless separately validated. M15 directs context; M1 MSS/displacement/retest is the execution gate.'
   };
 }
 
@@ -530,7 +530,7 @@ function dailyOpportunityAgent(source = {}, now = Date.now()) {
     hardCap:false,
     forceTrade:false,
     mayRelaxLiquidityHierarchy:false,
-    mayRelaxM5Confirmation:false,
+    mayRelaxM1Confirmation:false,
     mayRelaxConfidence:false,
     canCreateSignal:false,
     canExecute:false,
@@ -859,7 +859,7 @@ function tradingAgent({
     amdAlignment: amd?.alignedWithSetup === true ? 'ALIGNED' : amd?.alignedWithSetup === false ? 'CONFLICT' : 'UNCONFIRMED',
     drawOnLiquidity: drawOnLiquidity?.primaryLiquidity ? 'MAPPED' : 'WAIT',
     liquidityDecision: liquidityDecision?.recommendation || 'WAIT_FOR_DIRECTION',
-    m5LiquidityConfirmation: liquidityDecision?.m5Confirmation?.confirmed ? 'CONFIRMED' : 'WAIT',
+    m1LiquidityConfirmation: liquidityDecision?.m1Confirmation?.confirmed ? 'CONFIRMED' : 'WAIT',
     dailyOpportunity: dailyOpportunity?.state || 'SEARCHING_FOR_MINIMUM',
     month3Sponsorship: month3Sponsorship?.available ? `${month3Sponsorship.confirmations}/${month3Sponsorship.totalChecks}` : 'N/A',
     research: research?.blockEntries ? 'VETO' : 'CLEAR',
@@ -885,7 +885,7 @@ function tradingAgent({
       primary: drawOnLiquidity?.primaryLiquidity || null,
       primaryPractical: drawOnLiquidity?.primaryPractical ?? null,
       hierarchy: liquidityDecision?.hierarchy || ['H4','H1','M15'],
-      executionTimeframe: liquidityDecision?.executionTimeframe || 'M5'
+      executionTimeframe: liquidityDecision?.executionTimeframe || 'M1'
     },
     dailyOpportunity: dailyOpportunity || null,
     month3Sponsorship: month3Sponsorship || null
