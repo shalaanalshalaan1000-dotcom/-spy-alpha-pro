@@ -650,7 +650,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
     const sweep=seqPick?.sweep??null,sweep5=sweep?.tf===5?sweep:null,sweep1=sweep?.tf===1?sweep:null;
     const namedSweep=Boolean(sweep?.liquidityClass==='EXTERNAL'),freshSweep=Boolean(sweep&&now-sweep.t>=0&&now-sweep.t<=EXTERNAL_SWEEP_TTL_MS);
     const seq5=seqPick?.seq5??null,seq1=seqPick?.seq1??null,firstMss=seqPick?.firstMss??null,firstDisplacement=seqPick?.firstDisplacement??null;
-    const m1Mss=seq1?.firstMss??null,m1Retest=m1Mss?m5RetestAfterMss(m1,side,m1Mss,atr1,sweep?.extreme):null,coreEntryReady=Boolean(freshSweep&&m1Mss&&m1Retest?.confirmed);
+    const m1Mss=seq1?.firstMss??null,m1Displacement=seq1?.firstDisplacement??null,m1Retest=m1Mss?m5RetestAfterMss(m1,side,m1Mss,atr1,sweep?.extreme):null,coreEntryReady=Boolean(freshSweep&&m1Mss&&m1Displacement&&m1Retest?.confirmed);
     const cisd5=cisdAfter(m5,side,sweep),cisd1=cisdAfter(m1,side,sweep);
     const cisd=[cisd5,cisd1].filter(x=>x?.confirmed).sort((a,b)=>(a.confirmT||Infinity)-(b.confirmT||Infinity))[0]??null;
     const ifvg5=inverseFvgAfterSweep(m5,side,sweep),ifvg1=inverseFvgAfterSweep(m1,side,sweep);
@@ -702,7 +702,7 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const m5Retest={confirmed:false,sourceTf:'M5_CONTEXT_ONLY'};
   const m5MssRetest={confirmed:false,sourceTf:'M1_ONLY_EXECUTION'};
   const m1MssRetest=sequence1?.firstMss?{...m5RetestAfterMss(m1,side,sequence1.firstMss,atr1,legSweep?.extreme),sourceTf:'M1'}:{confirmed:false,sourceTf:'M1'};
-  const coreIctEntryReady=Boolean(hasSweep&&sequence1?.firstMss&&m1MssRetest?.confirmed);
+  const coreIctEntryReady=Boolean(hasSweep&&sequence1?.firstMss&&sequence1?.firstDisplacement&&m1MssRetest?.confirmed);
   const shift5=sequence5?.firstAny??null;
   const shift1=sequence1?.firstAny??null;
   const shift15=hasSweep?shiftAfter(m15,side,legSweep.t,atr15):null;
@@ -761,12 +761,14 @@ export function analyzeGoldSignal(samples,rawPrice,now=Date.now(),higherTimefram
   const sweepAgeMinutes=hasSweep?Math.max(0,round((now-legSweep.t)/60_000,1)):null,sweepExpiresAt=hasSweep?new Date(legSweep.t+EXTERNAL_SWEEP_TTL_MS).toISOString():null;
   const executionStage=executionReady?'ENTRY_READY':!hasSweep?'WAIT_EXTERNAL_SWEEP':!sequence1?.firstMss?'WAIT_M1_MSS_CHOCH':'WAIT_M1_RETEST_HOLD';
   const waitReason=!hasSweep
-    ?'ICT WAIT: external liquidity sweep required, followed by a closed M1 MSS/CHoCH and M1 retest/hold.'
+    ?'ICT WAIT: external liquidity sweep required, followed by a closed M1 MSS/CHoCH, displacement and M1 retest/hold.'
     :!sequence1?.firstMss
       ?`ICT ARMED: ${String(legSweep?.name||'external liquidity').toUpperCase()} sweep retained; waiting for closed M1 MSS/CHoCH.`
-      :!m1MssRetest?.confirmed
-        ?'ICT ARMED: closed M1 MSS/CHoCH confirmed; waiting for M1 retest/hold. FVG is optional.'
-        :'ICT M1 MSS/CHoCH + retest/hold confirmed; entry can be evaluated.';
+      :!sequence1?.firstDisplacement
+        ?'ICT ARMED: closed M1 MSS/CHoCH confirmed; waiting for M1 displacement.'
+        :!m1MssRetest?.confirmed
+          ?'ICT ARMED: M1 MSS/CHoCH and displacement confirmed; waiting for M1 retest/hold. FVG is optional.'
+          :'ICT M1 MSS/CHoCH + displacement + retest/hold confirmed; entry can be evaluated.';
 
   if(!executionReady)return{...base,status:'WAIT',candidateAction:side,confidence:0,contextBias:side,oneMinuteConfirmed,ict:{dir4,dir1,dir15,levels,session,location,equilibrium:round(equilibrium),offSession,contextAligned,biasAligned,setupAligned,setupVotes,setupReady,fvg15,sweep15,dm15,fvg5,sweep5,dm5,bos5,fvg1,sweep1,dm1,bos1,bos15,legSweep,sequence1,sequence5,m5MssEvent,m5MssRetest,m1MssRetest,coreIctEntryReady,shift1,shift5,shift15,firstMssEvent,firstDisplacementEvent,firstTriggerEvent,triggerConfirmed,sequenceShiftT,sequenceComplete:Boolean(sequenceShiftT),hasSweep,hasShift,hasDisplacement,hasBos,contextSequence,executionStage,sweepAgeMinutes,sweepExpiresAt,externalSweepTtlMinutes:Math.round(EXTERNAL_SWEEP_TTL_MS/60_000)},reason:waitReason+' FVG/OB/iFVG/BOS and timeframe agreement are optional context only.'};
 
