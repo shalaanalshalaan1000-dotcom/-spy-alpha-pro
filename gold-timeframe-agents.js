@@ -93,7 +93,7 @@ export function buildGoldTimeframeAgents(source={}, now=Date.now()) {
   const levels=ict.levels||{};
   const agents={
     H4:evaluate('H4',bars4h,{high:levels.h4SwingHigh,low:levels.h4SwingLow},now),
-    H1:evaluate('H1',raw1h,{high:levels.h1SwingHigh,low:levels.h1SwingLow},now),
+    H1:evaluate('H1',bars1h,{high:levels.h1SwingHigh,low:levels.h1SwingLow},now),
     M30:evaluate('M30',bars30,{},now),
     M15:evaluate('M15',bars15,{high:levels.m15SwingHigh,low:levels.m15SwingLow},now),
     M1:evaluate('M1',raw1m,{},now)
