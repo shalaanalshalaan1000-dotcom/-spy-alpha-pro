@@ -6,6 +6,7 @@ on:
       - 'gold-timeframe-agents.js'
       - 'gold-timeframe-agents.test.js'
       - 'site-indicator-start.js'
+      - 'gold-site-signal-engine-v9.js'
       - 'gold-data-bridge.js'
       - '.github/workflows/timeframe-agents.yml'
   push:
@@ -30,6 +31,7 @@ jobs:
           node --check gold-timeframe-agents.js
           node --check gold-timeframe-agents.test.js
           node --check site-indicator-start.js
+          node --check gold-site-signal-engine-v9.js
           node --check gold-data-bridge.js
       - name: Run timeframe agent regression tests
         run: node --test gold-timeframe-agents.test.js
