@@ -81,13 +81,13 @@ export function buildBtcDolMap({M5=[],M15=[],H1=[],H4=[],D1=[],price=null,side='
     recent15[2].close<recent15[1].close&&recent15[1].close<recent15[0].close?'SELL':'NEUTRAL';
   const base={
     model:'BTC_ICT_MULTI_TIMEFRAME_DOL_V1',symbol:'BTCUSD',advisoryOnly:true,
-    executionStrategy:'ICT_EXTERNAL_AND_INTERNAL_M1_SCALP',canOpenTrade:false,canBlockIct:false,canOverrideIctGate:false,canChangeActiveTargets:false,
+    executionStrategy:'ICT_EXTERNAL_ONLY_M1_EXECUTION',canOpenTrade:false,canBlockIct:false,canOverrideIctGate:false,canChangeActiveTargets:false,
     timeframeHierarchy:['W1','D1','H4','H1','M15','M1'],levels,
     byTimeframe:Object.fromEntries(['W1','D1','H4','H1'].map(tf=>[tf,levels.filter(x=>x.timeframe===tf)])),
     m15:{role:'CONTEXT_ONLY',direction:dir15},
     m5:{role:'CONTEXT_ONLY',completedBars:five.length,confirmation:'CONTEXT_ONLY_M1_EXECUTION_REQUIRED',mssRequired:false},
     status:levels.some(x=>x.targetEligible)?'PARTIAL_OR_AVAILABLE':'NO_CONFIRMED_EXTERNAL_REFERENCES',
-    note:'DOL maps verified previous full UTC week/day; H4/H1 pivots remain context. BTC execution is handled by the M1 engine, which may use confirmed internal-range M1 liquidity for scalps; active trade TP/SL remains immutable.',
+    note:'DOL maps verified previous full UTC week/day; H4/H1 pivots remain context. BTC entries require external M15/M30 liquidity sweep followed by closed M1 MSS/displacement and later M1 retest/hold; internal-range liquidity cannot initiate entries, and active trade TP/SL remains immutable.',
     updatedAt:new Date(now).toISOString()
   };
   return projectBtcDolSide(base,side,price);
