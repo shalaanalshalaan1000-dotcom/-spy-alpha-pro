@@ -18,8 +18,8 @@ test('BTC previous full Monday-Sunday UTC week and prior complete day are extern
   assert.equal(d.byTimeframe.W1.find(x=>x.label==='PWL').level,908);
   assert.equal(d.byTimeframe.D1.find(x=>x.label==='PDH').level,1040);
   assert.equal(d.byTimeframe.D1.find(x=>x.label==='PDL').level,980);
-  assert.deepEqual(d.timeframeHierarchy,['W1','D1','H4','H1','M15','M5']);
-  assert.equal(d.executionStrategy,'ICT_ONLY_EXTERNAL_LIQUIDITY');
+  assert.deepEqual(d.timeframeHierarchy,['W1','D1','H4','H1','M15','M1']);
+  assert.equal(d.executionStrategy,'ICT_EXTERNAL_ONLY_M1_EXECUTION');
 });
 
 test('BUY and SELL maps independently draw to correct side without opening a BTC signal',()=>{
@@ -55,15 +55,18 @@ test('H4/H1 confirmed pivots remain unverified context and never enter external 
   assert.equal(projectBtcDolSide(d,'BUY',1000).targetPreview.every(x=>['W1','D1'].includes(x.timeframe)),true);
 });
 
-test('M15 is context only, BTC ICT M5/M1 confirmation unchanged and NO ICT MSS imposed',()=>{
+test('M15 is context only and BTC execution is external sweep followed by M1 MSS/displacement/retest',()=>{
   const M15=[{t:now-2700000,close:1000,high:1010,low:990},{t:now-1800000,close:1005,high:1015,low:995},{t:now-900000,close:1010,high:1020,low:1000}];
   const d=map({M15});
   assert.equal(d.m15.direction,'BUY');
-  assert.equal(d.m5.mssRequired,true);
-  assert.match(d.m5.confirmation,/M5_MSS_DISPLACEMENT_PLUS_LATER_M5_RETEST_HOLD/);
+  assert.equal(d.m5.role,'CONTEXT_ONLY');
+  assert.equal(d.m5.mssRequired,false);
+  assert.match(d.m5.confirmation,/M1_EXECUTION_REQUIRED/);
+  assert.equal(d.executionStrategy,'ICT_EXTERNAL_ONLY_M1_EXECUTION');
+  assert.match(d.note,/internal-range M1 liquidity cannot initiate entries/);
   const engine=readFileSync(new URL('../btc-ict-engine.js',import.meta.url),'utf8');
   const ui=readFileSync(new URL('../render-start.js',import.meta.url),'utf8');
-  assert.match(engine,/tradeStyle:'ICT_ONLY_EXTERNAL_LIQUIDITY'/);
+  assert.match(engine,/tradeStyle:'ICT_EXTERNAL_ONLY_M1_EXECUTION'/);
   assert.match(engine,/lifecycleSignal\(candidate\)/);
   assert.match(ui,/btcDolW1/);
   assert.match(ui,/btcDolTargets/);
