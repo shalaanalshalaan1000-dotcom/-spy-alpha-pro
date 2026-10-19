@@ -250,7 +250,7 @@ test('draw-on-liquidity maps nearest Secondary and strategic Primary without aut
 });
 
 
-test('liquidity decision agent excludes raw H4 H1 M15 pivots from external objectives and reserves M5 for confirmation', () => {
+test('liquidity decision agent excludes raw H4 H1 M15 pivots from external objectives and reports M1 execution', () => {
   configure();
   process.env.AGENT_EXECUTION_ENABLED='false';
   resetGoldAgentMemory();
@@ -268,15 +268,16 @@ test('liquidity decision agent excludes raw H4 H1 M15 pivots from external objec
       hasShift:true,
       hasDisplacement:true,
       retest:true,
-      m5MssRetest:{confirmed:true},
-      dm5:{mss:true,displacement:true}
+      m1MssRetest:{confirmed:true},
+      firstMssEvent:{confirmed:true},
+      firstDisplacementEvent:{confirmed:true}
     }
   };
   const stack=orchestrateGoldAgents(source);
   const l=stack.agents.liquidityDecision;
   assert.equal(l.name,'LIQUIDITY_DECISION_AGENT');
   assert.deepEqual(l.hierarchy,['W1','D1','H4','H1','M15']);
-  assert.equal(l.executionTimeframe,'M5');
+  assert.equal(l.executionTimeframe,'M1');
   assert.equal(l.drawSide,'BSL');
   assert.equal(l.secondaryLiquidity?.label,'ASIA_HIGH');
   assert.equal(l.secondaryLiquidity?.level,4315);
@@ -284,11 +285,11 @@ test('liquidity decision agent excludes raw H4 H1 M15 pivots from external objec
   assert.equal(l.primaryLiquidity?.level,4370);
   assert.equal(l.contextualSwings.some(x=>x.label==='M15_SWING_HIGH'&&!x.targetEligible),true);
   assert.equal(l.contextualSwings.some(x=>x.label==='H4_SWING_HIGH'&&!x.targetEligible),true);
-  assert.equal(l.m5Confirmation.confirmed,true);
+  assert.equal(l.m1Confirmation.confirmed,true);
   assert.equal(l.canCreateSignal,false);
   assert.equal(l.canExecute,false);
   assert.equal(stack.telegramBrief.liquidityObjectives.type,'BSL');
-  assert.equal(stack.telegramBrief.liquidityObjectives.executionTimeframe,'M5');
+  assert.equal(stack.telegramBrief.liquidityObjectives.executionTimeframe,'M1');
 });
 
 test('daily opportunity agent prefers 1-3 qualified setups but has no hard cap', () => {
@@ -305,7 +306,7 @@ test('daily opportunity agent prefers 1-3 qualified setups but has no hard cap',
   assert.equal(zero.agents.dailyOpportunity.target.hardMax,null);
   assert.equal(zero.agents.dailyOpportunity.hardCap,false);
   assert.equal(zero.agents.dailyOpportunity.forceTrade,false);
-  assert.equal(zero.agents.dailyOpportunity.mayRelaxM5Confirmation,false);
+  assert.equal(zero.agents.dailyOpportunity.mayRelaxM1Confirmation,false);
 
   const two=orchestrateGoldAgents({...base,dailySignalCount:2});
   assert.equal(two.agents.dailyOpportunity.state,'OPEN_FOR_MORE_QUALIFIED_SETUPS');
