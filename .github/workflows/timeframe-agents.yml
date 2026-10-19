@@ -1,0 +1,35 @@
+name: Validate gold timeframe agents
+
+on:
+  pull_request:
+    paths:
+      - 'gold-timeframe-agents.js'
+      - 'gold-timeframe-agents.test.js'
+      - 'site-indicator-start.js'
+      - 'gold-data-bridge.js'
+      - '.github/workflows/timeframe-agents.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'gold-timeframe-agents.js'
+      - 'gold-timeframe-agents.test.js'
+      - 'site-indicator-start.js'
+      - 'gold-data-bridge.js'
+      - '.github/workflows/timeframe-agents.yml'
+
+jobs:
+  timeframe-agents:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check JavaScript syntax
+        run: |
+          node --check gold-timeframe-agents.js
+          node --check gold-timeframe-agents.test.js
+          node --check site-indicator-start.js
+          node --check gold-data-bridge.js
+      - name: Run timeframe agent regression tests
+        run: node --test gold-timeframe-agents.test.js
