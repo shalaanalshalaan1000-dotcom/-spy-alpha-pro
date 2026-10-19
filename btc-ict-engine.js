@@ -411,5 +411,5 @@ async function freshCandidate(force=false){
 export async function getBtcSignal(force=false){
  const candidate=await freshCandidate(force),managed=lifecycleSignal(candidate);
  return{...managed,dol:projectBtcDolSide(candidate.dol,managed.tradeSide||managed.side||managed.action,managed.price),
-  ict:managed.ict||candidate.ict,strategy:'ICT_EXTERNAL_AND_INTERNAL_M1_SCALP',tradeStyle:'ICT_EXTERNAL_PLUS_INTERNAL_LIQUIDITY'};
+  ict:managed.ict||candidate.ict,strategy:'ICT_EXTERNAL_SWEEP_M1_MSS_RETEST',tradeStyle:'ICT_EXTERNAL_ONLY_M1_EXECUTION'};
 }
