@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Alpha Cheap Stocks — 1500</title>
+  <style>
+    :root{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;background:#070b12;color:#eef4ff}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;background:radial-gradient(circle at top,#14223b 0,#070b12 45%);color:#eef4ff}
+    header{position:sticky;top:0;z-index:5;display:flex;justify-content:space-between;gap:14px;align-items:center;padding:18px max(14px,5vw);border-bottom:1px solid #24324b;background:#090f1bdd;backdrop-filter:blur(14px)}
+    h1{font-size:23px;margin:0}.sub{margin:4px 0 0;color:#8da0c3;font-size:12px}
+    .badge{border:1px solid #315c53;background:#0e261f;color:#64e1ae;border-radius:999px;padding:8px 11px;font-weight:900;font-size:12px;white-space:nowrap}
+    main{max-width:1180px;margin:auto;padding:18px}
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
+    .card,.panel{background:#0d1524;border:1px solid #24324b;border-radius:16px;padding:14px}
+    .card span{display:block;color:#8799ba;font-size:11px}.card strong{display:block;margin-top:6px;font-size:22px}
+    .best{border-color:#2f725d;background:linear-gradient(135deg,#0f2a23,#10192a);margin-bottom:12px}
+    .bestTop{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.best h2{margin:0;font-size:15px;color:#8ff0c4}
+    .bestSymbol{font-size:34px;font-weight:950;margin:9px 0 3px;direction:ltr;text-align:right}
+    .bestLine{display:flex;gap:13px;flex-wrap:wrap;color:#cbd8ee;font-size:13px}
+    .score{font-size:31px;font-weight:950;color:#64e1ae;direction:ltr}
+    .reasons{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}.reason{padding:6px 9px;border-radius:999px;background:#122338;border:1px solid #2a4161;color:#b8c8e4;font-size:11px}
+    .panelHead{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px}.panelHead h2{font-size:15px;margin:0}.meta{color:#8799ba;font-size:11px;margin-top:4px}
+    button{border:1px solid #385171;border-radius:10px;background:#121c2d;color:#eef4ff;padding:9px 12px;font-weight:850;cursor:pointer}
+    .tableWrap{overflow-x:auto;border:1px solid #24324b;border-radius:12px}
+    table{width:100%;border-collapse:collapse;min-width:1040px}
+    th,td{padding:10px 11px;border-bottom:1px solid #223047;white-space:nowrap;text-align:right}
+    th{font-size:11px;color:#8194b6;background:#0e1727;position:sticky;top:0}
+    td{font-size:12px}tbody tr:hover{background:#111f34}tbody tr:first-child{background:#10291f}
+    .num{direction:ltr;text-align:left}.rank{font-weight:900}.sym{font-weight:950;font-size:14px;direction:ltr}
+    .long{color:#64e1ae;font-weight:900}.watch{color:#ffd166;font-weight:900}.pass{color:#7f8aa2}.pos{color:#64e1ae}.neg{color:#ff7893}
+    .scoreCell{font-weight:950}.footer{color:#7586a3;font-size:11px;line-height:1.7;margin:10px 2px}
+    .error{border-color:#733149;color:#ff8aa0;background:#2b1420}
+    .loading{color:#8da0c3;text-align:center;padding:25px}
+    @media(max-width:800px){header{padding:14px}.stats{grid-template-columns:repeat(2,1fr)}main{padding:12px}.bestTop{flex-direction:column}.score{font-size:26px}}
+  </style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Alpha Cheap Stocks</h1>
+    <p class="sub">$1–$5 • 1500 Company Universe • Cash Long Scanner</p>
+  </div>
+  <div id="status" class="badge">LIVE SCANNER</div>
+</header>
+
+<main>
+  <section class="stats">
+    <div class="card"><span>تم مسح السوق</span><strong id="marketCount">—</strong></div>
+    <div class="card"><span>Universe المستخدم</span><strong id="universeCount">—</strong></div>
+    <div class="card"><span>المؤهلون $1–$5</span><strong id="eligibleCount">—</strong></div>
+    <div class="card"><span>المعروض الآن</span><strong id="topCount">—</strong></div>
+  </section>
+
+  <section id="bestPanel" class="panel best">
+    <div class="bestTop">
+      <div>
+        <h2>#1 BEST STOCK NOW</h2>
+        <div id="bestSymbol" class="bestSymbol">—</div>
+        <div id="bestLine" class="bestLine"><span>جارٍ فحص السوق…</span></div>
+      </div>
+      <div><div class="meta">ALPHA SCORE</div><div id="bestScore" class="score">—</div></div>
+    </div>
+    <div id="bestReasons" class="reasons"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panelHead">
+      <div>
+        <h2>أفضل 20 سهم من 1500 شركة</h2>
+        <div id="meta" class="meta">تحميل البيانات…</div>
+      </div>
+      <button id="refresh">تحديث الآن</button>
+    </div>
+
+    <div class="tableWrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th><th>Symbol</th><th>الحالة</th><th class="num">Score</th>
+            <th class="num">Price</th><th class="num">Change</th><th class="num">RVOL</th>
+            <th class="num">Volume</th><th class="num">$ Volume</th>
+            <th class="num">Day High</th><th class="num">عن الهاي</th><th>السبب</th>
+          </tr>
+        </thead>
+        <tbody id="rows"><tr><td colspan="12" class="loading">جارٍ فحص السوق…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <p class="footer">الماسح لا يشتري تلقائيًا ولا يضمن الربح. الترتيب مخصص لاختيار أفضل المرشحين نسبيًا داخل الأسهم بين $1 و$5 مع فلترة السيولة والزخم والقرب من أعلى اليوم وRVOL. يتم تحديث النتائج تلقائيًا كل 60 ثانية.</p>
+</main>
+
+<script>
+  const $ = s => document.querySelector(s);
+  const money = v => v == null ? '—' : '$' + Number(v).toFixed(2);
+  const pct = v => v == null ? '—' : (Number(v) > 0 ? '+' : '') + Number(v).toFixed(2) + '%';
+  const compact = v => v == null ? '—' : new Intl.NumberFormat('en-US',{notation:'compact',maximumFractionDigits:1}).format(Number(v));
+  const scoreClass = signal => signal === 'BEST LONG' ? 'long' : signal === 'WATCH' ? 'watch' : 'pass';
+
+  function renderBest(best){
+    if(!best){
+      $('#bestSymbol').textContent='—';
+      $('#bestScore').textContent='—';
+      $('#bestLine').innerHTML='<span>لا يوجد مرشح حاليًا</span>';
+      $('#bestReasons').innerHTML='';
+      return;
+    }
+    $('#bestSymbol').textContent=best.symbol;
+    $('#bestScore').textContent=best.score + '/100';
+    $('#bestLine').innerHTML=
+      '<span>'+money(best.price)+'</span>'+
+      '<span class="'+((best.changePct||0)>=0?'pos':'neg')+'">'+pct(best.changePct)+'</span>'+
+      '<span>RVOL '+(best.relativeVolume==null?'—':Number(best.relativeVolume).toFixed(2)+'x')+'</span>'+
+      '<span>عن الهاي '+(best.distanceToHighPct==null?'—':Number(best.distanceToHighPct).toFixed(2)+'%')+'</span>'+
+      '<span class="'+scoreClass(best.signal)+'">'+best.signal+'</span>';
+    $('#bestReasons').innerHTML=(best.reasons||[]).map(x=>'<span class="reason">'+x+'</span>').join('');
+  }
+
+  function renderRows(items){
+    if(!items.length){
+      $('#rows').innerHTML='<tr><td colspan="12" class="loading">لا توجد أسهم مطابقة الآن</td></tr>';
+      return;
+    }
+    $('#rows').innerHTML=items.map(x=>
+      '<tr>'+
+      '<td class="rank">'+x.rank+'</td>'+
+      '<td class="sym">'+x.symbol+'</td>'+
+      '<td class="'+scoreClass(x.signal)+'">'+x.signal+'</td>'+
+      '<td class="num scoreCell">'+x.score+'</td>'+
+      '<td class="num">'+money(x.price)+'</td>'+
+      '<td class="num '+((x.changePct||0)>=0?'pos':'neg')+'">'+pct(x.changePct)+'</td>'+
+      '<td class="num">'+(x.relativeVolume==null?'—':Number(x.relativeVolume).toFixed(2)+'x')+'</td>'+
+      '<td class="num">'+compact(x.volume)+'</td>'+
+      '<td class="num">'+money(compact(x.dollarVolume))+'</td>'+
+      '<td class="num">'+money(x.high)+'</td>'+
+      '<td class="num">'+(x.distanceToHighPct==null?'—':Number(x.distanceToHighPct).toFixed(2)+'%')+'</td>'+
+      '<td>'+(x.reasons||[]).join(' • ')+'</td>'+
+      '</tr>'
+    ).join('');
+  }
+
+  async function load(force){
+    $('#refresh').disabled=true;
+    $('#status').textContent='SCANNING…';
+    try{
+      const response=await fetch('/api/scan'+(force?'?force=1':''),{cache:'no-store'});
+      const data=await response.json();
+      if(!response.ok) throw new Error(data.error||'Scanner request failed');
+
+      $('#marketCount').textContent=Number(data.scannedMarket||0).toLocaleString('en-US');
+      $('#universeCount').textContent=Number(data.universeCount||0).toLocaleString('en-US');
+      $('#eligibleCount').textContent=Number(data.eligibleCount||0).toLocaleString('en-US');
+      $('#topCount').textContent=Number(data.topCount||0).toLocaleString('en-US');
+      $('#meta').textContent=
+        'Scanned '+Number(data.scannedMarket||0).toLocaleString('en-US')+
+        ' • Universe '+Number(data.universeCount||0).toLocaleString('en-US')+
+        ' / '+Number(data.requestedUniverse||1500).toLocaleString('en-US')+
+        ' • Qualified '+Number(data.eligibleCount||0).toLocaleString('en-US')+
+        ' • '+new Date(data.generatedAt).toLocaleTimeString('ar-SA');
+
+      renderBest(data.best);
+      renderRows(data.items||[]);
+      $('#status').textContent='LIVE • TOP 1500';
+      $('#status').className='badge';
+    }catch(error){
+      $('#status').textContent='DATA ERROR';
+      $('#status').className='badge error';
+      $('#meta').textContent=error.message;
+      $('#rows').innerHTML='<tr><td colspan="12" class="loading">'+error.message+'</td></tr>';
+    }finally{
+      $('#refresh').disabled=false;
+    }
+  }
+
+  $('#refresh').onclick=()=>load(true);
+  load(false);
+  setInterval(()=>load(false),60000);
+</script>
+</body>
+</html>
