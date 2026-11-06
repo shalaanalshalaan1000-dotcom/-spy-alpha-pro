@@ -136,11 +136,20 @@ function precedingPivot(bars,side){
 // BTC mirrors gold: external sweep -> closed M1 MSS/displacement -> later M1 retest/hold.
 export function detectBtcIctSequence({M1=[],externalLevels=[],externalSweep=null,now=Date.now(),atr1=null}={}){
  const bars=M1.filter(b=>validM1(b,now)).sort((a,b)=>a.t-b.t),a=atr1||atr(bars)||50;
+ // The M15/M30 sweep is the authoritative external reference. A subsequent M1
+ // event must genuinely breach and reclaim THAT SAME named external level.
+ // Otherwise arbitrary M1 candles can masquerade as liquidity sweeps.
+ if(!externalSweep||!['M15','M30'].includes(externalSweep.tf)||!['BUY','SELL'].includes(externalSweep.side)||!['PWH','PWL','PDH','PDL'].includes(externalSweep.label))return [];
  const levels=externalLevels.filter(p=>p.targetEligible===true&&['PWH','PWL','PDH','PDL'].includes(p.label)),found=[];
  for(let s=Math.max(7,bars.length-240);s<bars.length-2;s++){
   const sweep=bars[s];if(!externalSweep||sweep.t<=externalSweep.t||now-(sweep.t+60000)>4*3600000)continue;
   for(const pool of levels){const side=externalSweep.side,isBuy=side==='BUY';
-   if(pool.label!==externalSweep.label)continue;
+   if(pool.label!==externalSweep.label||side!==sideFor(pool)||!Number.isFinite(Number(pool.level))||!Number.isFinite(Number(externalSweep.level)))continue;
+   if(Math.abs(Number(pool.level)-Number(externalSweep.level))>Math.max(.001,Math.abs(pool.level)*.000001))continue;
+   const actuallySweptExternal=isBuy
+     ? sweep.low<pool.level&&sweep.close>pool.level
+     : sweep.high>pool.level&&sweep.close<pool.level;
+   if(!actuallySweptExternal)continue;
    const trigger=precedingPivot(bars.slice(Math.max(0,s-60),s),side);if(trigger==null)continue;
    const extreme=isBuy?sweep.low:sweep.high;
    for(let i=s+1;i<Math.min(bars.length,s+21);i++){
