@@ -312,7 +312,7 @@ test('gold liquidity targets remain monotonic so valid candidates are not silent
 
 
 
-test('XAU sizing has no hard $10 per-trade cap or max-lot warning',()=>{
+test('new XAU entries enforce a 10 USD/oz SL distance while cash risk remains lot-dependent',()=>{
  const agentSource=fs.readFileSync(new URL('../gold-agent-orchestrator.js',import.meta.url),'utf8');
  const telegramSource=fs.readFileSync(new URL('../telegram-xau-bot-v2.js',import.meta.url),'utf8');
  const engineSource=fs.readFileSync(new URL('../gold-site-signal-engine-v9.js',import.meta.url),'utf8');
@@ -320,7 +320,9 @@ test('XAU sizing has no hard $10 per-trade cap or max-lot warning',()=>{
  assert.doesNotMatch(telegramSource,/XAU_MAX_RISK_USD/);
  assert.doesNotMatch(engineSource,/XAU_MAX_RISK_USD/);
  assert.match(agentSource,/hardDollarRiskCap: false/);
- assert.match(engineSource,/hardDollarRiskCap:false/);
+ assert.match(agentSource,/maxStopDistanceUsd: stopCheck.maxDistance/);
+ assert.match(agentSource,/STOP_DISTANCE_EXCEEDS_10_USD/);
+ assert.match(engineSource,/goldStopDistanceCheck\(p,sl\)/);
  assert.doesNotMatch(telegramSource,/أقصى لوت/);
- assert.match(telegramSource,/لا يوجد سقف \$10 مفروض على الصفقة/);
+ assert.match(telegramSource,/أقصى مسافة وقف للصفقات الجديدة \$10/);
 });
