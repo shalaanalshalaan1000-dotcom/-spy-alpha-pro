@@ -21,6 +21,8 @@ on:
       - 'test/btc-ict-confirmation.test.js'
       - 'btc-dol-map.js'
       - 'gold-session-entry-policy.js'
+      - 'gold-trade-guardrails.js'
+      - 'test/gold-trade-guardrails.test.js'
       - 'gold-liquidity-window.js'
       - 'btc-telegram-bot.js'
       - 'render-start.js'
@@ -44,6 +46,8 @@ on:
       - 'test/btc-ict-confirmation.test.js'
       - 'btc-dol-map.js'
       - 'gold-session-entry-policy.js'
+      - 'gold-trade-guardrails.js'
+      - 'test/gold-trade-guardrails.test.js'
       - 'gold-liquidity-window.js'
       - 'btc-telegram-bot.js'
       - 'render-start.js'
@@ -74,6 +78,7 @@ jobs:
           node --check btc-dol-map.js
           node --check gold-liquidity-window.js
           node --check gold-session-entry-policy.js
+          node --check gold-trade-guardrails.js
           node --check btc-telegram-bot.js
           node --check render-start.js
       - name: Validate XAU agent regression tests
