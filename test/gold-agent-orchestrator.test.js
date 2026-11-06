@@ -320,7 +320,7 @@ test('daily opportunity agent prefers 1-3 qualified setups but has no hard cap',
 });
 
 
-test('trade manager requires ICT/M5 structure for CONTINUE and structure flip for early STOP', () => {
+test('trade manager requires ICT M1 structure for CONTINUE and confirmed M1 flip for early STOP', () => {
   configure();
   process.env.AGENT_EXECUTION_ENABLED='false';
   process.env.GOLD_TRADE_MANAGEMENT_MIN_CONFIDENCE='82';
@@ -368,7 +368,7 @@ test('trade manager requires ICT/M5 structure for CONTINUE and structure flip fo
 
   const opposite={
     ...oppositeWithoutM5Flip,
-    multiTimeframe:{...aligned.multiTimeframe,reads:{...aligned.multiTimeframe.reads,M5:{side:'SELL'}}}
+    multiTimeframe:{...aligned.multiTimeframe,reads:{...aligned.multiTimeframe.reads,M1:{side:'SELL'}}}
   };
   resetGoldAgentMemory();
   stack=orchestrateGoldAgents(opposite,t+9000);
