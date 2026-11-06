@@ -3,6 +3,7 @@ import { sessionHuntMss } from './gold-liquidity-hunt.js';
 import { clockParts } from './runtime-memory-policy.js';
 import { telegramSendState, telegramSendingEnabled } from './telegram-send-control.js';
 import { goldEntryWindow } from './gold-session-entry-policy.js';
+import { tp1HalfwayPrice, halfwayTp1Reached } from './gold-trade-guardrails.js';
 
 const AUTO_URL=process.env.TELEGRAM_SIGNAL_URL||'http://127.0.0.1:3002/api/auto-trade/signal?observe=1';
 const BOT_TOKEN=String(process.env.TELEGRAM_BOT_TOKEN||'').trim();
@@ -26,7 +27,7 @@ let telegramUpdateOffset=0;
 let lastSendControlEnabled=null;
 
 let ready=false;
-const sent={side:null,key:null,above:false,messageId:null,lastText:null,lastEditMs:0,announcedAtMs:0,targets:[false,false,false,false],managedStops:[false,false,false,false],managementKey:null,exitAdvised:false};
+const sent={side:null,key:null,above:false,messageId:null,lastText:null,lastEditMs:0,announcedAtMs:0,targets:[false,false,false,false],managedStops:[false,false,false,false],managementKey:null,exitAdvised:false,halfwayTp1:false};
 const tradeLock={active:false,key:null,side:null,startedAtMs:0};
 const recentKeys=new Map();
 const sessionAlertKeys=new Set();
@@ -74,7 +75,7 @@ function valid(v){const x=num(v);return x!=null&&x>0;}
 function n(v,d=3){return valid(v)?Number(v).toFixed(d):'—';}
 function money(v,d=2){return valid(v)?'$'+Number(v).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d}):'—';}
 function lotForRisk(entry,sl,riskUsd){const distance=Math.abs(Number(entry)-Number(sl));if(!(distance>0)||!(riskUsd>0))return null;const raw=riskUsd/(distance*XAU_CONTRACT_SIZE);if(!(raw>0))return null;const stepped=Math.floor((raw+1e-12)/XAU_LOT_STEP)*XAU_LOT_STEP;return stepped>=XAU_LOT_STEP?Number(stepped.toFixed(3)):0;}
-function lotSizingLines(entry,sl){const distance=Math.abs(Number(entry)-Number(sl));if(!(distance>0))return [];const safeLot=lotForRisk(entry,sl,XAU_SAFE_RISK_USD),suggestedLot=safeLot&&safeLot>0?safeLot:XAU_LOT_STEP,actualRisk=distance*XAU_CONTRACT_SIZE*suggestedLot,safePct=XAU_SAFE_RISK_USD/XAU_ACCOUNT_BALANCE_USD*100;return[`💼 الرصيد المرجعي: ${XAU_ACCOUNT_BALANCE_USD.toFixed(0)}`,`📏 مسافة الوقف الهيكلي: ${distance.toFixed(2)}`,`✅ اللوت المرجعي: ${suggestedLot.toFixed(2)} lot (هدف مخاطرة مرجعي ≈ ${XAU_SAFE_RISK_USD.toFixed(0)} / ${safePct.toFixed(1)}%)`,`📊 الخطر الفعلي عند هذا اللوت والوقف: ≈ ${actualRisk.toFixed(2)}`,'ℹ️ لا يوجد سقف $10 مفروض على الصفقة؛ الوقف الهيكلي هو المرجع.'];}
+function lotSizingLines(entry,sl){const distance=Math.abs(Number(entry)-Number(sl));if(!(distance>0))return [];const safeLot=lotForRisk(entry,sl,XAU_SAFE_RISK_USD),suggestedLot=safeLot&&safeLot>0?safeLot:XAU_LOT_STEP,actualRisk=distance*XAU_CONTRACT_SIZE*suggestedLot,safePct=XAU_SAFE_RISK_USD/XAU_ACCOUNT_BALANCE_USD*100;return[`💼 الرصيد المرجعي: ${XAU_ACCOUNT_BALANCE_USD.toFixed(0)}`,`📏 مسافة الوقف الهيكلي: ${distance.toFixed(2)}`,`✅ اللوت المرجعي: ${suggestedLot.toFixed(2)} lot (هدف مخاطرة مرجعي ≈ ${XAU_SAFE_RISK_USD.toFixed(0)} / ${safePct.toFixed(1)}%)`,`📊 الخطر الفعلي عند هذا اللوت والوقف: ≈ ${actualRisk.toFixed(2)}`,'🛑 أقصى مسافة وقف للصفقات الجديدة $10 في سعر XAUUSD؛ المخاطرة النقدية تعتمد على اللوت.'];}
 function sideOf(s){return ['BUY','SELL'].includes(s?.side)?s.side:null;}
 function confidenceOf(s){return Number(s?.signalConfidence??s?.confidence??0)||0;}
 function targetOf(s,i){return num(s?.[`target${i}`]);}
@@ -768,6 +769,40 @@ function terminalMessage(t){
   if(outcome==='TP4')return `🏁 XAUUSD — ALL TARGETS COMPLETED / تم تحقيق جميع الأهداف\n🎯 TP4: ${n(t?.target4)}`;
   return null;
 }
+function halfwayTp1NoticeEligible(s, announcedAtMs, now=Date.now()) {
+  if(!isConfirmedActive(s)||s?.degraded===true||s?.liveFeedFresh!==true)return false;
+  const quoteAge=num(s?.quoteAgeMs),updatedAt=Date.parse(s?.updatedAt||'');
+  if(quoteAge==null||quoteAge<0||quoteAge>20_000||!Number.isFinite(updatedAt)||updatedAt>now+5000||now-updatedAt>20_000)return false;
+  const side=sideOf(s),entry=entryOf(s),tp1=targetOf(s,1);
+  if(s?.tp1===true||s?.targetHits?.[0]===true||!valid(entry)||!valid(tp1))return false;
+  if(s?.halfwayTp1Hit===true) {
+    const hitAt=num(s?.halfwayTp1AtMs);
+    return hitAt!=null&&hitAt>=announcedAtMs&&hitAt<=now+5000;
+  }
+  if(s?.halfwayTp1Hit===false)return false;
+  // Backward compatibility with a pre-upgrade ACTIVE signal lacking checkpoint fields.
+  const exit=side==='BUY'?num(s?.bid)??num(s?.price):num(s?.ask)??num(s?.price);
+  return halfwayTp1Reached(side,entry,tp1,exit);
+}
+function halfwayTp1AlertMessage(s) {
+  const entry=entryOf(s),tp1=targetOf(s,1),side=sideOf(s),mid=tp1HalfwayPrice(entry,tp1);
+  const exit=side==='BUY'?num(s?.bid)??num(s?.price):num(s?.ask)??num(s?.price);
+  return `🔔 XAUUSD — 50% TO TP1 REACHED / وصل نصف المسافة للهدف الأول
+📌 ${side} • Entry: ${n(entry)}
+📍 Midpoint: ${n(mid)} • Current: ${n(exit)}
+🎯 TP1: ${n(tp1)}
+🛡️ راجع تأمين الربح والوقف الهيكلي.
+ℹ️ تنبيه فقط: لا يتم تعديل SL أو إغلاق الصفقة تلقائيًا.`;
+}
+async function sendHalfwayTp1(s,now=Date.now()) {
+  if(!sent.above||sent.halfwayTp1||sent.exitAdvised||!tradeLock.active||sent.key!==signalKey(s))return false;
+  if(!halfwayTp1NoticeEligible(s,sent.announcedAtMs,now))return false;
+  await send(withTradeId(halfwayTp1AlertMessage(s),sent.key));
+  sent.halfwayTp1=true;
+  console.log(`[telegram-xau-confirmed] midpoint-to-TP1 alert sent key=${sent.key}`);
+  return true;
+}
+
 async function sendTargetHits(s,{includeTp4=true}={}){
   if(!sent.above||!sent.announcedAtMs)return;
   const hits=Array.isArray(s?.targetHits)?s.targetHits:[];
@@ -800,6 +835,7 @@ function resetSent(){
   sent.lastEditMs=0;
   sent.announcedAtMs=0;
   sent.targets=[false,false,false,false];
+  sent.halfwayTp1=false;
   sent.managedStops=[false,false,false,false];
   sent.managementKey=null;
   sent.exitAdvised=false;
@@ -872,6 +908,7 @@ async function tick(){
         sent.lastEditMs=now;
         sent.announcedAtMs=now;
         sent.targets=[false,false,false,false];
+  sent.halfwayTp1=false;
         sent.managedStops=[false,false,false,false];
         sent.managementKey=null;
         sent.exitAdvised=false;
@@ -884,13 +921,15 @@ async function tick(){
         console.log(`[telegram-xau-confirmed] edited locked ${side} ${Math.round(confidence)}% key=${key} msg=${sent.messageId}`);
       }
       if(sameLockedTrade||tradeLock.key===key){
-        await sendTargetHits(s);
+        await sendHalfwayTp1(s,now);
+      await sendTargetHits(s);
         await sendTradeManagement(s);
       }
       return;
     }
 
     if(sameLockedTrade&&sent.above){
+      await sendHalfwayTp1(s,now);
       await sendTargetHits(s);
       await sendTradeManagement(s);
       return;
@@ -917,4 +956,4 @@ if(process.env.NODE_ENV!=='test'){
   (async function commands(){await botCommandLoop();})();
 }
 
-export {targetMessage,canSendSignal,entryNoticeFresh,withTradeId,fiveMinuteCloseConfirmed,mirrorWindowOpen,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeManagementMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate,sessionIctContinuationGate,sessionMomentumArm,sessionMomentumAcceptance,sessionExecutionWatchMessage,sessionEarlyExitMessage};
+export {halfwayTp1NoticeEligible,halfwayTp1AlertMessage,targetMessage,canSendSignal,entryNoticeFresh,withTradeId,fiveMinuteCloseConfirmed,mirrorWindowOpen,terminalMatchesLock,lockAllowsSignal,signalKey,tpHitMessage,terminalMessage,tradeManagementMessage,tradeReview,evaluationMessage,assetEvaluationMessage,readBtcClosedTrades,sessionLevelSummaryMessage,sessionFinalMessage,sessionBreakMessage,sessionSweepMessage,sessionTradeTargets,sessionLiquidityTargets,sessionRetestMessage,sessionReversalSetupMessage,sessionIctReversalGate,sessionIctContinuationGate,sessionMomentumArm,sessionMomentumAcceptance,sessionExecutionWatchMessage,sessionEarlyExitMessage};

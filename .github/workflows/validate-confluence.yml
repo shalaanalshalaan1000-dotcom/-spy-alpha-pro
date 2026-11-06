@@ -21,6 +21,8 @@ on:
       - 'test/btc-ict-confirmation.test.js'
       - 'btc-dol-map.js'
       - 'gold-session-entry-policy.js'
+      - 'gold-trade-guardrails.js'
+      - 'test/gold-trade-guardrails.test.js'
       - 'gold-liquidity-window.js'
       - 'btc-telegram-bot.js'
       - 'render-start.js'
@@ -44,6 +46,8 @@ on:
       - 'test/btc-ict-confirmation.test.js'
       - 'btc-dol-map.js'
       - 'gold-session-entry-policy.js'
+      - 'gold-trade-guardrails.js'
+      - 'test/gold-trade-guardrails.test.js'
       - 'gold-liquidity-window.js'
       - 'btc-telegram-bot.js'
       - 'render-start.js'
@@ -74,8 +78,15 @@ jobs:
           node --check btc-dol-map.js
           node --check gold-liquidity-window.js
           node --check gold-session-entry-policy.js
+          node --check gold-trade-guardrails.js
           node --check btc-telegram-bot.js
           node --check render-start.js
+      - name: Generate and validate actual gold runtime
+        run: |
+          GOLD_BUILD_ONLY=1 node gold-site-signal-engine-v9.js
+          node --check .runtime-gold-site-signal-engine-v9.mjs
+      - name: Validate XAU session, midpoint and delivery guardrails
+        run: node --test test/gold-trade-guardrails.test.js test/gold-session-entry-policy.test.js test/telegram-xau-delivery.test.js
       - name: Validate XAU agent regression tests
         run: node --test test/gold-agent-orchestrator.test.js
       - name: Run regression tests

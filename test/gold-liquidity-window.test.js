@@ -6,7 +6,7 @@ import {assessGoldLiquidity} from '../gold-liquidity-window.js';
 const at=x=>Date.parse(x);
 test('late NY and late London are read-only even if a full ICT MSS exists',()=>{
  assert.equal(goldEntryWindow(at('2026-10-08T17:00:00Z')).allowed,false);
- assert.equal(goldEntryWindow(at('2026-10-08T17:00:00Z')).reason,'LATE_SESSION_NO_NEW_XAU_ENTRIES');
+ assert.equal(goldEntryWindow(at('2026-10-08T17:00:00Z')).reason,'OFF_SESSION_READ_ONLY_NO_NEW_XAU_ENTRIES');
  assert.equal(goldEntryWindow(at('2026-10-08T07:10:00Z')).allowed,true);
  assert.equal(goldEntryWindow(at('2026-10-08T13:00:00Z')).allowed,true);
  assert.equal(goldEntryWindow(at('2026-10-08T16:00:00Z')).allowed,false);

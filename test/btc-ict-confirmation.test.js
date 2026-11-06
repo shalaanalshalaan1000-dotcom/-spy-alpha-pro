@@ -15,21 +15,29 @@ function candles(){
 }
 const pool={timeframe:'D1',label:'PDL',level:990,liquiditySide:'SSL',targetEligible:true};
 test('Only complete external sweep + chronological displaced M1 MSS + later M1 retest gives an ICT setup',()=>{
- const bars=candles(),seq=detectBtcIctSequence({M1:bars,externalLevels:[pool],atr1:6,now});
+ const bars=candles();
+ const externalSweep={label:'PDL',side:'BUY',tf:'M15',level:990,t:bars[8].t};
+ const seq=detectBtcIctSequence({M1:bars,externalLevels:[pool],externalSweep,atr1:6,now});
+ assert.deepEqual(detectBtcIctSequence({M1:bars,externalLevels:[pool],atr1:6,now}),[],'No confirmed M15/M30 external sweep: no BTC entry');
  assert.equal(seq.length,1);
  assert.equal(seq[0].side,'BUY');
  assert.equal(seq[0].pool.label,'PDL');
  assert.ok(seq[0].sweepAt<seq[0].mssAt&&seq[0].mssAt<seq[0].retestAt);
  assert.equal(seq[0].mss.confirmed,true);
  assert.equal(seq[0].retest.confirmed,true);
- assert.deepEqual(detectBtcIctSequence({M1:bars,externalLevels:[{...pool,targetEligible:false}],now,atr1:6}),[]);
+ assert.deepEqual(detectBtcIctSequence({M1:bars,externalLevels:[{...pool,targetEligible:false}],externalSweep,now,atr1:6}),[]);
+ assert.deepEqual(detectBtcIctSequence({M1:bars,externalLevels:[pool],externalSweep:{...externalSweep,label:'INTERNAL'},atr1:6,now}),[]);
+ assert.deepEqual(detectBtcIctSequence({M1:bars,externalLevels:[pool],externalSweep:{...externalSweep,tf:'M5'},atr1:6,now}),[],'M5 cannot claim a completed external M15/M30 sweep');
+ assert.deepEqual(detectBtcIctSequence({M1:bars,externalLevels:[pool],externalSweep:{...externalSweep,level:989},atr1:6,now}),[],'Sweep must match the exact external reference');
+ const phantomM1=bars.map((b,i)=>i===12?{...b,low:991,close:995}:b);
+ assert.deepEqual(detectBtcIctSequence({M1:phantomM1,externalLevels:[pool],externalSweep,atr1:6,now}),[],'An M1 candle not breaching PDL is not a sweep');
 });
 test('MSS and retest cannot predate sweep or occur inside the same closed candle',()=>{
- const bars=candles();
+ const bars=candles(),externalSweep={label:'PDL',side:'BUY',tf:'M15',level:990,t:bars[8].t};
  const missingRetest=bars.map((x,i)=>i>=14?{...x,low:1045,close:1048,high:1055}:x);
- assert.deepEqual(detectBtcIctSequence({M1:missingRetest,externalLevels:[pool],atr1:6,now}),[]);
+ assert.deepEqual(detectBtcIctSequence({M1:missingRetest,externalLevels:[pool],externalSweep,atr1:6,now}),[]);
  const noDisplacement=bars.map((x,i)=>i===13?{...x,open:1037,close:1038}:x);
- assert.deepEqual(detectBtcIctSequence({M1:noDisplacement,externalLevels:[pool],atr1:6,now}),[]);
+ assert.deepEqual(detectBtcIctSequence({M1:noDisplacement,externalLevels:[pool],externalSweep,atr1:6,now}),[]);
 });
 test('No named external levels or missing fresh quote always means WAIT',()=>{
  const bars=candles();
@@ -46,7 +54,9 @@ test('BTC runtime has NO SNR strategy dependency, API is ICT, targets cannot be 
  assert.doesNotMatch(engine,/SNR|Laura|btc-snr-engine/i);
  assert.doesNotMatch(render,/SNR|Laura|btc-snr-engine/i);
  assert.doesNotMatch(bot,/SNR|Laura|btc-snr-engine/i);
- assert.match(engine,/ICT_ONLY_EXTERNAL_LIQUIDITY/);
+ assert.match(engine,/strategy:'ICT_EXTERNAL_ONLY_M15_M30_M1_RETEST'/);
+ assert.match(engine,/internalLiquidityScalps:false/);
+ assert.match(engine,/CLOSED_M15_OR_M30_EXTERNAL_SWEEP -> CLOSED_M1_MSS_OR_CHOCH_AND_DISPLACEMENT/);
  assert.match(render,/btc-ict-engine\.js/);
  assert.match(bot,/ICT_LIQUIDITY_HUNT_M1_MSS_RETEST/);
 });

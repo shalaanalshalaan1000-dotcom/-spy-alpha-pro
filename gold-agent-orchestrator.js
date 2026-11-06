@@ -2,6 +2,7 @@
 const RIYADH_WEEKDAY_FORMATTER=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Riyadh',weekday:'short'});
 import { analyzeGoldSnr } from './gold-snr-advisory.js';
 import { goldEntryWindow } from './gold-session-entry-policy.js';
+import { goldStopDistanceCheck } from './gold-trade-guardrails.js';
 import { buildGoldDolMap } from './gold-dol-map.js';
 
 const toNum = value => value != null && value !== '' && typeof value !== 'boolean' && Number.isFinite(Number(value)) ? Number(value) : null;
@@ -201,6 +202,9 @@ function riskAgent(source = {}, setup) {
   const contractSize = Math.max(0.000001, toNum(process.env.XAU_CONTRACT_SIZE) ?? 100);
   const lotStep = Math.max(0.000001, toNum(process.env.XAU_LOT_STEP) ?? 0.01);
   const stopDistance = entry != null && stopLoss != null ? Math.abs(entry - stopLoss) : null;
+  const stopCheck = goldStopDistanceCheck(entry, stopLoss);
+  const alreadyActive = Boolean(source?.tradeState?.active === true || (source?.signalId && source?.entered === true && ['ACTIVE','MANAGING'].includes(String(source?.status||'').toUpperCase())));
+  const stopDistanceBlocking = !alreadyActive && stopDistance != null && !stopCheck.allowed;
   const rawLot = stopDistance && stopDistance > 0 ? safeRiskUsd / (stopDistance * contractSize) : null;
   const lot = rawLot == null ? null : Math.max(lotStep, roundDownToStep(rawLot, lotStep));
   const estimatedRiskUsd = lot != null && stopDistance != null ? lot * stopDistance * contractSize : null;
@@ -213,7 +217,7 @@ function riskAgent(source = {}, setup) {
     balanceUsd: round(balance),
     safeRiskUsd: round(safeRiskUsd),
     maxRiskUsd: null,
-    maxStopDistanceUsd: null,
+    maxStopDistanceUsd: stopCheck.maxDistance,
     hardDollarRiskCap: false,
     entry: round(entry),
     stopLoss: round(stopLoss),
@@ -223,10 +227,10 @@ function riskAgent(source = {}, setup) {
     estimatedRiskPct: round(riskPct, 1),
     planComplete,
     structurallyValid,
-    allowed: planComplete && structurallyValid && stopDistance != null && estimatedRiskUsd != null,
-    stopDistanceBlocking: false,
+    allowed: planComplete && structurallyValid && stopDistance != null && estimatedRiskUsd != null && !stopDistanceBlocking,
+    stopDistanceBlocking,
     riskAmountBlocking: false,
-    note: riskPct != null && riskPct > 5 ? 'Estimated risk is above 5% of the reference balance; informational only. Structural SL remains authoritative and there is no hard $10 per-trade cap.' : 'Structural SL remains authoritative; safe-risk sizing is advisory and there is no hard $10 per-trade cap.'
+    note: alreadyActive && !stopCheck.allowed ? 'Existing confirmed trade: retain management; $10/oz new-entry stop cap applies only to NEW signals.' : stopDistanceBlocking ? 'BLOCK NEW ENTRY: structural SL exceeds the hard $10/oz price-distance limit.' : riskPct != null && riskPct > 5 ? 'Risk exceeds 5% of reference balance; review position size. Structural stop is within the $10/oz distance cap.' : 'Structural stop is within the hard $10/oz new-entry limit; cash loss varies with lot size.'
   };
 }
 
@@ -689,7 +693,8 @@ function hardRiskLayer(source = {}, stateEngine = {}, setup = {}, baseRisk = {})
   const vetoes = [];
   if (baseRisk.planComplete && !baseRisk.structurallyValid) vetoes.push('INVALID_STOP_STRUCTURE');
   if (baseRisk.planComplete && baseRisk.estimatedRiskUsd == null) vetoes.push('UNKNOWN_RISK');
-  // Stop distance and estimated amount are advisory only; they do not veto an otherwise valid ICT setup.
+  // Stop distance is a deterministic NEW-entry gate; cash-risk sizing is reported separately.
+  if (baseRisk.stopDistanceBlocking) vetoes.push('STOP_DISTANCE_EXCEEDS_10_USD');
   if (!spreadOk) vetoes.push('SPREAD_TOO_WIDE');
   if (!dailyLossOk) vetoes.push('DAILY_LOSS_LIMIT');
   if (!drawdownOk) vetoes.push('MAX_DRAWDOWN_LIMIT');

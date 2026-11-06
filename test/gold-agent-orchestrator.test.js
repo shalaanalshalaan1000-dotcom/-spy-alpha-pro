@@ -320,7 +320,7 @@ test('daily opportunity agent prefers 1-3 qualified setups but has no hard cap',
 });
 
 
-test('trade manager requires ICT/M5 structure for CONTINUE and structure flip for early STOP', () => {
+test('trade manager requires ICT M1 structure for CONTINUE and confirmed M1 flip for early STOP', () => {
   configure();
   process.env.AGENT_EXECUTION_ENABLED='false';
   process.env.GOLD_TRADE_MANAGEMENT_MIN_CONFIDENCE='82';
@@ -368,7 +368,7 @@ test('trade manager requires ICT/M5 structure for CONTINUE and structure flip fo
 
   const opposite={
     ...oppositeWithoutM5Flip,
-    multiTimeframe:{...aligned.multiTimeframe,reads:{...aligned.multiTimeframe.reads,M5:{side:'SELL'}}}
+    multiTimeframe:{...aligned.multiTimeframe,reads:{...aligned.multiTimeframe.reads,M1:{side:'SELL'}}}
   };
   resetGoldAgentMemory();
   stack=orchestrateGoldAgents(opposite,t+9000);
@@ -423,7 +423,7 @@ test('agent confidence floor remains 75 even if environment is configured lower'
 });
 
 
-test('wide structural stop remains allowed without a hard $10 per-trade cap', () => {
+test('new XAU stop exceeding ten-dollar price distance is blocked, existing ACTIVE trades retain management', () => {
   configure();
   process.env.AGENT_EXECUTION_ENABLED='false';
   resetGoldAgentMemory();
@@ -448,7 +448,17 @@ test('wide structural stop remains allowed without a hard $10 per-trade cap', ()
   const stack=orchestrateGoldAgents(wideStop);
   assert.equal(stack.agents.risk.hardDollarRiskCap,false);
   assert.equal(stack.agents.risk.maxRiskUsd,null);
-  assert.equal(stack.agents.risk.maxStopDistanceUsd,null);
-  assert.equal(stack.agents.risk.allowed,true);
+  assert.equal(stack.agents.risk.maxStopDistanceUsd,10);
+  assert.equal(stack.agents.risk.stopDistanceBlocking,true);
+  assert.equal(stack.agents.risk.allowed,false);
+  assert.ok(stack.agents.risk.vetoes.includes('STOP_DISTANCE_EXCEEDS_10_USD'));
   assert.ok(stack.agents.risk.estimatedRiskUsd>10);
+
+  const active=orchestrateGoldAgents({
+    ...wideStop,status:'ACTIVE',entered:true,triggered:true,
+    tradeState:{active:true,signalId:wideStop.signalId,side:'SELL'}
+  });
+  assert.equal(active.tradeState.active,true);
+  assert.equal(active.agents.risk.stopDistanceBlocking,false);
+  assert.equal(active.agents.risk.allowed,true);
 });

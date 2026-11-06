@@ -45,8 +45,10 @@ test('pattern catalogue and integration remain advisory; ICT gate remains extern
     'INVERTED_CUP_AND_HANDLE','ASCENDING_TRIANGLE','DESCENDING_TRIANGLE','SYMMETRICAL_TRIANGLE',
     'SYMMETRICAL_EXPANDING_TRIANGLE'])assert.ok(patterns.includes(pattern),pattern);
   const source=fs.readFileSync(new URL('../gold-confluence-model.js',import.meta.url),'utf8');
-  assert.match(source,/chartPatterns:base\.chartPatterns/);
-  assert.match(source,/const ictCandidate=Boolean\(ict\?\.status==='CANDIDATE'&&ictSide&&\(externalSweepValid\|\|trendContinuationValid\)\)/);
+  assert.match(source,/base\.chartPatterns=analyzeGoldChartPatterns\(\{m15,m5\}\)/);
+  assert.match(source,/externalSweepValid &&/);
+  assert.match(source,/ict\?\.ict\?\.coreIctEntryReady === true/);
+  assert.doesNotMatch(source,/externalSweepValid\|\|trendContinuationValid/);
   const core=fs.readFileSync(new URL('../gold-ict-swing-model.js',import.meta.url),'utf8');
   assert.match(core,/EXTERNAL_LIQUIDITY_SWEEP -> CLOSED_M1_MSS_CHOCH -> M1_RETEST_HOLD -> ENTRY/);
   const ui=fs.readFileSync(new URL('../site-indicator-start.js',import.meta.url),'utf8');

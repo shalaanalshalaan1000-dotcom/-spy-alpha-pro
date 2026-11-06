@@ -1,5 +1,5 @@
-// XAUUSD entry policy: allow confirmed ICT setups during Asia as well as London/New York.
-// London and New York retain their preferred high-participation windows; weekends remain blocked.
+// XAUUSD new-entry policy: London/New York only; Asia and off-session are read-only.
+// Confirmed positions remain managed even when new entries are blocked; weekends are closed.
 // All clocks use native market time zones so daylight saving is handled automatically.
 const WINDOWS=[
   {id:'LONDON',timeZone:'Europe/London',start:8*60,end:12*60},
@@ -22,7 +22,7 @@ export function goldEntryWindow(at=Date.now()){
     }
   }
   const asia=tokyo.minute>=9*60&&tokyo.minute<18*60;
-  return {allowed:true,session:asia?'ASIA_ICT_ENABLED':'OFF_SESSION_ICT_ENABLED',reason:asia?'ASIA_SESSION_ALLOWED_IF_ICT_SETUP_CONFIRMED':'OFF_SESSION_ALLOWED_IF_ICT_SETUP_CONFIRMED'};
+  return {allowed:false,session:asia?'ASIA_READ_ONLY':'OFF_SESSION_READ_ONLY',reason:asia?'ASIA_READ_ONLY_NO_NEW_XAU_ENTRIES':'OFF_SESSION_READ_ONLY_NO_NEW_XAU_ENTRIES'};
 }
 export const isGoldEntryAllowed=at=>goldEntryWindow(at).allowed;
 

@@ -63,7 +63,8 @@ test('M15 is context only and BTC execution is external sweep followed by M1 MSS
   assert.equal(d.m5.mssRequired,false);
   assert.match(d.m5.confirmation,/M1_EXECUTION_REQUIRED/);
   assert.equal(d.executionStrategy,'ICT_EXTERNAL_ONLY_M1_EXECUTION');
-  assert.match(d.note,/internal-range M1 liquidity cannot initiate entries/);
+  assert.match(d.note,/internal-range liquidity cannot initiate entries/);
+  assert.match(d.note,/external M15\/M30 liquidity sweep followed by closed M1 MSS\/displacement/);
   const engine=readFileSync(new URL('../btc-ict-engine.js',import.meta.url),'utf8');
   const ui=readFileSync(new URL('../render-start.js',import.meta.url),'utf8');
   assert.match(engine,/tradeStyle:'ICT_EXTERNAL_ONLY_M1_EXECUTION'/);

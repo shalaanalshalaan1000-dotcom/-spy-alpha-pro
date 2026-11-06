@@ -20,7 +20,7 @@ test('production engine generator applies cached clock and emits valid module wi
   const generator=fs.readFileSync(url,'utf8')
     .replace("import fs from 'node:fs';",'')
     .replaceAll('import.meta.url',JSON.stringify(url.href))
-    .replace(/await import\(`\$\{runtimeUrl.href\}\?v=\$\{Date.now\(\)\}`\);/,'');
+    .replace(/if\(process\.env\.GOLD_BUILD_ONLY!=='1'\)\s*await import\(`\$\{runtimeUrl.href\}\?v=\$\{Date.now\(\)\}`\);/,'');
   vm.runInNewContext(generator,{URL,fs:{readFileSync:fs.readFileSync,writeFileSync:(_url,value)=>{generated=value;}}});
   assert.match(generated,/const parts=clockParts\(ms,timeZone\)/);
   const check=spawnSync(process.execPath,['--input-type=module','--check'],{input:generated,encoding:'utf8'});
