@@ -431,4 +431,5 @@ source=source.replace("const BUILD='site-signal-noai-v69-core-retest-entry';","c
 }
 
 fs.writeFileSync(runtimeUrl, source, 'utf8');
-await import(`${runtimeUrl.href}?v=${Date.now()}`);
+// CI may generate and syntax-check the exact runtime source without opening any live feeds.
+if(process.env.GOLD_BUILD_ONLY!=='1') await import(`${runtimeUrl.href}?v=${Date.now()}`);
