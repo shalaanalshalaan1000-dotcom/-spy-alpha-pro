@@ -400,5 +400,35 @@ source=source.replace("const BUILD='site-signal-noai-v69-core-retest-entry';","c
  source=source.replace(modelPayload,"const base={...model,goldLiquidity:assessGoldLiquidity({samples:state.samples,now,quote:q}),timeframeCandles:{M1:completedTimeframeBars(60000,now).slice(-240),M5:completedTimeframeBars(300000,now).slice(-120),M15:completedTimeframeBars(900000,now).slice(-80),M30:completedTimeframeBars(1800000,now).slice(-64),H1:completedTimeframeBars(3600000,now).slice(-48),H4:completedTimeframeBars(14400000,now).slice(-24)},source:'GOLD_ALPHA_SITE'");
 }
 
+// Apply final, deterministic guardrails after all legacy dynamic patches.
+// These checks never mutate the frozen ICT sweep/M1-MSS/M1-retest entry gate.
+{
+  source="import { goldStopDistanceCheck, goldSetupAuditScore, entryZoneAudit, tp1HalfwayPrice, halfwayTp1Reached } from './gold-trade-guardrails.js';\n"+source;
+
+  const lotAnchor=" const lotSizing=goldLotSizing(p,sl);";
+  if(source.split(lotAnchor).length!==2)throw new Error('XAU guardrail: final lot sizing anchor missing or duplicated');
+  source=source.replace(lotAnchor,
+    " const stopGate=goldStopDistanceCheck(p,sl);\n if(!stopGate.allowed){state.lastEntryGuard={atMs:now,reason:stopGate.reason,side,price:round(p,3),stopLoss:round(sl,3),stopDistanceUsd:stopGate.distance,maxStopDistanceUsd:stopGate.maxDistance};return;}\n const entryZoneAuditResult=entryZoneAudit(p,lo,hi,sl);\n const setupAudit=goldSetupAuditScore({ict:m.ict||{},entry:p,stopLoss:sl,target1:tp1,entryLow:lo,entryHigh:hi,sessionAllowed:entryWindow.allowed});\n"+lotAnchor);
+
+  const signalAnchor="entryConfirmation:coreRetestAccepted?'M1_MSS_RETEST_HOLD':'ENTRY_NOT_CONFIRMED',coreRetestAcceptance:coreRetestAcceptance||null,momentumAcceptance:momentumAcceptance||null,entry:p,entryLow:lo,entryHigh:hi,";
+  if(!source.includes(signalAnchor))throw new Error('XAU guardrail: confirmed-signal metadata anchor missing');
+  source=source.replace(signalAnchor,
+    "entryConfirmation:coreRetestAccepted?'M1_MSS_RETEST_HOLD':'ENTRY_NOT_CONFIRMED',coreRetestAcceptance:coreRetestAcceptance||null,momentumAcceptance:momentumAcceptance||null,entryZoneAudit:entryZoneAuditResult,setupAuditScore:setupAudit.score,setupAuditDetails:setupAudit,entry:p,entryLow:lo,entryHigh:hi,");
+
+  const creationAnchor="issuedAt:iso(now),issuedAtMs:now,targetHits:[false,false,false,false],targetHitAt:[null,null,null,null],";
+  if(!source.includes(creationAnchor))throw new Error('XAU guardrail: new trade state anchor missing');
+  source=source.replace(creationAnchor,
+    "issuedAt:iso(now),issuedAtMs:now,halfwayTp1Hit:false,halfwayTp1AtMs:null,halfwayTp1Price:null,halfwayTp1Level:tp1HalfwayPrice(p,tp1),targetHits:[false,false,false,false],targetHitAt:[null,null,null,null],");
+
+  const manageAnchor=" const targets=[s.target1,s.target2,s.target3,s.target4];";
+  if(!source.includes(manageAnchor))throw new Error('XAU guardrail: active trade management anchor missing');
+  source=source.replace(manageAnchor,
+    " const checkpointEntry=n(s.triggerPrice??s.entry);\n if(!s.halfwayTp1Hit&&halfwayTp1Reached(s.side,checkpointEntry,s.target1,p)){s.halfwayTp1Hit=true;s.halfwayTp1AtMs=now;s.halfwayTp1Price=round(p,3);s.halfwayTp1Level=tp1HalfwayPrice(checkpointEntry,s.target1);}\n"+manageAnchor);
+
+  // Intentionally do NOT move SL or close a trade at the halfway milestone.
+  source=source.replace("const BUILD='site-signal-noai-v73-authoritative-active-through-stale-feed';",
+    "const BUILD='site-signal-noai-v74-midtp1-hardguards';");
+}
+
 fs.writeFileSync(runtimeUrl, source, 'utf8');
 await import(`${runtimeUrl.href}?v=${Date.now()}`);
