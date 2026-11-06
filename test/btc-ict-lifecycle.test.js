@@ -64,18 +64,21 @@ test('Only TP1 exists: hitting TP1 closes the signal', () => {
   assert.equal(exit.closedReason, 'TP1');
 });
 
-test('ending the entry window retains monitoring and later SL is still reported', () => {
+test('expired signal-only BTC entry cannot generate a phantom broker SL later', () => {
   resetBtcIctLifecycleForTests();
   lifecycleSignal(sell(), baseTime);
   const expired = lifecycleSignal(quote(99), baseTime + 305000);
-  assert.equal(expired.status, 'MANAGING');
+  assert.equal(expired.status, 'EXPIRED');
   assert.equal(expired.entryWindowExpired, true);
-  assert.equal(expired.trackingActive, true);
+  assert.equal(expired.trackingActive, false);
   assert.equal(expired.entryEligible, false);
   assert.equal(expired.action, 'WAIT');
-  const stopped=lifecycleSignal(quote(111),baseTime+400000);
-  assert.equal(stopped.status,'CLOSED');
-  assert.equal(stopped.closedReason,'SL');
+  assert.equal(expired.terminalEvent.type,'ENTRY_EXPIRED');
+  assert.equal(expired.brokerPositionClosed,false);
+  const afterExpiration=lifecycleSignal(quote(111),baseTime+400000);
+  assert.equal(afterExpiration.status,'EXPIRED');
+  assert.equal(afterExpiration.closedReason,'ENTRY_EXPIRED');
+  assert.equal(afterExpiration.brokerPositionClosed,false);
 });
 
 test('Invalid live price does not fabricate a target or stop event', () => {
