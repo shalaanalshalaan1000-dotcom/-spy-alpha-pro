@@ -88,7 +88,7 @@ test('ICT-only gold setups cannot originate from internal liquidity sweeps',()=>
 test('confluence wrapper and Telegram require the external ICT contract',()=>{
  const confluenceSource=fs.readFileSync(new URL('../gold-confluence-model.js',import.meta.url),'utf8');
  const telegramV3=fs.readFileSync(new URL('../telegram-xau-bot-v3.js',import.meta.url),'utf8');
- assert.match(confluenceSource,/ICT_ONLY_EXTERNAL_LIQUIDITY/);
+ assert.match(confluenceSource,/ICT_EXTERNAL_ONLY_M1_EXECUTION/);
  assert.match(confluenceSource,/externalSweepValid/);
  assert.match(confluenceSource,/analyzeIctModel\(samples,rawPrice,now,higherTimeframes\)/);
  assert.match(telegramV3,/s\?\.tradeState\?\.active===true/);
@@ -105,9 +105,10 @@ test('gold core entry contract uses external sweep plus M1 MSS retest and keeps 
  assert.match(ictSource,/if\(coreIctEntryReady\)confidence=Math\.max\(75,confidence\)/);
  assert.match(ictSource,/FVG_OB_IFVG_BOS_AND_TIMEFRAME_ALIGNMENT_ARE_CONFLUENCE_ONLY/);
  assert.doesNotMatch(ictSource,/waiting for external sweep \+ shift \+ FVG/);
- assert.match(confluenceSource,/h4SwingHigh/);
- assert.match(confluenceSource,/m15SwingLow/);
- assert.match(confluenceSource,/M1 MSS\/CHoCH → retest\/hold; FVG\/OB\/iFVG\/BOS are support only/);
+ assert.match(confluenceSource,/h4swinghigh/);
+ assert.match(confluenceSource,/m15swinglow/);
+ assert.match(confluenceSource,/higherTimeframesAdvisoryOnly: true/);
+ assert.match(confluenceSource,/M5\/FVG\/OB\/BOS\/HTF alignment are context only/);
 });
 
 test('ICT Month 4 context stays supportive and cannot replace the external sweep gate',()=>{
@@ -162,7 +163,8 @@ test('timeframe agreement supports confidence but never gates a valid ICT setup'
  const confluenceSource=fs.readFileSync(new URL('../gold-confluence-model.js',import.meta.url),'utf8');
  assert.match(confluenceSource,/TIMEFRAME_AGREEMENT_SUPPORT_V1/);
  assert.match(confluenceSource,/confidenceBonus/);
- assert.match(confluenceSource,/imageSupport\.confidence\+timeframeAgreement\.confidenceBonus/);
+ assert.match(confluenceSource,/const confidence = Number\.isFinite\(ictConfidence\) \? ictConfidence : 0/);
+ assert.match(confluenceSource,/const ictConfidence = Number\(ict\.confidence\)/);
  assert.match(confluenceSource,/opposedFrames/);
  assert.doesNotMatch(confluenceSource,/if\(!topDown\.ready\)return/);
  assert.match(confluenceSource,/Timeframe agreement can add confidence only; disagreement never vetoes/);
@@ -203,7 +205,7 @@ test('external ICT sweep remains armed through the same trading session instead 
  assert.match(ictSource,/EXTERNAL_LIQUIDITY_SWEEP -> WAIT_CLOSED_M1_MSS_CHOCH/);
  assert.match(ictSource,/EXTERNAL_LIQUIDITY_SWEEP -> CLOSED_M1_MSS_CHOCH -> WAIT_M1_RETEST_HOLD/);
  assert.match(ictSource,/sweep retained; waiting for closed M1 MSS\/CHoCH/);
- assert.match(ictSource,/closed M1 MSS\/CHoCH confirmed; waiting for M1 retest\/hold/);
+ assert.match(ictSource,/M1 MSS\/CHoCH and displacement confirmed; waiting for M1 retest\/hold/);
  assert.match(uiSource,/تم حفظ '\+sweepLabel\+' sweep — ننتظر closed M1 MSS\/CHoCH/);
  assert.match(uiSource,/M1 MSS\/CHoCH مؤكد — ننتظر M1 Retest\/Hold/);
 });
