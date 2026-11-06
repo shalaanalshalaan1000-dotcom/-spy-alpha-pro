@@ -27,6 +27,10 @@ test('Only complete external sweep + chronological displaced M1 MSS + later M1 r
  assert.equal(seq[0].retest.confirmed,true);
  assert.deepEqual(detectBtcIctSequence({M1:bars,externalLevels:[{...pool,targetEligible:false}],externalSweep,now,atr1:6}),[]);
  assert.deepEqual(detectBtcIctSequence({M1:bars,externalLevels:[pool],externalSweep:{...externalSweep,label:'INTERNAL'},atr1:6,now}),[]);
+ assert.deepEqual(detectBtcIctSequence({M1:bars,externalLevels:[pool],externalSweep:{...externalSweep,tf:'M5'},atr1:6,now}),[],'M5 cannot claim a completed external M15/M30 sweep');
+ assert.deepEqual(detectBtcIctSequence({M1:bars,externalLevels:[pool],externalSweep:{...externalSweep,level:989},atr1:6,now}),[],'Sweep must match the exact external reference');
+ const phantomM1=bars.map((b,i)=>i===12?{...b,low:991,close:995}:b);
+ assert.deepEqual(detectBtcIctSequence({M1:phantomM1,externalLevels:[pool],externalSweep,atr1:6,now}),[],'An M1 candle not breaching PDL is not a sweep');
 });
 test('MSS and retest cannot predate sweep or occur inside the same closed candle',()=>{
  const bars=candles(),externalSweep={label:'PDL',side:'BUY',tf:'M15',level:990,t:bars[8].t};
