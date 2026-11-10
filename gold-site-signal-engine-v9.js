@@ -400,5 +400,16 @@ source=source.replace("const BUILD='site-signal-noai-v69-core-retest-entry';","c
  source=source.replace(modelPayload,"const base={...model,goldLiquidity:assessGoldLiquidity({samples:state.samples,now,quote:q}),timeframeCandles:{M1:completedTimeframeBars(60000,now).slice(-240),M5:completedTimeframeBars(300000,now).slice(-120),M15:completedTimeframeBars(900000,now).slice(-80),M30:completedTimeframeBars(1800000,now).slice(-64),H1:completedTimeframeBars(3600000,now).slice(-48),H4:completedTimeframeBars(14400000,now).slice(-24)},source:'GOLD_ALPHA_SITE'");
 }
 
+// Persist the midpoint milestone on the authoritative active signal.
+{
+  source="import { tp1HalfwayPrice, halfwayTp1Reached } from './gold-tp1-midpoint.js';\n"+source;
+  const creation="issuedAt:iso(now),issuedAtMs:now,targetHits:[false,false,false,false],targetHitAt:[null,null,null,null],";
+  const manage=" const targets=[s.target1,s.target2,s.target3,s.target4];";
+  if(source.split(creation).length!==2||source.split(manage).length!==2)throw new Error('XAU midpoint runtime anchors missing or duplicated');
+  source=source.replace(creation,"issuedAt:iso(now),issuedAtMs:now,halfwayTp1Hit:false,halfwayTp1AtMs:null,halfwayTp1Level:tp1HalfwayPrice(p,tp1),targetHits:[false,false,false,false],targetHitAt:[null,null,null,null],");
+  source=source.replace(manage," const checkpointEntry=n(s.triggerPrice??s.entry);\n if(!s.halfwayTp1Hit&&halfwayTp1Reached(s.side,checkpointEntry,s.target1,p)){s.halfwayTp1Hit=true;s.halfwayTp1AtMs=now;s.halfwayTp1Level=tp1HalfwayPrice(checkpointEntry,s.target1);}\n"+manage);
+  source=source.replace("const BUILD='site-signal-noai-v73-authoritative-active-through-stale-feed';","const BUILD='site-signal-noai-v74-tp1-midpoint';");
+}
+
 fs.writeFileSync(runtimeUrl, source, 'utf8');
 await import(`${runtimeUrl.href}?v=${Date.now()}`);
