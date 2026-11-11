@@ -1,5 +1,5 @@
-// XAUUSD entry policy: allow confirmed ICT setups during Asia as well as London/New York.
-// London and New York retain their preferred high-participation windows; weekends remain blocked.
+// New XAUUSD entries require the London or New York morning window.
+// Asia and other hours remain read-only; active trade management runs separately.
 // All clocks use native market time zones so daylight saving is handled automatically.
 const WINDOWS=[
   {id:'LONDON',timeZone:'Europe/London',start:8*60,end:12*60},
@@ -14,7 +14,8 @@ export function goldEntryWindow(at=Date.now()){
   const ms=Number(at);
   if(!Number.isFinite(ms))return {allowed:false,session:'UNKNOWN',reason:'INVALID_ENTRY_TIME_READ_ONLY'};
   const tokyo=localClock(ms,'Asia/Tokyo');
-  if(tokyo.weekday==='Sat'||tokyo.weekday==='Sun')return {allowed:false,session:'WEEKEND_READ_ONLY',reason:'WEEKEND_NO_NEW_XAU_ENTRIES'};
+  const ny=localClock(ms,'America/New_York');
+  if(ny.weekday==='Sat'||(ny.weekday==='Fri'&&ny.minute>=16*60+59)||(ny.weekday==='Sun'&&ny.minute<17*60))return {allowed:false,session:'WEEKEND_READ_ONLY',reason:'WEEKEND_NO_NEW_XAU_ENTRIES'};
   for(const w of WINDOWS){
     const clock=localClock(ms,w.timeZone);
     if(clock.weekday!=='Sat'&&clock.weekday!=='Sun'&&clock.minute>=w.start&&clock.minute<w.end){
@@ -22,7 +23,7 @@ export function goldEntryWindow(at=Date.now()){
     }
   }
   const asia=tokyo.minute>=9*60&&tokyo.minute<18*60;
-  return {allowed:true,session:asia?'ASIA_ICT_ENABLED':'OFF_SESSION_ICT_ENABLED',reason:asia?'ASIA_SESSION_ALLOWED_IF_ICT_SETUP_CONFIRMED':'OFF_SESSION_ALLOWED_IF_ICT_SETUP_CONFIRMED'};
+  return {allowed:false,session:asia?'ASIA_READ_ONLY':'OFF_KILLZONE',reason:asia?'ASIA_NO_NEW_XAU_ENTRIES':'OFF_KILLZONE_NO_NEW_XAU_ENTRIES'};
 }
 export const isGoldEntryAllowed=at=>goldEntryWindow(at).allowed;
 

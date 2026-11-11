@@ -411,5 +411,24 @@ source=source.replace("const BUILD='site-signal-noai-v69-core-retest-entry';","c
   source=source.replace("const BUILD='site-signal-noai-v73-authoritative-active-through-stale-feed';","const BUILD='site-signal-noai-v74-tp1-midpoint';");
 }
 
+// Fail closed for new entries if the calendar or M1 analysis is stale.
+// Existing signals continue through manage() and are never demoted by these gates.
+{
+  source="import { m1AnalysisFresh, newsEntryBlocked } from './gold-entry-safety.js';\n"+source;
+  const news="const newsRisk={...newsRiskRaw,blockEntries:false,advisoryOnly:true,executionGate:false};";
+  if(!source.includes(news))throw new Error('entry safety: news anchor missing');
+  source=source.replace(news,"const newsRisk={...newsRiskRaw,blockEntries:newsEntryBlocked(newsRiskRaw),advisoryOnly:false,executionGate:true};");
+  const guard=" const entryWindow=goldEntryWindow(now);";
+  if(!source.includes(guard))throw new Error('entry safety: session anchor missing');
+  source=source.replace(guard," if(newsEntryBlocked(state.lastNewsRisk)){state.candidateLock=null;state.candidateLockBucket=null;state.lastEntryGuard={atMs:now,reason:'USD_NEWS_BLACKOUT'};return;}\n if(!m1AnalysisFresh(m,state.samples,now)){state.candidateLock=null;state.candidateLockBucket=null;state.lastEntryGuard={atMs:now,reason:'STALE_M1_ANALYSIS'};return;}\n"+guard);
+  const terminal="state.lastTerminal={...s,...meta,outcome:finalOutcome,result,exitPrice:round(exit,3),realizedUsd:round(pnl,3),realizedR:round(realizedR,2),closedAt:iso(now),closedAtMs:now};";
+  if(!source.includes(terminal))throw new Error('entry safety: terminal anchor missing');
+  source=source.replace(terminal,"state.lastTerminal={...s,...meta,status:'CLOSED',active:false,tradeState:{...(s.tradeState||{}),status:'CLOSED',active:false,lifecycle:'CLOSED'},outcome:finalOutcome,result,exitPrice:round(exit,3),realizedUsd:round(pnl,3),realizedR:round(realizedR,2),closedAt:iso(now),closedAtMs:now};");
+  const issued="state.trades.push({...state.signal,status:'SIGNAL'});";
+  if(!source.includes(issued))throw new Error('entry safety: issue anchor missing');
+  source=source.replace(issued,"state.lastTerminal=null;"+issued);
+  source=source.replace("const BUILD='site-signal-noai-v74-tp1-midpoint';","const BUILD='site-signal-noai-v75-entry-safety';");
+}
+
 fs.writeFileSync(runtimeUrl, source, 'utf8');
 await import(`${runtimeUrl.href}?v=${Date.now()}`);
