@@ -217,12 +217,15 @@ test('retained external sweep stays eligible for side selection until the config
  assert.match(ictSource,/externalSweepTtlMinutes:Math\.round\(EXTERNAL_SWEEP_TTL_MS\/60_000\)/);
 });
 
-test('USD calendar risk is advisory and cannot suppress a completed gold ICT entry',()=>{
- const enginePatch=fs.readFileSync(new URL('../gold-site-signal-engine-v9.js',import.meta.url),'utf8');
- assert.match(enginePatch,/blockEntries:false,advisoryOnly:true,executionGate:false/);
- assert.match(enginePatch,/if\(!state\.signal\)maybeCreate\(model,q,now\);/);
- assert.doesNotMatch(enginePatch,/if\(!state\.signal\)\{if\(newsRisk\.blockEntries\)/);
- assert.match(enginePatch,/site-signal-noai-v73-authoritative-active-through-stale-feed/);
+test('USD calendar and stale M1 block new gold entries at the final runtime gate',()=>{
+ const url=new URL('../gold-site-signal-engine-v9.js',import.meta.url);
+ const generator=fs.readFileSync(url,'utf8').replace("import fs from 'node:fs';",'').replaceAll('import.meta.url',JSON.stringify(url.href)).replace(/await import\(`\$\{runtimeUrl.href\}\?v=\$\{Date.now\(\)\}`\);/,'');
+ let runtime='';
+ vm.runInNewContext(generator,{URL,fs:{readFileSync:fs.readFileSync,writeFileSync:(_url,value)=>{runtime=value;}}});
+ assert.match(runtime,/blockEntries:newsEntryBlocked\(newsRiskRaw\)/);
+ assert.match(runtime,/if\(newsEntryBlocked\(state\.lastNewsRisk\)\).*return;/);
+ assert.match(runtime,/if\(!m1AnalysisFresh\(m,state\.samples,now\)\).*return;/);
+ assert.match(runtime,/lastTerminal=\{\.\.\.s,\.\.\.meta,status:'CLOSED',active:false/);
 });
 
 
